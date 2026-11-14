@@ -295,6 +295,8 @@ async def sync_drive(
     try:
         result = await drive_catalog.sync_drive_catalog(folder_id=folder_id)
         return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to sync Google Drive: {str(e)}")
 

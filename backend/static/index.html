@@ -650,9 +650,11 @@
 
       <!-- Target Folder ID / URL -->
       <div class="mb-4">
-        <label class="block text-xs font-medium text-slate-300 mb-1">Google Drive Folder Link or ID (Optional)</label>
+        <label id="sync-folder-label" class="block text-xs font-medium text-slate-300 mb-1">
+          Google Drive Folder Link or ID <span id="sync-folder-sub" class="text-sky-400 font-semibold">(Required for API Key)</span>
+        </label>
         <input id="sync-folder-input" type="text" placeholder="e.g. 1A2b3C... or https://drive.google.com/drive/folders/..." class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition" />
-        <p class="text-[11px] text-slate-400 mt-1">Paste any Google Drive folder URL or ID. Blank scans root.</p>
+        <p id="sync-folder-desc" class="text-[11px] text-slate-400 mt-1">Paste your shared folder URL or ID. Folder must be set to &quot;Anyone with the link can view&quot;.</p>
       </div>
 
       <!-- Status Feedback -->
@@ -660,10 +662,16 @@
 
       <!-- Action Buttons -->
       <div class="flex items-center justify-between pt-3 border-t border-[#30363d]">
-        <button id="sync-test-btn" type="button" onclick="testDriveConnection()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 transition">
-          <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-          <span>Test Connection</span>
-        </button>
+        <div class="flex items-center space-x-2">
+          <button id="sync-test-btn" type="button" onclick="testDriveConnection()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 transition">
+            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+            <span>Test Connection</span>
+          </button>
+          <button id="sync-disconnect-btn" type="button" onclick="disconnectDrive()" class="hidden flex items-center space-x-1.5 px-2.5 py-2 rounded-lg text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 transition">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span>Disconnect</span>
+          </button>
+        </div>
         <div class="flex items-center space-x-2">
           <button id="sync-save-btn" type="button" onclick="saveDriveConfig()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22] border border-[#30363d] hover:border-slate-500 transition">
             <i data-lucide="save" class="w-3.5 h-3.5"></i>
@@ -1564,11 +1572,17 @@
         tabSa.className = 'flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold text-slate-400 hover:text-white transition';
         secApiKey.classList.remove('hidden');
         secSa.classList.add('hidden');
+        document.getElementById('sync-folder-sub').innerText = '(Required for API Key)';
+        document.getElementById('sync-folder-sub').className = 'text-sky-400 font-semibold';
+        document.getElementById('sync-folder-desc').innerText = 'Paste your shared folder URL or ID. Folder must be set to "Anyone with the link can view".';
       } else {
         tabSa.className = 'flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold bg-[#161b22] text-sky-400 shadow-sm border border-[#30363d] transition';
         tabApiKey.className = 'flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold text-slate-400 hover:text-white transition';
         secSa.classList.remove('hidden');
         secApiKey.classList.add('hidden');
+        document.getElementById('sync-folder-sub').innerText = '(Optional)';
+        document.getElementById('sync-folder-sub').className = 'text-slate-500 font-normal';
+        document.getElementById('sync-folder-desc').innerText = 'Paste folder URL or ID. Blank scans root or all files shared with your Service Account.';
       }
       if (window.lucide) { lucide.createIcons(); }
     }
@@ -1616,6 +1630,13 @@
           } else {
             badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700';
             badge.innerText = 'Setup Required';
+          }
+
+          const disBtn = document.getElementById('sync-disconnect-btn');
+          if (cfg.configured) {
+            disBtn.classList.remove('hidden');
+          } else {
+            disBtn.classList.add('hidden');
           }
 
           if (cfg.folder_id && !document.getElementById('sync-folder-input').value) {
@@ -1699,7 +1720,7 @@
       try {
         const payload = {
           auth_type: currentDriveTab === 'apikey' ? 'api_key' : 'service_account',
-          folder_id: folder || undefined
+          folder_id: folder
         };
         if (apiKey) payload.api_key = apiKey;
         if (saJson) payload.service_account_json = saJson;
@@ -1726,18 +1747,58 @@
         badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
         badge.innerText = 'Configured';
 
+        const disBtn = document.getElementById('sync-disconnect-btn');
+        if (disBtn) disBtn.classList.remove('hidden');
+
         document.getElementById('sync-api-key-input').value = '';
         document.getElementById('sync-sa-input').value = '';
         if (data.config && data.config.api_key_masked) {
           document.getElementById('sync-api-key-input').placeholder = `Active: ${data.config.api_key_masked} (Paste new key to change)`;
         }
+        return true;
       } catch (err) {
         status.className = 'text-xs mb-4 p-3 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
         status.innerText = `Save error: ${err.message}`;
         status.classList.remove('hidden');
+        return false;
       } finally {
         btn.disabled = false;
         btn.innerText = 'Save';
+      }
+    }
+
+    async function disconnectDrive() {
+      if (!confirm('Are you sure you want to disconnect and clear saved Google Drive credentials?')) {
+        return;
+      }
+      const btn = document.getElementById('sync-disconnect-btn');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/drive/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ clear_credentials: true })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          activeDriveConfig = data.config;
+          document.getElementById('sync-api-key-input').value = '';
+          document.getElementById('sync-sa-input').value = '';
+          document.getElementById('sync-folder-input').value = '';
+          document.getElementById('sync-api-key-input').placeholder = 'AIzaSy...';
+          const badge = document.getElementById('sync-connection-badge');
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700';
+          badge.innerText = 'Setup Required';
+          const status = document.getElementById('sync-status');
+          status.className = 'text-xs mb-4 p-3 rounded-lg border bg-sky-500/10 border-sky-500/20 text-sky-400';
+          status.innerText = 'Google Drive credentials cleared.';
+          status.classList.remove('hidden');
+          btn.classList.add('hidden');
+        }
+      } catch (err) {
+        console.error('Failed to disconnect drive:', err);
+      } finally {
+        btn.disabled = false;
       }
     }
 
@@ -1748,9 +1809,17 @@
       const btn = document.getElementById('sync-btn');
       const status = document.getElementById('sync-status');
 
+      if (currentDriveTab === 'apikey' && !folder && (!activeDriveConfig || !activeDriveConfig.folder_id)) {
+        status.className = 'text-xs mb-4 p-3 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
+        status.innerText = "Please provide a Google Drive Folder Link or ID. Google API Key requires a shared folder (set to 'Anyone with the link can view').";
+        status.classList.remove('hidden');
+        return;
+      }
+
       // If user typed new credentials, save them first
       if (apiKey || saJson) {
-        await saveDriveConfig();
+        const ok = await saveDriveConfig();
+        if (!ok) return;
       }
 
       btn.innerText = 'Scanning...';

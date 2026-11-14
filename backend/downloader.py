@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import shutil
 import socket
 import ipaddress
@@ -167,7 +168,13 @@ async def download_drive_video(video_id: str):
         async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
             async with client.stream("GET", url, headers=auth_headers) as response:
                 if response.status_code != 200:
-                    raise RuntimeError(f"Google Drive returned HTTP {response.status_code}")
+                    err_bytes = await response.aread()
+                    try:
+                        err_json = json.loads(err_bytes.decode('utf-8'))
+                        msg = err_json.get("error", {}).get("message", f"HTTP {response.status_code}")
+                    except Exception:
+                        msg = err_bytes.decode('utf-8', errors='ignore')[:300] or f"HTTP {response.status_code}"
+                    raise RuntimeError(f"Google Drive returned HTTP {response.status_code}: {msg}")
 
                 total_bytes = int(response.headers.get("Content-Length") or expected_size)
                 check_disk_space(total_bytes)

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Cloud, X, Loader2, CheckCircle2, AlertCircle, Key, FileText, 
-  ExternalLink, ChevronDown, ChevronUp, Zap, Eye, EyeOff, Save, Check 
+  ExternalLink, ChevronDown, ChevronUp, Zap, Eye, EyeOff, Save, Check, Trash2 
 } from 'lucide-react';
 
 export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHeaders = {} }) {
@@ -16,6 +16,7 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const [testResult, setTestResult] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -110,7 +111,7 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
     try {
       const payload = {
         auth_type: activeTab === 'apiKey' ? 'api_key' : 'service_account',
-        folder_id: folderId.trim() || undefined
+        folder_id: folderId.trim()
       };
 
       if (apiKey.trim()) {
@@ -140,24 +141,71 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
       setApiKey('');
       setServiceAccountJson('');
       setTimeout(() => setSaveSuccess(false), 3000);
+      return true;
     } catch (err) {
       setError(err.message);
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  // 3. Start Catalog Sync
+  // 3. Disconnect & Clear Saved Credentials
+  const handleDisconnect = async () => {
+    if (!window.confirm('Are you sure you want to disconnect and clear your saved Google Drive credentials?')) {
+      return;
+    }
+    setDisconnecting(true);
+    setError(null);
+    setTestResult(null);
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/drive/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({ clear_credentials: true })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Failed to clear credentials');
+      }
+      const data = await res.json();
+      setExistingConfig(data.config);
+      setApiKey('');
+      setServiceAccountJson('');
+      setFolderId('');
+      setSaveSuccess(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  // 4. Start Catalog Sync
   const handleSync = async (e) => {
     if (e) e.preventDefault();
-    setSyncing(true);
     setError(null);
     setSyncResult(null);
 
+    // If using API key, folder link or ID is required
+    if (activeTab === 'apiKey' && !folderId.trim() && !existingConfig?.folder_id) {
+      setError("Please provide a Google Drive Folder Link or ID. Google API Key requires a shared folder set to 'Anyone with the link can view'.");
+      return;
+    }
+
+    setSyncing(true);
     try {
       // If user typed provisional credentials, save them first
       if (apiKey.trim() || serviceAccountJson.trim() || (folderId.trim() !== (existingConfig?.folder_id || ''))) {
-        await handleSaveConfig();
+        const saved = await handleSaveConfig();
+        if (!saved) {
+          setSyncing(false);
+          return;
+        }
       }
 
       const res = await fetch('/api/videos/sync-drive', {
@@ -404,7 +452,12 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
         {/* Target Google Drive Folder ID / URL */}
         <div className="mb-4">
           <label className="block text-xs font-medium text-slate-300 mb-1">
-            Google Drive Folder Link or ID (Optional)
+            Google Drive Folder Link or ID{' '}
+            {activeTab === 'apiKey' ? (
+              <span className="text-sky-400 font-semibold">(Required for API Key)</span>
+            ) : (
+              <span className="text-slate-500 font-normal">(Optional)</span>
+            )}
           </label>
           <input
             type="text"
@@ -415,7 +468,9 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
             className="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition disabled:opacity-50"
           />
           <p className="text-[11px] text-slate-400 mt-1">
-            Paste any Google Drive folder URL or ID. Leave blank to scan root or all accessible files.
+            {activeTab === 'apiKey'
+              ? 'Paste the shared folder URL or ID. Make sure folder sharing is set to "Anyone with the link can view".'
+              : 'Paste folder URL or ID. Blank scans root or all files shared with your Service Account.'}
           </p>
         </div>
 
@@ -472,20 +527,39 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
 
         {/* Actions Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-[#30363d] mt-2">
-          {/* Test Button */}
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={testing || syncing || loadingConfig}
-            className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 transition disabled:opacity-50"
-          >
-            {testing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Zap className="w-3.5 h-3.5" />
+          {/* Left Actions: Test & Disconnect */}
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testing || syncing || loadingConfig}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 transition disabled:opacity-50"
+            >
+              {testing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Zap className="w-3.5 h-3.5" />
+              )}
+              <span>Test Connection</span>
+            </button>
+
+            {existingConfig?.configured && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                disabled={disconnecting || saving || syncing}
+                title="Disconnect & Clear Credentials"
+                className="flex items-center space-x-1 px-2.5 py-2 rounded-lg text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 transition disabled:opacity-50"
+              >
+                {disconnecting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>Disconnect</span>
+              </button>
             )}
-            <span>Test Connection</span>
-          </button>
+          </div>
 
           {/* Right Actions */}
           <div className="flex items-center space-x-2">
