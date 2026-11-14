@@ -15,17 +15,12 @@ from database import upsert_drive_video, get_video_by_drive_id
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 
 def get_drive_service():
-    """
-    Initializes and returns an authenticated Google Drive API v3 service resource.
-    Supports either:
-    1. Service Account JSON file (recommended for headless servers)
-    2. OAuth 2.0 User Token (token.json / credentials.json flow)
-    """
+    """Initializes and returns an authenticated Google Drive API v3 service."""
     creds = None
     cred_file = settings.GOOGLE_CREDENTIALS_FILE
     token_file = settings.GOOGLE_TOKEN_FILE
 
-    # 1. Check for Service Account credentials first
+    # 1. Service Account credentials check
     if os.path.exists(cred_file):
         try:
             creds = service_account.Credentials.from_service_account_file(
@@ -33,10 +28,9 @@ def get_drive_service():
             )
             return build('drive', 'v3', credentials=creds, cache_discovery=False)
         except Exception:
-            # If not a service account JSON, proceed to OAuth client check
             pass
 
-    # 2. Check for OAuth 2.0 User Token
+    # 2. OAuth 2.0 User Token check
     if os.path.exists(token_file):
         creds = Credentials.from_authorized_user_file(token_file, SCOPES)
 
@@ -57,7 +51,7 @@ def get_drive_service():
     return build('drive', 'v3', credentials=creds, cache_discovery=False)
 
 def get_auth_headers(service) -> Dict[str, str]:
-    """Retrieves current Bearer Authorization header for authenticated HTTP asset requests."""
+    """Retrieves Bearer Authorization header for authenticated HTTP asset requests."""
     creds = service._http.credentials
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
@@ -75,12 +69,12 @@ async def download_drive_thumbnail(
     if not thumbnail_link:
         return False
 
-    # Upgrade low-res thumbnail (=s220) to high-res (=s1280)
     high_res_link = re.sub(r'=s\d+$', '=s1280', thumbnail_link)
     if '=s' not in high_res_link:
         high_res_link += '=s1280'
 
     try:
+        # CYB-08: Restrict headers to Google domains to avoid token leakage across redirects
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             resp = await client.get(high_res_link, headers=auth_headers)
             if resp.status_code == 200 and len(resp.content) > 500:
@@ -89,25 +83,26 @@ async def download_drive_thumbnail(
                     f.write(resp.content)
                 return True
     except Exception as e:
-        print(f"[DriveCatalog] Warning: Failed to download thumbnail from {high_res_link}: {e}")
+        print(f"[DriveCatalog] Warning: Failed to download thumbnail: {e}")
 
     return False
 
 async def sync_drive_catalog(folder_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Scans Google Drive for all video files (WITHOUT downloading the video payloads).
-    Extracts filename, size, drive_file_id, and downloads the thumbnail picture.
-    Stores records in MongoDB with status: 'REMOTE_ONLY'.
+    Lightweight Google Drive Catalog Sync:
+    Scans Google Drive for all video files, downloads thumbnails, and inserts REMOTE_ONLY records.
     """
     service = get_drive_service()
     auth_headers = get_auth_headers(service)
 
     target_folder = folder_id or settings.GOOGLE_DRIVE_FOLDER_ID
 
-    # Construct query: filter only video MIME types and non-trashed files
+    # CYB-07: Sanitize folder_id to prevent Google Drive API query injection
     query_parts = ["mimeType contains 'video/'", "trashed = false"]
     if target_folder:
-        query_parts.append(f"'{target_folder}' in parents")
+        sanitized_folder = re.sub(r"[^a-zA-Z0-9_-]", "", target_folder.strip())
+        if sanitized_folder:
+            query_parts.append(f"'{sanitized_folder}' in parents")
     
     q_str = " and ".join(query_parts)
 
@@ -134,7 +129,7 @@ async def sync_drive_catalog(folder_id: Optional[str] = None) -> Dict[str, Any]:
 
             total_found += 1
 
-            # Check if already present in DB
+            # Consistent UUID preservation (CODE-05)
             existing_doc = await get_video_by_drive_id(file_id)
             if existing_doc:
                 video_id = existing_doc["video_id"]
@@ -142,12 +137,10 @@ async def sync_drive_catalog(folder_id: Optional[str] = None) -> Dict[str, Any]:
                 import uuid
                 video_id = str(uuid.uuid4())
 
-            # Local metadata storage directory: /mnt/storage/metadata/{video_id}/
             meta_dir = settings.get_video_metadata_dir(video_id)
             poster_path = meta_dir / "poster.jpg"
             poster_url = None
 
-            # Download Drive thumbnail if not already present on local disk
             if not poster_path.exists() and thumb_link:
                 success = await download_drive_thumbnail(thumb_link, poster_path, auth_headers)
                 if success:
@@ -155,12 +148,13 @@ async def sync_drive_catalog(folder_id: Optional[str] = None) -> Dict[str, Any]:
             elif poster_path.exists():
                 poster_url = f"/metadata/{video_id}/poster.jpg"
 
-            # Upsert into MongoDB
+            # Atomic upsert
             doc = await upsert_drive_video(
                 drive_file_id=file_id,
                 title=title,
                 file_size_bytes=file_size,
-                poster_url=poster_url
+                poster_url=poster_url,
+                assigned_video_id=video_id
             )
             synced_items.append(doc)
 

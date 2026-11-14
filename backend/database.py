@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -32,17 +33,29 @@ def get_db() -> AsyncIOMotorDatabase:
 def get_videos_collection() -> AsyncIOMotorCollection:
     return get_db()["videos"]
 
+def get_users_collection() -> AsyncIOMotorCollection:
+    return get_db()["users"]
+
 async def init_db():
     global client, db
-    client = AsyncIOMotorClient(settings.MONGODB_URL)
+    client = AsyncIOMotorClient(
+        settings.MONGODB_URL,
+        serverSelectionTimeoutMS=5000,
+        maxPoolSize=50,
+        minPoolSize=5
+    )
     db = client[settings.DATABASE_NAME]
     
     # Initialize indexes
     videos_col = db["videos"]
     await videos_col.create_index("video_id", unique=True)
-    await videos_col.create_index("drive_file_id", sparse=True)
+    await videos_col.create_index("drive_file_id", unique=True, sparse=True)
     await videos_col.create_index("status")
     await videos_col.create_index("created_at")
+
+    # Users index
+    users_col = db["users"]
+    await users_col.create_index("username", unique=True)
 
 async def close_db():
     global client
@@ -54,7 +67,9 @@ async def list_videos(status: Optional[str] = None, search: Optional[str] = None
     if status:
         query["status"] = status
     if search:
-        query["title"] = {"$regex": search, "$options": "i"}
+        # ReDoS & regex injection protection: escape arbitrary search terms
+        safe_search = re.escape(search.strip())
+        query["title"] = {"$regex": safe_search, "$options": "i"}
 
     cursor = get_videos_collection().find(query, {"_id": 0}).sort("created_at", -1)
     return await cursor.to_list(length=1000)
@@ -69,43 +84,46 @@ async def upsert_drive_video(
     drive_file_id: str,
     title: str,
     file_size_bytes: int,
-    poster_url: Optional[str] = None
+    poster_url: Optional[str] = None,
+    assigned_video_id: Optional[str] = None
 ) -> Dict[str, Any]:
+    """
+    Atomic upsert preventing race conditions and duplicate document creation.
+    """
     col = get_videos_collection()
-    existing = await col.find_one({"drive_file_id": drive_file_id})
     now = datetime.utcnow()
+    video_id = assigned_video_id or str(uuid.uuid4())
 
-    if existing:
-        update_fields: Dict[str, Any] = {
-            "title": title,
-            "file_size_bytes": file_size_bytes,
-            "updated_at": now
-        }
-        if poster_url and not existing.get("poster_url"):
-            update_fields["poster_url"] = poster_url
-        await col.update_one({"drive_file_id": drive_file_id}, {"$set": update_fields})
-        return await col.find_one({"drive_file_id": drive_file_id}, {"_id": 0})
-    else:
-        new_video = VideoModel(
-            title=title,
-            source="GDRIVE",
-            drive_file_id=drive_file_id,
-            file_size_bytes=file_size_bytes,
-            status="REMOTE_ONLY",
-            poster_url=poster_url,
-            created_at=now,
-            updated_at=now
-        )
-        doc = new_video.model_dump()
-        await col.insert_one(doc)
-        doc.pop("_id", None)
-        return doc
+    set_fields: Dict[str, Any] = {
+        "title": title,
+        "file_size_bytes": file_size_bytes,
+        "updated_at": now
+    }
+    if poster_url:
+        set_fields["poster_url"] = poster_url
+
+    set_on_insert: Dict[str, Any] = {
+        "video_id": video_id,
+        "source": "GDRIVE",
+        "drive_file_id": drive_file_id,
+        "status": "REMOTE_ONLY",
+        "duration_seconds": 0.0,
+        "created_at": now
+    }
+
+    await col.update_one(
+        {"drive_file_id": drive_file_id},
+        {"$set": set_fields, "$setOnInsert": set_on_insert},
+        upsert=True
+    )
+    return await col.find_one({"drive_file_id": drive_file_id}, {"_id": 0})
 
 async def create_url_video(url: str, title: Optional[str] = None) -> Dict[str, Any]:
     col = get_videos_collection()
     now = datetime.utcnow()
+    clean_title = (title or url.split("/")[-1].split("?")[0] or "External Video").strip()
     new_video = VideoModel(
-        title=title or url.split("/")[-1].split("?")[0] or "External Video",
+        title=clean_title,
         source="URL",
         url=url,
         file_size_bytes=0,

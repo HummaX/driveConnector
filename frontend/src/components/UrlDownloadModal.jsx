@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DownloadCloud, X, Loader2, Link2, AlertCircle } from 'lucide-react';
 
-export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted }) {
+export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, authHeaders = {} }) {
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -19,7 +19,10 @@ export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted })
     try {
       const res = await fetch('/api/videos/download-url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({
           url: url.trim(),
           title: title.trim() || null

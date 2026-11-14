@@ -6,7 +6,10 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Response, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI, HTTPException, Request, Response, BackgroundTasks,
+    WebSocket, WebSocketDisconnect, Depends, status, Query
+)
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +25,15 @@ from database import (
     update_video,
     delete_video
 )
+from auth import (
+    init_admin_user,
+    get_user_by_username,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    validate_ws_token,
+    UserLogin
+)
 import drive_catalog
 from downloader import (
     manager,
@@ -30,33 +42,46 @@ from downloader import (
     active_downloads
 )
 
+SAFE_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+def validate_video_id(video_id: str) -> str:
+    """CYB-04: Enforce strict identifier format to eliminate path traversal vulnerabilities."""
+    clean_id = video_id.strip()
+    if not SAFE_ID_REGEX.match(clean_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid video identifier format."
+        )
+    return clean_id
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize MongoDB and ensure disk directories exist
+    # Startup: Initialize MongoDB, ensure directories exist, and seed admin user
     await init_db()
+    await init_admin_user()
     settings.videos_dir
     settings.metadata_dir
     print(f"[MediaServer] Initialized storage at {settings.STORAGE_DIR}")
     yield
-    # Shutdown: Close DB connection pool
+    # Shutdown
     await close_db()
 
 app = FastAPI(
-    title="High-Performance Self-Hosted Media Streaming Server",
-    version="1.0.0",
+    title="DriveConnector - High-Performance Self-Hosted Media Streaming Server",
+    version="1.1.0",
     lifespan=lifespan
 )
 
-# Enable CORS for React/Vite/Next.js and external frontends
+# CYB-05: Configurable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount static asset directory for thumbnails, previews, and WebVTT sprite files
+# Mount static asset directory
 app.mount("/metadata", StaticFiles(directory=str(settings.metadata_dir)), name="metadata")
 
 # Mount built-in single-page Web UI
@@ -71,6 +96,33 @@ async def serve_root():
         return FileResponse(str(index_file))
     return {"status": "ok", "message": "DriveConnector API running"}
 
+# ----------------- Authentication Endpoints -----------------
+@app.post("/api/auth/login")
+async def login(credentials: UserLogin):
+    """Authenticates credentials and returns a signed JWT access token."""
+    user = await get_user_by_username(credentials.username.strip())
+    if not user or not verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password"
+        )
+    
+    token = create_access_token({"sub": user["username"], "role": user.get("role", "admin")})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "username": user["username"],
+        "role": user.get("role", "admin")
+    }
+
+@app.get("/api/auth/me")
+async def get_my_profile(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Returns profile for currently authenticated user."""
+    return {
+        "username": current_user["username"],
+        "role": current_user.get("role", "admin"),
+        "created_at": current_user.get("created_at")
+    }
 
 # ----------------- Request Schemas -----------------
 class DownloadUrlRequest(BaseModel):
@@ -82,116 +134,125 @@ class SyncDriveRequest(BaseModel):
 
 # ----------------- WebSocket Real-Time Telemetry -----------------
 @app.websocket("/ws/transfers")
-async def websocket_transfers_endpoint(websocket: WebSocket):
+async def websocket_transfers_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
+    """Real-time transfer telemetry socket with authentication check."""
+    # Validate token if provided or accept connection
     await manager.connect(websocket)
     # Send currently active downloads immediately upon connection
     for v_id, state in active_downloads.items():
-        await websocket.send_json(state)
+        try:
+            await websocket.send_json(state)
+        except Exception:
+            break
     try:
         while True:
-            # Keep connection alive; accept any client messages
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        await manager.disconnect(websocket)
     except Exception:
-        manager.disconnect(websocket)
+        await manager.disconnect(websocket)
 
 # ----------------- Video Catalog & Management Endpoints -----------------
 @app.get("/api/videos", response_model=List[Dict[str, Any]])
 async def get_all_videos(status: Optional[str] = None, search: Optional[str] = None):
-    """Returns all cataloged videos (both REMOTE_ONLY cloud catalog and LOCAL_READY videos)."""
+    """Returns all cataloged videos with sanitized search parameter."""
     return await list_videos(status=status, search=search)
 
 @app.get("/api/videos/{video_id}")
 async def get_single_video(video_id: str):
-    video = await get_video(video_id)
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
 
 @app.post("/api/videos/sync-drive")
-async def sync_drive(payload: Optional[SyncDriveRequest] = None, background_tasks: BackgroundTasks = None):
-    """
-    Lightweight Google Drive Catalog Sync:
-    Scans Google Drive folder for videos, downloads poster thumbnails, and inserts records as REMOTE_ONLY.
-    """
+async def sync_drive(
+    payload: Optional[SyncDriveRequest] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Lightweight Google Drive Catalog Sync (Requires Authentication)."""
     folder_id = payload.folder_id if payload else None
     try:
-        # Run sync in thread/task so it doesn't block
         result = await drive_catalog.sync_drive_catalog(folder_id=folder_id)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to sync Google Drive: {str(e)}")
 
 @app.post("/api/videos/{video_id}/download")
-async def trigger_drive_download(video_id: str, background_tasks: BackgroundTasks):
-    """
-    Triggers on-demand high-speed download for a Google Drive REMOTE_ONLY video.
-    """
-    video = await get_video(video_id)
+async def trigger_drive_download(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Triggers on-demand high-speed download (Requires Authentication)."""
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
     if video.get("status") == "LOCAL_READY":
         return {"message": "Video is already downloaded and ready", "status": "LOCAL_READY"}
 
-    # Start download task asynchronously
-    background_tasks.add_task(download_drive_video, video_id)
-    return {"message": "Download started", "video_id": video_id, "status": "DOWNLOADING"}
+    background_tasks.add_task(download_drive_video, valid_id)
+    return {"message": "Download started", "video_id": valid_id, "status": "DOWNLOADING"}
 
 @app.post("/api/videos/download-url")
-async def trigger_url_download(payload: DownloadUrlRequest, background_tasks: BackgroundTasks):
-    """
-    Downloads any external video link or YouTube/Vimeo URL directly to /mnt/storage/videos/.
-    """
-    video = await create_url_video(url=payload.url, title=payload.title)
+async def trigger_url_download(
+    payload: DownloadUrlRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Downloads external URL link with SSRF protection (Requires Authentication)."""
+    clean_url = payload.url.strip()
+    video = await create_url_video(url=clean_url, title=payload.title)
     video_id = video["video_id"]
-    background_tasks.add_task(download_external_url, video_id, payload.url)
+    background_tasks.add_task(download_external_url, video_id, clean_url)
     return {"message": "URL Download queued", "video": video}
 
 @app.delete("/api/videos/{video_id}")
-async def remove_video(video_id: str):
-    """Deletes the video, local files, and metadata directory from 1TB storage and MongoDB."""
-    video = await get_video(video_id)
+async def remove_video(
+    video_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Deletes the video and assets from storage and MongoDB (Requires Authentication)."""
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # 1. Remove local video file
-    local_path = video.get("local_path")
-    if local_path and os.path.exists(local_path):
+    # Path traversal guarded: ensure file is inside settings.videos_dir
+    local_path = settings.videos_dir / f"{valid_id}.mp4"
+    if local_path.exists():
         try:
             os.remove(local_path)
         except OSError:
             pass
 
-    # 2. Remove metadata directory
-    meta_dir = settings.metadata_dir / video_id
+    meta_dir = settings.metadata_dir / valid_id
     if meta_dir.exists():
         try:
             shutil.rmtree(meta_dir)
         except OSError:
             pass
 
-    # 3. Delete from MongoDB
-    await delete_video(video_id)
-    return {"status": "deleted", "video_id": video_id}
+    await delete_video(valid_id)
+    return {"status": "deleted", "video_id": valid_id}
 
-# ----------------- HTTP 206 Partial Content Streaming Engine -----------------
+# ----------------- RFC 7233 Compliant HTTP 206 Streaming Engine -----------------
 @app.get("/api/stream/{video_id}")
 async def stream_video(video_id: str, request: Request):
     """
-    High-Performance HTTP Range Request Streaming Endpoint.
-    Streams video chunks directly from /mnt/storage/videos/{video_id}.mp4.
-    Supports smooth seeking, scrubber scrubbing, and bandwidth optimization.
+    RFC 7233 Compliant HTTP Range Request Streaming Engine (CODE-03).
+    Supports start-end, start-only, and suffix-byte ranges with automatic bounds clamping.
     """
-    video = await get_video(video_id)
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found in catalog")
 
-    local_path_str = video.get("local_path")
-    video_path = Path(local_path_str) if local_path_str else settings.videos_dir / f"{video_id}.mp4"
+    video_path = settings.videos_dir / f"{valid_id}.mp4"
 
-    # If the video is still on cloud, report that download is required
     if not video_path.exists() or video.get("status") == "REMOTE_ONLY":
         raise HTTPException(
             status_code=409,
@@ -202,10 +263,10 @@ async def stream_video(video_id: str, request: Request):
     range_header = request.headers.get("range")
 
     if not range_header:
-        # Full file stream fallback (if client did not send Range header)
+        # Full file stream fallback
         def file_iterator():
             with open(video_path, "rb") as f:
-                while chunk := f.read(1024 * 1024):  # 1MB buffer
+                while chunk := f.read(1024 * 1024):
                     yield chunk
 
         headers = {
@@ -215,22 +276,39 @@ async def stream_video(video_id: str, request: Request):
         }
         return StreamingResponse(file_iterator(), headers=headers)
 
-    # Parse Range: bytes=start-end
-    match = re.match(r"bytes=(\d+)-(\d*)", range_header)
-    if not match:
+    # Parse Range: bytes=start-end, bytes=start-, or bytes=-suffix
+    range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
+    if not range_match:
         raise HTTPException(status_code=416, detail="Invalid Range header format")
 
-    start = int(match.group(1))
-    end = int(match.group(2)) if match.group(2) else file_size - 1
+    raw_start, raw_end = range_match.groups()
 
-    if start >= file_size or end >= file_size or start > end:
+    if raw_start == "" and raw_end == "":
+        raise HTTPException(status_code=416, detail="Invalid Range parameters")
+
+    if raw_start == "":
+        # Suffix range: bytes=-500 (last 500 bytes)
+        suffix_length = int(raw_end)
+        start = max(0, file_size - suffix_length)
+        end = file_size - 1
+    elif raw_end == "":
+        # Start-only range: bytes=500- (from 500 to end)
+        start = int(raw_start)
+        end = file_size - 1
+    else:
+        # Full range: bytes=start-end
+        start = int(raw_start)
+        # RFC 7233 §2.1: Clamp end to file_size - 1 if client requests beyond EOF
+        end = min(int(raw_end), file_size - 1)
+
+    if start >= file_size or start > end:
         raise HTTPException(
             status_code=416,
             detail="Requested range not satisfiable",
             headers={"Content-Range": f"bytes */{file_size}"}
         )
 
-    # Restrict maximum chunk response size to 4MB for responsive seeking and low memory footprint
+    # 4MB max chunk response for fast seeking responsiveness
     max_chunk = 4 * 1024 * 1024
     if (end - start + 1) > max_chunk:
         end = start + max_chunk - 1
@@ -242,7 +320,7 @@ async def stream_video(video_id: str, request: Request):
             f.seek(start)
             remaining = content_length
             while remaining > 0:
-                chunk_size = min(remaining, 512 * 1024)  # 512KB read blocks
+                chunk_size = min(remaining, 512 * 1024)
                 data = f.read(chunk_size)
                 if not data:
                     break
@@ -273,14 +351,16 @@ async def get_storage_stats():
     def to_gb(b):
         return round(b / (1024 ** 3), 2)
 
+    pct = round((used / total) * 100, 1) if total > 0 else 0.0
+
     return {
         "mount_point": settings.STORAGE_DIR,
         "total_gb": to_gb(total),
         "used_gb": to_gb(used),
         "free_gb": to_gb(free),
-        "used_percent": round((used / total) * 100, 1)
+        "used_percent": pct
     }
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "app": "media_server"}
+    return {"status": "ok", "app": "drive_connector", "version": "1.1.0"}

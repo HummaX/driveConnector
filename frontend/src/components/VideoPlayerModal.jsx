@@ -1,15 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Plyr from 'plyr';
-import { X, DownloadCloud, Activity, CheckCircle, AlertTriangle, Film } from 'lucide-react';
+import { X, DownloadCloud, Activity, CheckCircle, Film } from 'lucide-react';
 
 export default function VideoPlayerModal({ video, activeTransfer, onClose, onTriggerDownload }) {
   const playerContainerRef = useRef(null);
   const plyrInstanceRef = useRef(null);
   const [downloadStarted, setDownloadStarted] = useState(false);
+  const currentVideoIdRef = useRef(null);
 
   const isLocal = video.status === 'LOCAL_READY';
   const isDownloading = video.status === 'DOWNLOADING' || (activeTransfer && activeTransfer.status === 'DOWNLOADING');
-  const isRemote = video.status === 'REMOTE_ONLY' && !isDownloading;
+
+  // Keyboard Escape listener (UI-09)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   // Auto-trigger on-demand download if clicked while remote
   useEffect(() => {
@@ -21,57 +30,68 @@ export default function VideoPlayerModal({ video, activeTransfer, onClose, onTri
     }
   }, [video, downloadStarted, onTriggerDownload]);
 
-  // Initialize or reconfigure Plyr when local ready
+  // UI-02: Stable Plyr initialization (only recreate if video_id changes, not on vtt_url updates)
   useEffect(() => {
     if (isLocal && playerContainerRef.current) {
-      // Clean up existing instance if any
-      if (plyrInstanceRef.current) {
-        plyrInstanceRef.current.destroy();
-      }
+      if (currentVideoIdRef.current !== video.video_id) {
+        currentVideoIdRef.current = video.video_id;
 
-      const streamUrl = `/api/stream/${video.video_id}`;
-      const vttUrl = video.vtt_url || `/metadata/${video.video_id}/thumbnails.vtt`;
-
-      const options = {
-        autoplay: true,
-        controls: [
-          'play-large', 'play', 'progress', 'current-time', 'duration',
-          'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
-        ],
-        previewThumbnails: {
-          enabled: Boolean(video.vtt_url),
-          src: vttUrl
-        },
-        keyboard: { focused: true, global: true },
-        tooltips: { controls: true, seek: true }
-      };
-
-      const plyr = new Plyr(playerContainerRef.current, options);
-      plyr.source = {
-        type: 'video',
-        title: video.title,
-        sources: [
-          {
-            src: streamUrl,
-            type: 'video/mp4'
-          }
-        ]
-      };
-
-      plyrInstanceRef.current = plyr;
-
-      return () => {
         if (plyrInstanceRef.current) {
           plyrInstanceRef.current.destroy();
           plyrInstanceRef.current = null;
         }
-      };
+
+        const streamUrl = `/api/stream/${video.video_id}`;
+        const vttUrl = video.vtt_url || `/metadata/${video.video_id}/thumbnails.vtt`;
+
+        const options = {
+          autoplay: true,
+          controls: [
+            'play-large', 'play', 'progress', 'current-time', 'duration',
+            'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
+          ],
+          previewThumbnails: {
+            enabled: Boolean(video.vtt_url),
+            src: vttUrl
+          },
+          keyboard: { focused: true, global: true },
+          tooltips: { controls: true, seek: true }
+        };
+
+        const plyr = new Plyr(playerContainerRef.current, options);
+        plyr.source = {
+          type: 'video',
+          title: video.title,
+          sources: [
+            {
+              src: streamUrl,
+              type: 'video/mp4'
+            }
+          ]
+        };
+
+        plyrInstanceRef.current = plyr;
+      }
     }
-  }, [isLocal, video.video_id, video.vtt_url, video.title]);
+
+    return () => {
+      if (plyrInstanceRef.current) {
+        plyrInstanceRef.current.destroy();
+        plyrInstanceRef.current = null;
+        currentVideoIdRef.current = null;
+      }
+    };
+  }, [isLocal, video.video_id]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+      >
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-slate-950/80 border-b border-slate-800">
           <div className="flex items-center space-x-3 truncate mr-4">
@@ -121,7 +141,6 @@ export default function VideoPlayerModal({ video, activeTransfer, onClose, onTri
 
               {activeTransfer ? (
                 <div className="w-full space-y-3 bg-slate-950/80 border border-slate-800 p-4 rounded-xl font-mono text-xs">
-                  {/* Progress Bar */}
                   <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                     <div
                       className="bg-gradient-to-r from-sky-500 to-indigo-500 h-full transition-all duration-300 rounded-full"
@@ -129,7 +148,6 @@ export default function VideoPlayerModal({ video, activeTransfer, onClose, onTri
                     />
                   </div>
 
-                  {/* Telemetry numbers */}
                   <div className="flex justify-between items-center text-slate-300 text-xs">
                     <span className="font-bold text-sky-400 text-sm">
                       {activeTransfer.percentage}%

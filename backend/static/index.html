@@ -52,7 +52,7 @@
         </div>
       </div>
 
-      <!-- Actions -->
+      <!-- Actions & Auth -->
       <div class="flex items-center space-x-2.5">
         <button onclick="fetchVideos()" title="Refresh" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">
           <i data-lucide="refresh-cw" class="w-4 h-4"></i>
@@ -65,6 +65,13 @@
           <i data-lucide="plus" class="w-4 h-4"></i>
           <span>Add URL</span>
         </button>
+
+        <div id="auth-section" class="flex items-center pl-2 border-l border-slate-800">
+          <button id="auth-btn" onclick="openLoginModal()" class="flex items-center space-x-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition">
+            <i data-lucide="log-in" class="w-4 h-4"></i>
+            <span>Sign In</span>
+          </button>
+        </div>
       </div>
     </div>
   </header>
@@ -89,18 +96,16 @@
   </main>
 
   <!-- Player Modal -->
-  <div id="player-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-    <div class="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+  <div id="player-modal" onclick="closePlayerModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
       <div class="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800">
-        <h3 id="player-title" class="text-base font-semibold text-white truncate"></h3>
+        <h3 id="player-title" class="text-base font-semibold text-white truncate mr-4"></h3>
         <button onclick="closePlayerModal()" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-      <div id="player-container" class="relative aspect-video w-full bg-black flex items-center justify-center">
-        <!-- Plyr element inserted dynamically -->
-      </div>
+      <div id="player-container" class="relative aspect-video w-full bg-black flex items-center justify-center"></div>
 
       <div class="px-6 py-3 bg-slate-950 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800">
         <span id="player-footer-path"></span>
@@ -110,8 +115,8 @@
   </div>
 
   <!-- Drive Sync Modal -->
-  <div id="sync-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <div class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
+  <div id="sync-modal" onclick="closeSyncModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
       <button onclick="closeSyncModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
@@ -127,8 +132,8 @@
   </div>
 
   <!-- URL Modal -->
-  <div id="url-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <div class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
+  <div id="url-modal" onclick="closeUrlModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
       <button onclick="closeUrlModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
@@ -140,6 +145,34 @@
         <button onclick="closeUrlModal()" class="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
         <button onclick="triggerUrlDownload()" class="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg">Start Download</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Login Modal -->
+  <div id="login-modal" onclick="closeLoginModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+      <button onclick="closeLoginModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <div class="flex flex-col items-center text-center mb-5">
+        <div class="p-3 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 mb-2">
+          <i data-lucide="lock" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-lg font-bold text-white">Admin Login</h3>
+        <p class="text-xs text-slate-400">Sign in to sync Google Drive or download files</p>
+      </div>
+      <form onsubmit="handleLoginSubmit(event)" class="space-y-3.5">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Username</label>
+          <input id="login-username" type="text" value="admin" required class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-sky-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+          <input id="login-password" type="password" required placeholder="••••••••••••" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-sky-500" />
+        </div>
+        <div id="login-error" class="text-xs text-red-400 hidden"></div>
+        <button id="login-submit-btn" type="submit" class="w-full py-2.5 rounded-lg text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg transition">Sign In</button>
+      </form>
     </div>
   </div>
 
@@ -164,13 +197,49 @@
     let transfers = {};
     let activePlayer = null;
     let activeVideoModal = null;
+    let authToken = localStorage.getItem('drive_auth_token') || null;
 
-    // Load Lucide Icons
+    // CYB-03: HTML Escaping Helper to eliminate Stored/DOM XSS
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getAuthHeaders() {
+      return authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+    }
+
     function updateIcons() {
       if (window.lucide) lucide.createIcons();
     }
 
-    // Format Helpers
+    function updateAuthUI() {
+      const authSection = document.getElementById('auth-section');
+      if (authToken) {
+        authSection.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <span class="text-xs text-slate-300 font-mono bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">admin</span>
+            <button onclick="handleLogout()" title="Log Out" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 transition">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
+        `;
+      } else {
+        authSection.innerHTML = `
+          <button onclick="openLoginModal()" class="flex items-center space-x-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition">
+            <i data-lucide="log-in" class="w-4 h-4"></i>
+            <span>Sign In</span>
+          </button>
+        `;
+      }
+      updateIcons();
+    }
+
     function formatBytes(bytes) {
       if (!bytes || bytes <= 0) return '0 B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -185,7 +254,6 @@
       return `${m}:${s < 10 ? '0' : ''}${s}`;
     }
 
-    // Fetch storage metrics
     async function fetchStorage() {
       try {
         const res = await fetch('/api/system/storage');
@@ -197,7 +265,6 @@
       } catch (e) {}
     }
 
-    // Fetch video catalog
     async function fetchVideos() {
       try {
         const res = await fetch('/api/videos');
@@ -210,18 +277,16 @@
       }
     }
 
-    // Render Grid
     function renderVideos() {
       const query = (document.getElementById('search-input').value || '').toLowerCase();
       const filtered = videos.filter(v => {
-        const matchTitle = v.title.toLowerCase().includes(query);
+        const matchTitle = (v.title || '').toLowerCase().includes(query);
         if (!matchTitle) return false;
         if (currentFilter === 'LOCAL') return v.status === 'LOCAL_READY';
         if (currentFilter === 'CLOUD') return v.status === 'REMOTE_ONLY';
         return true;
       });
 
-      // Update Counts
       document.getElementById('count-all').innerText = videos.length;
       document.getElementById('count-local').innerText = videos.filter(v => v.status === 'LOCAL_READY').length;
       document.getElementById('count-cloud').innerText = videos.filter(v => v.status === 'REMOTE_ONLY').length;
@@ -233,7 +298,7 @@
         container.innerHTML = `
           <div class="col-span-full py-16 text-center text-slate-500">
             <i data-lucide="film" class="w-10 h-10 mx-auto mb-2 opacity-50"></i>
-            <p>No videos found in this view</p>
+            <p>No videos found</p>
           </div>
         `;
         updateIcons();
@@ -246,10 +311,15 @@
         card.className = "group relative flex flex-col bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden shadow-lg hover:shadow-2xl hover:border-slate-700 transition cursor-pointer";
         card.onclick = () => openPlayerModal(v);
 
+        const safeTitle = escapeHtml(v.title);
+        const safePoster = escapeHtml(v.poster_url || '');
+        const safePreview = escapeHtml(v.preview_url || '');
+        const safeSource = v.source === 'GDRIVE' ? 'Google Drive' : 'External Link';
+
         card.innerHTML = `
           <div class="relative aspect-video w-full bg-slate-950 overflow-hidden">
-            <img src="${v.poster_url || ''}" class="w-full h-full object-cover transition-opacity duration-300 ${isLocal && v.preview_url ? 'group-hover:opacity-0' : ''}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 60%22 fill=%22%230f172a%22><text x=%2250%%22 y=%2250%%22 fill=%22%23475569%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>No Preview</text></svg>'" />
-            ${isLocal && v.preview_url ? `<video src="${v.preview_url}" loop muted playsinline class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>` : ''}
+            <img src="${safePoster}" class="w-full h-full object-cover transition-opacity duration-300 ${isLocal && safePreview ? 'group-hover:opacity-0' : ''}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 60%22 fill=%22%230f172a%22><text x=%2250%%22 y=%2250%%22 fill=%22%23475569%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>No Preview</text></svg>'" />
+            ${isLocal && safePreview ? `<video src="${safePreview}" loop muted playsinline class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>` : ''}
             
             <div class="absolute top-2.5 left-2.5 z-10">
               ${isLocal ? `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/90 text-white backdrop-blur shadow">Saved on Server</span>` : `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/90 text-white backdrop-blur shadow">On Cloud (Click to Fetch)</span>`}
@@ -263,19 +333,26 @@
           </div>
           <div class="p-3.5 flex flex-col flex-1 justify-between">
             <div>
-              <h4 class="text-sm font-semibold text-white line-clamp-2 leading-snug mb-1" title="${v.title}">${v.title}</h4>
+              <h4 class="text-sm font-semibold text-white line-clamp-2 leading-snug mb-1" title="${safeTitle}">${safeTitle}</h4>
               <div class="flex items-center space-x-2 text-[11px] text-slate-400">
-                <span>${v.source === 'GDRIVE' ? 'Google Drive' : 'External Link'}</span>
+                <span>${safeSource}</span>
                 <span>•</span>
                 <span>${formatBytes(v.file_size_bytes)}</span>
               </div>
             </div>
             <div class="flex items-center justify-between pt-3 mt-2 border-t border-slate-800/80 text-xs">
               <span class="text-[11px] text-slate-500">${isLocal ? '/mnt/storage' : 'Click to Download'}</span>
-              <button onclick="event.stopPropagation(); deleteVideo('${v.video_id}')" class="text-slate-500 hover:text-red-400 p-1 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+              <button data-video-id="${escapeHtml(v.video_id)}" class="delete-btn text-slate-500 hover:text-red-400 p-1 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>
           </div>
         `;
+
+        // Event listener delegation to avoid inline eval
+        card.querySelector('.delete-btn').onclick = (e) => {
+          e.stopPropagation();
+          deleteVideo(v.video_id);
+        };
+
         container.appendChild(card);
       });
 
@@ -290,7 +367,6 @@
       renderVideos();
     }
 
-    // Video Player Modal
     async function openPlayerModal(v) {
       activeVideoModal = v;
       document.getElementById('player-title').innerText = v.title;
@@ -298,6 +374,12 @@
       document.getElementById('player-footer-status').innerText = v.status;
       document.getElementById('player-modal').classList.remove('hidden');
       document.getElementById('player-modal').classList.add('flex');
+
+      // UI-06 Fix: Properly destroy any existing Plyr player before instantiating new one
+      if (activePlayer) {
+        activePlayer.destroy();
+        activePlayer = null;
+      }
 
       const container = document.getElementById('player-container');
       container.innerHTML = '';
@@ -327,7 +409,6 @@
           sources: [{ src: `/api/stream/${v.video_id}`, type: 'video/mp4' }]
         };
       } else {
-        // Show On-Demand Live HUD & trigger download
         container.innerHTML = `
           <div class="flex flex-col items-center justify-center p-8 text-center space-y-4 font-mono">
             <i data-lucide="download-cloud" class="w-12 h-12 text-sky-400 animate-bounce"></i>
@@ -347,7 +428,11 @@
           </div>
         `;
         updateIcons();
-        fetch(`/api/videos/${v.video_id}/download`, { method: 'POST' });
+        if (!authToken) {
+          openLoginModal();
+          return;
+        }
+        fetch(`/api/videos/${v.video_id}/download`, { method: 'POST', headers: getAuthHeaders() });
       }
     }
 
@@ -361,18 +446,68 @@
       document.getElementById('player-modal').classList.remove('flex');
     }
 
-    // Delete Video
     async function deleteVideo(id) {
+      if (!authToken) {
+        openLoginModal();
+        return;
+      }
       if (!confirm('Are you sure you want to remove this video and all assets from 1TB storage?')) return;
-      await fetch(`/api/videos/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/videos/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+      if (res.status === 401) {
+        openLoginModal();
+        return;
+      }
       fetchVideos();
     }
 
-    // Modals
-    function openSyncModal() { document.getElementById('sync-modal').classList.remove('hidden'); document.getElementById('sync-modal').classList.add('flex'); }
+    // Modal controls
+    function openSyncModal() {
+      if (!authToken) { openLoginModal(); return; }
+      document.getElementById('sync-modal').classList.remove('hidden'); document.getElementById('sync-modal').classList.add('flex');
+    }
     function closeSyncModal() { document.getElementById('sync-modal').classList.add('hidden'); document.getElementById('sync-modal').classList.remove('flex'); }
-    function openUrlModal() { document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex'); }
+    function openUrlModal() {
+      if (!authToken) { openLoginModal(); return; }
+      document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex');
+    }
     function closeUrlModal() { document.getElementById('url-modal').classList.add('hidden'); document.getElementById('url-modal').classList.remove('flex'); }
+
+    function openLoginModal() { document.getElementById('login-modal').classList.remove('hidden'); document.getElementById('login-modal').classList.add('flex'); }
+    function closeLoginModal() { document.getElementById('login-modal').classList.add('hidden'); document.getElementById('login-modal').classList.remove('flex'); }
+
+    async function handleLoginSubmit(e) {
+      e.preventDefault();
+      const u = document.getElementById('login-username').value.trim();
+      const p = document.getElementById('login-password').value;
+      const errBox = document.getElementById('login-error');
+      errBox.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Login failed');
+        }
+        const data = await res.json();
+        authToken = data.access_token;
+        localStorage.setItem('drive_auth_token', authToken);
+        closeLoginModal();
+        updateAuthUI();
+      } catch (err) {
+        errBox.innerText = err.message;
+        errBox.classList.remove('hidden');
+      }
+    }
+
+    function handleLogout() {
+      authToken = null;
+      localStorage.removeItem('drive_auth_token');
+      updateAuthUI();
+    }
 
     async function triggerSync() {
       const folder = document.getElementById('sync-folder-input').value.trim();
@@ -386,9 +521,14 @@
       try {
         const res = await fetch('/api/videos/sync-drive', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ folder_id: folder || null })
         });
+        if (res.status === 401) {
+          closeSyncModal();
+          openLoginModal();
+          return;
+        }
         const data = await res.json();
         status.innerText = `Success: Cataloged ${data.total_cataloged} items!`;
         fetchVideos();
@@ -405,14 +545,29 @@
       const url = document.getElementById('url-input').value.trim();
       const title = document.getElementById('url-title-input').value.trim();
       if (!url) return;
-      await fetch('/api/videos/download-url', {
+      const res = await fetch('/api/videos/download-url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ url, title: title || null })
       });
+      if (res.status === 401) {
+        closeUrlModal();
+        openLoginModal();
+        return;
+      }
       closeUrlModal();
       fetchVideos();
     }
+
+    // Keyboard Escape listener (UI-09)
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closePlayerModal();
+        closeSyncModal();
+        closeUrlModal();
+        closeLoginModal();
+      }
+    });
 
     // WebSocket Telemetry
     function initWebSocket() {
@@ -425,7 +580,6 @@
           transfers[msg.video_id] = msg;
           renderTransfers();
 
-          // If current modal is downloading this video, update modal HUD
           if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
             const bar = document.getElementById('modal-transfer-bar');
             const pct = document.getElementById('modal-transfer-pct');
@@ -466,7 +620,7 @@
       container.innerHTML = list.map(t => `
         <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
           <div class="flex justify-between font-medium text-white truncate">
-            <span class="truncate">${t.title}</span>
+            <span class="truncate">${escapeHtml(t.title)}</span>
             <span class="text-sky-400 font-mono">${t.percentage}%</span>
           </div>
           <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
@@ -474,7 +628,7 @@
           </div>
           <div class="flex justify-between text-[10px] text-slate-400 font-mono">
             <span>${t.speed_mbs} MB/s</span>
-            <span>${t.downloaded_str} / ${t.total_str}</span>
+            <span>${escapeHtml(t.downloaded_str)} / ${escapeHtml(t.total_str)}</span>
             <span>ETA ${t.eta_seconds}s</span>
           </div>
         </div>
@@ -482,6 +636,7 @@
     }
 
     // Startup
+    updateAuthUI();
     fetchStorage();
     fetchVideos();
     initWebSocket();

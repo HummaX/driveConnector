@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Cloud, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
-export default function DriveSyncModal({ isOpen, onClose, onSyncComplete }) {
+export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHeaders = {} }) {
   const [folderId, setFolderId] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState(null);
@@ -18,7 +18,10 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete }) {
     try {
       const res = await fetch('/api/videos/sync-drive', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({ folder_id: folderId.trim() || null })
       });
 

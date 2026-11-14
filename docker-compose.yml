@@ -6,7 +6,8 @@ services:
     container_name: media_mongodb
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      # Restricted to localhost (127.0.0.1) to prevent public internet access on OVHcloud
+      - "127.0.0.1:27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}
@@ -27,7 +28,8 @@ services:
     container_name: media_mongo_express
     restart: unless-stopped
     ports:
-      - "8081:8081"
+      # Bound to localhost for security; accessible via SSH tunnel or reverse proxy
+      - "127.0.0.1:8081:8081"
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
       ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}
@@ -48,17 +50,20 @@ services:
       dockerfile: Dockerfile
     container_name: media_backend
     restart: unless-stopped
+    init: true
     ports:
       - "8000:8000"
     environment:
       - MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}@mongodb:27017/${MONGO_INITDB_DATABASE:-media_db}?authSource=admin
       - STORAGE_DIR=${STORAGE_DIR:-/mnt/storage}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-drive-connector-super-secret-key-2026-prod}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_DEFAULT_PASSWORD=${ADMIN_DEFAULT_PASSWORD:-Admin@Drive2026!}
       - GOOGLE_CREDENTIALS_FILE=${GOOGLE_CREDENTIALS_FILE:-/app/credentials.json}
       - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID:-}
     volumes:
       # Mount 1TB block storage for media, metadata, and database
       - ${STORAGE_DIR:-/mnt/storage}:${STORAGE_DIR:-/mnt/storage}
-      # Mount Google credentials file if provided
       - ./backend/credentials.json:/app/credentials.json:ro
       - ./backend/token.json:/app/token.json:rw
     depends_on:

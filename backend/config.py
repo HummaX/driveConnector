@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import List
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -9,6 +10,20 @@ class Settings(BaseSettings):
 
     # OVHcloud Block Storage Paths
     STORAGE_DIR: str = "/mnt/storage"
+
+    # Authentication & JWT
+    JWT_SECRET_KEY: str = "drive-connector-super-secret-key-2026-prod"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_DEFAULT_PASSWORD: str = "Admin@Drive2026!"
+
+    # Process Governance & Concurrency
+    MAX_CONCURRENT_FFMPEG: int = 2
+    MIN_FREE_DISK_BYTES: int = 1024 * 1024 * 1024  # 1 GB reserve
+
+    # CORS
+    CORS_ORIGINS: List[str] = ["*"]
 
     # Google Drive API Config
     GOOGLE_CREDENTIALS_FILE: str = "credentials.json"

@@ -1,75 +1,45 @@
 # DriveConnector - Self-Hosted Media Streaming & On-Demand Ingestion Platform
 
-A high-performance self-hosted video streaming and on-demand ingestion web application designed for OVHcloud Linux servers with attached 1TB+ Block Storage volumes (`/mnt/storage`).
+A hardened, high-performance self-hosted video streaming and on-demand ingestion web application designed for OVHcloud Linux servers with attached 1TB+ Block Storage volumes (`/mnt/storage`).
 
 ---
 
-## Architecture Overview
+## Default Admin Credentials
 
-```
-                                  [ Web Browser / Client ]
-                                             │
-                       ┌─────────────────────┴─────────────────────┐
-                       │                                           │
-             HTTP Range (206) / API                         WebSocket (/ws/transfers)
-                       │                                           │
-                       ▼                                           ▼
-          ┌─────────────────────────── FastAPI Engine ───────────────────────────┐
-          │                                                                      │
-          │  • HTTP Range 206 Streaming Engine (/api/stream/{video_id})          │
-          │  • Real-Time Telemetry Broadcast (MB/s, ETA, Percentage)             │
-          │  • RESTful API (Sync, On-Demand Download, External URL Ingestion)    │
-          └─────────────┬────────────────────────────┬───────────────────────────┘
-                        │                            │
-             Metadata & Thumbnails Only        Heavy Media Chunks
-                        │                            │
-                        ▼                            ▼
-               ┌─────────────────┐       ┌───────────────────────┐
-               │  Google Drive   │       │  OVHcloud 1TB Storage │
-               │     API v3      │       │     (/mnt/storage)    │
-               └─────────────────┘       └───────────┬───────────┘
-                                                     │
-                                       ┌─────────────┴─────────────┐
-                                       ▼                           ▼
-                                /mnt/storage/videos/       /mnt/storage/metadata/
-                                   ({video_id}.mp4)             ({video_id}/)
-                                                                   ├── poster.jpg
-                                                                   ├── preview.mp4 (4s loop)
-                                                                   ├── sprites.jpg (10-col grid)
-                                                                   └── thumbnails.vtt (VTT cues)
-```
+When the system boots for the first time, an administrator account is automatically created in MongoDB:
+
+- **Username**: `admin`
+- **Password**: `Admin@Drive2026!`
+- **Role**: `admin`
+
+*(You can customize these defaults anytime in `.env` via `ADMIN_USERNAME` and `ADMIN_DEFAULT_PASSWORD`)*.
 
 ---
 
-## 5 Core Features
+## Security & Architectural Hardening Implemented
 
-1. **Database & Storage Architecture (MongoDB + Mongo Express UI + 1TB Block Storage)**:
-   - Persistent database stored directly on `/mnt/storage/mongodb`.
-   - Web-based MongoDB Admin UI on port `8081` via Mongo Express.
-   - High-bitrate videos stored in `/mnt/storage/videos`.
-   - Asset thumbnails, previews, and sprite sheets stored in `/mnt/storage/metadata/{video_id}/`.
+1. **Cybersecurity Protections**:
+   - **SSRF & LFI Defense**: All external URLs ingested through `yt-dlp` are validated via DNS resolution. Private IPs, loopbacks, link-local addresses, and cloud metadata endpoints (`169.254.169.254`) are strictly blocked.
+   - **JWT Authentication & RBAC**: Core write operations (Drive sync, video deletion, external URL downloads, on-demand fetching) require a valid signed JWT Bearer token.
+   - **XSS Sanitization**: Dynamic user/video data in the Web UI is escaped through an `escapeHtml()` entity encoding pipeline.
+   - **Path Traversal Protection**: Video identifiers are validated with regex `^[a-zA-Z0-9_-]{1,64}$` to prevent directory traversal attacks on disk.
+   - **MongoDB ReDoS Defense**: Search terms are escaped via `re.escape()` before being used in regex queries.
 
-2. **Lightweight Google Drive Catalog Sync (0 GB Disk Used Upfront)**:
-   - Scans Google Drive for video files via Google Drive API v3.
-   - Fetches file metadata and high-definition poster thumbnails (upgraded to 1280px).
-   - Inserts records into MongoDB with `status: "REMOTE_ONLY"` without downloading video payloads.
+2. **Operational & Linux Hardening**:
+   - **MongoDB Isolation**: Ports `27017` and `8081` are bound to `127.0.0.1` in `docker-compose.yml`, preventing public exposure on the OVHcloud server's public IP.
+   - **Storage Pre-Check**: Pre-checks free disk space before downloads start to prevent disk exhaustion.
+   - **Atomic File Operations**: Partial downloads write to temporary `.part` files and rename atomically on completion, with auto-cleanup on failure.
+   - **PID 1 Zombie Reaping**: Docker container uses `tini` as init system to reap orphan FFmpeg and yt-dlp child processes.
+   - **FFmpeg Concurrency Semaphore**: Throttles concurrent background transcode/sprite generation jobs.
 
-3. **On-Demand Click-to-Download & External Link Ingestion with Live Progress**:
-   - Clicking "Play" on a `REMOTE_ONLY` video triggers high-speed stream download directly into `/mnt/storage/videos/{video_id}.mp4`.
-   - External URL Downloader supports direct MP4 links, YouTube, Vimeo, and custom video streams via `yt-dlp`.
-   - Live telemetry via WebSockets (`/ws/transfers`): Speed (MB/s), MB/GB remaining, ETA, and percentage.
-   - Auto-plays in the video player as soon as download completes.
+3. **Code & Concurrency Fixes**:
+   - **Download Lock**: `_download_lock` prevents concurrent requests from clobbering the same file handle.
+   - **RFC 7233 Range Streaming**: Full support for clamped byte bounds, start-only, and suffix-byte ranges (`bytes=-500`).
+   - **Atomic Upserts**: MongoDB upserts use `update_one(..., upsert=True)` with unique sparse indexes to eliminate check-then-act race conditions.
 
-4. **Automated FFmpeg Video Processing Pipeline**:
-   - `poster.jpg`: High-quality frame extracted at 10% duration.
-   - `preview.mp4`: 4-second muted, low-bitrate looping MP4 compiled from 4 cross-video clips for instant hover cards.
-   - `sprites.jpg` & `thumbnails.vtt`: 1 frame every 5s scaled to 160x90 tiled in a 10-column sprite sheet with pixel-perfect `#xywh=` coordinates.
-
-5. **Streaming UI & Seekbar Scrubbing Player**:
-   - Video Grid with card hover video preview loops.
-   - Video player with HTTP 206 Partial Content Range streaming.
-   - Seekbar hover scrubbing powered by WebVTT sprites.
-   - Live disk usage gauge for the 1TB Block Storage volume.
+4. **UI & Player Lifecycle**:
+   - **Stable WebSocket Lifecycle**: Decoupled from modal open/close states to prevent reconnection storms.
+   - **Non-Destructive Scrubbing**: Plyr player maintains continuous playback at the active timestamp when background sprite sheets finish processing.
 
 ---
 
@@ -85,14 +55,14 @@ sudo chown -R 1000:1000 /mnt/storage
 ```bash
 cd driveConnector
 cp .env.example .env
-# Place your Google Cloud service_account.json in backend/credentials.json
 ```
 
 ### 3. Launch Services via Docker Compose
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 ### 4. Access the Application
 - **Media Streamer Web App**: `http://<SERVER_IP>:8000/`
-- **Mongo Express Database UI**: `http://<SERVER_IP>:8081/` (User: `admin` / Password: `expresspassword`)
+  - Click **Sign In** with Username `admin` / Password `Admin@Drive2026!`
+- **Mongo Express Database UI**: Accessible locally at `http://127.0.0.1:8081/` (or via SSH tunnel: `ssh -L 8081:localhost:8081 user@<SERVER_IP>`)

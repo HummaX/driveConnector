@@ -1,8 +1,16 @@
 import React from 'react';
-import { PlaySquare, Cloud, Plus, Activity, RefreshCw } from 'lucide-react';
+import { PlaySquare, Cloud, Plus, RefreshCw, LogIn, LogOut, Shield } from 'lucide-react';
 import StorageWidget from './StorageWidget';
 
-export default function Navbar({ onOpenSync, onOpenUrl, activeTransfersCount, onRefresh }) {
+export default function Navbar({
+  user,
+  onOpenLogin,
+  onLogout,
+  onOpenSync,
+  onOpenUrl,
+  activeTransfersCount,
+  onRefresh
+}) {
   return (
     <header className="sticky top-0 z-30 w-full bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
@@ -19,7 +27,7 @@ export default function Navbar({ onOpenSync, onOpenUrl, activeTransfersCount, on
               </span>
             </h1>
             <p className="text-[11px] text-slate-400 hidden sm:block">
-              On-Demand Cloud Ingestion & High-Speed Streaming
+              On-Demand Cloud Media Ingestion & Range-Streaming
             </p>
           </div>
         </div>
@@ -29,7 +37,7 @@ export default function Navbar({ onOpenSync, onOpenUrl, activeTransfersCount, on
           <StorageWidget />
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons & Auth */}
         <div className="flex items-center space-x-2.5">
           <button
             onClick={onRefresh}
@@ -41,7 +49,7 @@ export default function Navbar({ onOpenSync, onOpenUrl, activeTransfersCount, on
 
           <button
             onClick={onOpenSync}
-            className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-medium hover:bg-slate-850 transition"
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-medium hover:bg-slate-800 transition"
           >
             <Cloud className="w-4 h-4 text-sky-400" />
             <span className="hidden sm:inline">Sync Drive</span>
@@ -54,6 +62,31 @@ export default function Navbar({ onOpenSync, onOpenUrl, activeTransfersCount, on
             <Plus className="w-4 h-4" />
             <span>Add URL</span>
           </button>
+
+          {/* User Status / Login */}
+          {user ? (
+            <div className="flex items-center space-x-2 pl-2 border-l border-slate-800">
+              <div className="hidden lg:flex items-center space-x-1 text-xs text-slate-300 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 font-mono">
+                <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{user.username}</span>
+              </div>
+              <button
+                onClick={onLogout}
+                title="Log Out"
+                className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 hover:border-slate-700 transition"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onOpenLogin}
+              className="flex items-center space-x-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-md shadow-emerald-600/20 transition"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Sign In</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

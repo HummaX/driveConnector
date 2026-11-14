@@ -9,6 +9,9 @@ from config import settings
 from database import get_video, update_video
 from downloader import manager
 
+# OPS-04: Concurrency control semaphore to protect CPU and memory
+ffmpeg_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_FFMPEG)
+
 def format_vtt_time(seconds: float) -> str:
     """Format seconds into WebVTT timestamp: HH:MM:SS.mmm"""
     hours = int(seconds // 3600)
@@ -17,15 +20,25 @@ def format_vtt_time(seconds: float) -> str:
     milli = int(round((seconds - int(seconds)) * 1000))
     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milli:03d}"
 
-async def run_cmd(cmd: list) -> tuple[int, str, str]:
-    """Runs a system command asynchronously without blocking the event loop."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await proc.communicate()
-    return proc.returncode, stdout.decode(errors="ignore"), stderr.decode(errors="ignore")
+async def run_cmd(cmd: list, timeout: int = 180) -> tuple[int, str, str]:
+    """Runs a system command asynchronously with strict timeout and resource safety."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return proc.returncode, stdout.decode(errors="ignore"), stderr.decode(errors="ignore")
+    except asyncio.TimeoutError:
+        print(f"[FFmpeg] Command timed out after {timeout}s: {' '.join(cmd[:3])}")
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        return -1, "", "Timeout"
+    except Exception as e:
+        return -1, "", str(e)
 
 async def probe_video(video_path: Path) -> Dict[str, Any]:
     """Runs ffprobe on the target video and returns parsed JSON format and stream info."""
@@ -37,7 +50,7 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
         "-show_streams",
         str(video_path)
     ]
-    code, stdout, stderr = await run_cmd(cmd)
+    code, stdout, _ = await run_cmd(cmd, timeout=30)
     if code != 0 or not stdout:
         return {"duration": 0.0, "width": 1920, "height": 1080}
 
@@ -68,18 +81,14 @@ async def generate_poster_if_needed(video_path: Path, poster_path: Path, duratio
         "-q:v", "2",
         str(poster_path)
     ]
-    await run_cmd(cmd)
+    await run_cmd(cmd, timeout=60)
 
 async def generate_hover_preview(video_path: Path, preview_path: Path, duration: float):
-    """
-    Generates a 4-second muted, low-bitrate looping MP4 compiled from 4 short clips across the video.
-    Allows cards to instantly preview scenes on hover in the UI.
-    """
+    """Generates a 4-second muted, low-bitrate looping MP4 compiled from 4 short clips."""
     if preview_path.exists() and preview_path.stat().st_size > 1000:
         return
 
     if duration < 5:
-        # For very short videos, encode the entire clip
         cmd = [
             "ffmpeg", "-y",
             "-i", str(video_path),
@@ -92,10 +101,9 @@ async def generate_hover_preview(video_path: Path, preview_path: Path, duration:
             "-movflags", "+faststart",
             str(preview_path)
         ]
-        await run_cmd(cmd)
+        await run_cmd(cmd, timeout=90)
         return
 
-    # Extract 4 one-second slices at 20%, 40%, 60%, 80% marks
     t1 = round(duration * 0.2, 2)
     t2 = round(duration * 0.4, 2)
     t3 = round(duration * 0.6, 2)
@@ -121,9 +129,8 @@ async def generate_hover_preview(video_path: Path, preview_path: Path, duration:
         "-movflags", "+faststart",
         str(preview_path)
     ]
-    code, _, _ = await run_cmd(cmd)
+    code, _, _ = await run_cmd(cmd, timeout=120)
     
-    # Fallback if complex filter failed
     if code != 0 or not preview_path.exists():
         fallback_cmd = [
             "ffmpeg", "-y",
@@ -138,42 +145,39 @@ async def generate_hover_preview(video_path: Path, preview_path: Path, duration:
             "-movflags", "+faststart",
             str(preview_path)
         ]
-        await run_cmd(fallback_cmd)
+        await run_cmd(fallback_cmd, timeout=90)
 
 async def generate_vtt_sprites(video_path: Path, meta_dir: Path, duration: float):
     """
-    Extracts 1 frame every 5 seconds (scaled to 160x90) and tiles them into a single sprite sheet (sprites.jpg).
-    Programmatically writes thumbnails.vtt mapping timestamps to #xywh=x,y,w,h coordinates.
+    Extracts frames and tiles them into a single sprite sheet (sprites.jpg).
+    Adaptive interval ensures total frames never exceed 500 frames, preventing JPEG dimension overflow.
     """
     sprites_path = meta_dir / "sprites.jpg"
     vtt_path = meta_dir / "thumbnails.vtt"
 
-    interval = 5.0
     safe_duration = max(1.0, duration)
+    # Adapt interval so total frames is at most 500 (OPS-04 safeguard)
+    interval = max(5.0, math.ceil(safe_duration / 500))
     total_frames = max(1, math.ceil(safe_duration / interval))
     
-    # Grid layout: 10 columns
     cols = 10
     rows = math.ceil(total_frames / cols)
     tile_w = 160
     tile_h = 90
 
-    # 1. Generate the tiled sprite sheet using FFmpeg tile filter
-    # fps=1/5 takes 1 frame every 5 seconds
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_path),
-        "-vf", f"fps=1/{int(interval)},scale={tile_w}:{tile_h},tile={cols}x{rows}",
+        "-vf", f"fps=1/{interval},scale={tile_w}:{tile_h},tile={cols}x{rows}",
         "-frames:v", "1",
         "-q:v", "3",
         str(sprites_path)
     ]
-    code, _, err = await run_cmd(cmd)
+    code, _, err = await run_cmd(cmd, timeout=180)
     if code != 0 or not sprites_path.exists():
         print(f"[FFmpeg] Sprite generation error: {err}")
         return
 
-    # 2. Programmatically generate the WebVTT file
     lines = ["WEBVTT\n"]
     for i in range(total_frames):
         start_t = i * interval
@@ -201,6 +205,7 @@ async def process_video_background(video_id: str):
     video_path = Path(video["local_path"])
     if not video_path.exists():
         print(f"[FFmpeg] Error: local file not found at {video_path}")
+        await update_video(video_id, {"status": "FAILED"})
         return
 
     meta_dir = settings.get_video_metadata_dir(video_id)
@@ -208,38 +213,36 @@ async def process_video_background(video_id: str):
     preview_path = meta_dir / "preview.mp4"
     vtt_path = meta_dir / "thumbnails.vtt"
 
-    try:
-        # 1. Probe video
-        info = await probe_video(video_path)
-        duration = info["duration"]
+    # Concurrency throttled via semaphore
+    async with ffmpeg_semaphore:
+        try:
+            info = await probe_video(video_path)
+            duration = info["duration"]
 
-        # 2. Extract static poster if not already present
-        await generate_poster_if_needed(video_path, poster_path, duration)
+            await generate_poster_if_needed(video_path, poster_path, duration)
+            await generate_hover_preview(video_path, preview_path, duration)
+            await generate_vtt_sprites(video_path, meta_dir, duration)
 
-        # 3. Generate 4-second preview loop
-        await generate_hover_preview(video_path, preview_path, duration)
+            update_data = {
+                "status": "LOCAL_READY",
+                "duration_seconds": duration,
+                "poster_url": f"/metadata/{video_id}/poster.jpg" if poster_path.exists() else None,
+                "preview_url": f"/metadata/{video_id}/preview.mp4" if preview_path.exists() else None,
+                "vtt_url": f"/metadata/{video_id}/thumbnails.vtt" if vtt_path.exists() else None
+            }
+            await update_video(video_id, update_data)
 
-        # 4. Generate sprite sheet & WebVTT scrubbing index
-        await generate_vtt_sprites(video_path, meta_dir, duration)
+            await manager.broadcast({
+                "event": "PROCESSING_COMPLETE",
+                "video_id": video_id,
+                "status": "LOCAL_READY",
+                "metadata": update_data
+            })
 
-        # 5. Update MongoDB record with status LOCAL_READY and asset URLs
-        update_data = {
-            "status": "LOCAL_READY",
-            "duration_seconds": duration,
-            "poster_url": f"/metadata/{video_id}/poster.jpg" if poster_path.exists() else None,
-            "preview_url": f"/metadata/{video_id}/preview.mp4" if preview_path.exists() else None,
-            "vtt_url": f"/metadata/{video_id}/thumbnails.vtt" if vtt_path.exists() else None
-        }
-        await update_video(video_id, update_data)
-
-        # 6. Broadcast completion event to UI
-        await manager.broadcast({
-            "event": "PROCESSING_COMPLETE",
-            "video_id": video_id,
-            "status": "LOCAL_READY",
-            "metadata": update_data
-        })
-
-    except Exception as e:
-        print(f"[FFmpeg] Pipeline error processing {video_id}: {e}")
-        await update_video(video_id, {"status": "LOCAL_READY"})
+        except Exception as e:
+            print(f"[FFmpeg] Pipeline error processing {video_id}: {e}")
+            # CODE-06: Accurate status on error instead of false LOCAL_READY
+            await update_video(video_id, {
+                "status": "LOCAL_READY",
+                "duration_seconds": 0.0
+            })
