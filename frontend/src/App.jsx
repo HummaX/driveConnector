@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
-  Search, Film, RefreshCw, AlertCircle, LayoutGrid, List, 
-  ArrowUpDown, X, Cloud, HardDrive, Plus, Sparkles, Database 
+  Search, Film, RefreshCw, LayoutGrid, List, 
+  ArrowUpDown, X, Cloud, HardDrive, Plus, Sparkles, Database,
+  SlidersHorizontal, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import Navbar from './components/Navbar';
 import VideoCard from './components/VideoCard';
@@ -107,12 +108,19 @@ export default function App() {
     }
   }, [token, fetchVideos, fetchMetrics]);
 
-  // Keyboard shortcut listener ('/' to search)
+  // Keyboard shortcut listener ('/' to focus search safely without stealing from modals)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === '/' && document.activeElement !== searchInputRef.current) {
+      const activeEl = document.activeElement;
+      const tag = activeEl?.tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || activeEl?.isContentEditable;
+
+      if (e.key === '/' && !isInput && activeEl !== searchInputRef.current) {
         e.preventDefault();
         searchInputRef.current?.focus();
+      } else if (e.key === 'Escape' && activeEl === searchInputRef.current) {
+        setSearchQuery('');
+        searchInputRef.current?.blur();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -221,6 +229,12 @@ export default function App() {
     }
   };
 
+  const confirmAndDelete = (videoId, title) => {
+    if (window.confirm(`Are you sure you want to remove "${title || videoId}" and all cached assets from storage?`)) {
+      handleDeleteVideo(videoId);
+    }
+  };
+
   // Filtered and Sorted Videos
   const filteredVideos = useMemo(() => {
     let result = videos.filter((video) => {
@@ -241,8 +255,8 @@ export default function App() {
       if (sortBy === 'duration') {
         return (b.duration_seconds || 0) - (a.duration_seconds || 0);
       }
-      // 'newest' default (by video_id or natural reverse index)
-      return (b.created_at || '').localeCompare(a.created_at || '');
+      // 'newest' default (by created_at or video_id)
+      return (b.created_at || b.video_id || '').localeCompare(a.created_at || a.video_id || '');
     });
 
     return result;
@@ -268,6 +282,13 @@ export default function App() {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  const formatDuration = (seconds) => {
+    if (!seconds || seconds <= 0) return '--:--';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   return (
@@ -298,7 +319,7 @@ export default function App() {
         />
 
         {/* Search, Filter & View Controls Toolbar */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pt-1">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
           {/* Search Box */}
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
@@ -314,7 +335,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-0.5 rounded"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-0.5 rounded transition"
+                title="Clear Search"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -377,14 +399,14 @@ export default function App() {
               <button
                 onClick={() => setViewMode('grid')}
                 title="Grid View"
-                className={`p-1 rounded-md transition ${viewMode === 'grid' ? 'bg-[#21262d] text-white' : 'hover:text-white'}`}
+                className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-[#21262d] text-white' : 'hover:text-white'}`}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={() => setViewMode('list')}
                 title="List View"
-                className={`p-1 rounded-md transition ${viewMode === 'list' ? 'bg-[#21262d] text-white' : 'hover:text-white'}`}
+                className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-[#21262d] text-white' : 'hover:text-white'}`}
               >
                 <List className="w-3.5 h-3.5" />
               </button>
@@ -413,7 +435,7 @@ export default function App() {
             </div>
           ) : (
             /* Sleek Table / List View */
-            <div className="bg-[#0d1117]/80 border border-[#30363d] rounded-xl overflow-hidden shadow-sm">
+            <div className="bg-[#0d1117]/90 border border-[#30363d] rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-[#161b22] text-slate-400 font-mono uppercase text-[10px] border-b border-[#30363d]">
@@ -421,6 +443,7 @@ export default function App() {
                       <th className="px-4 py-3">Title</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Source</th>
+                      <th className="px-4 py-3">Duration</th>
                       <th className="px-4 py-3">Size</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
@@ -452,20 +475,23 @@ export default function App() {
                             {v.source === 'GDRIVE' ? 'Google Drive' : 'Direct Link'}
                           </td>
                           <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">
+                            {formatDuration(v.duration_seconds)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">
                             {formatBytes(v.file_size_bytes)}
                           </td>
                           <td className="px-4 py-3 text-right space-x-2" onClick={(e) => e.stopPropagation()}>
                             {!isLocal && (
                               <button
                                 onClick={() => handleTriggerDownload(v.video_id)}
-                                className="px-2 py-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 hover:bg-sky-500/20 transition text-[11px]"
+                                className="px-2.5 py-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 hover:bg-sky-500/20 transition text-[11px] font-medium"
                               >
                                 Fetch
                               </button>
                             )}
                             <button
-                              onClick={() => handleDeleteVideo(v.video_id)}
-                              className="px-2 py-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition text-[11px]"
+                              onClick={() => confirmAndDelete(v.video_id, v.title)}
+                              className="px-2.5 py-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition text-[11px] font-medium border border-transparent hover:border-red-500/20"
                             >
                               Delete
                             </button>

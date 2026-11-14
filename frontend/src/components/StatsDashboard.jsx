@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Film,
   HardDrive,
   Cloud,
   CheckCircle2,
@@ -9,15 +8,14 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Activity,
-  Server,
   Zap,
   Radio,
-  Database,
-  Layers
+  Database
 } from 'lucide-react';
 
 function formatUptime(seconds) {
   if (!seconds || seconds <= 0) return 'Just started';
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -55,8 +53,8 @@ export default function StatsDashboard({
   // Storage metrics (1TB NVMe volume)
   const diskTotal = metrics?.disk?.total_gb ?? 1000.0;
   const diskUsed = metrics?.disk?.used_gb ?? (localFiles * 2.4).toFixed(1);
-  const diskFree = metrics?.disk?.free_gb ?? Math.max(0, diskTotal - diskUsed).toFixed(1);
-  const diskPct = metrics?.disk?.percent ?? Math.min(100, Math.round((diskUsed / diskTotal) * 100));
+  const diskFree = metrics?.disk?.free_gb ?? Math.max(0, diskTotal - Number(diskUsed)).toFixed(1);
+  const diskPct = metrics?.disk?.percent ?? Math.min(100, Math.round((Number(diskUsed) / diskTotal) * 100));
 
   // Network / Throughput
   const downloadSpeed =
@@ -111,11 +109,11 @@ export default function StatsDashboard({
       </div>
 
       {/* 5-Card Executive Operations Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
-        {/* Card 1: Media Library & Ingestion Distribution */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3.5">
+        {/* Card 1: Media Library & Ingestion Distribution (Spans 2 cols on md for balanced 3-col rows) */}
         <div
           onClick={() => onFilterChange && onFilterChange('ALL')}
-          className={`group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-md ${
+          className={`group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-md md:col-span-2 xl:col-span-1 ${
             activeFilter === 'ALL'
               ? 'border-sky-500/50 ring-1 ring-sky-500/20'
               : 'border-[#30363d]/80 hover:border-slate-600'

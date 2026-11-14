@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { 
   PlaySquare, Cloud, Plus, RefreshCw, LogOut, Shield, 
-  Cpu, HardDrive, ArrowDownRight, ArrowUpRight, Activity, Database,
-  CheckCircle2, Radio
+  Cpu, HardDrive, ArrowDownRight, ArrowUpRight, Activity, Database
 } from 'lucide-react';
 
 export default function Navbar({
@@ -57,7 +56,26 @@ export default function Navbar({
           </div>
         </div>
 
-        {/* Center: Executive Hardware Telemetry Strip */}
+        {/* Mobile Micro-Telemetry Strip (Visible on mobile/tablet < md) */}
+        <div className="flex md:hidden items-center space-x-2 text-[10px] font-mono select-none bg-[#161b22] px-2.5 py-1 rounded-lg border border-[#30363d]">
+          <div className="flex items-center space-x-1" title={`CPU: ${cpu.percent}%`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${getLoadStatusColor(cpu.percent)}`} />
+            <span className="text-slate-400">CPU</span>
+            <span className="text-white font-semibold">{cpu.percent}%</span>
+          </div>
+          <span className="text-slate-700">|</span>
+          <div className="flex items-center space-x-1" title={`RAM: ${ram.used_gb}G / ${ram.total_gb}G`}>
+            <span className="text-slate-400">RAM</span>
+            <span className="text-white font-semibold">{ram.used_gb}G</span>
+          </div>
+          <span className="text-slate-700">|</span>
+          <div className="flex items-center space-x-1" title={`NVMe Disk: ${disk.used_gb}G (${disk.percent}%)`}>
+            <span className="text-slate-400">Disk</span>
+            <span className="text-emerald-400 font-semibold">{disk.percent}%</span>
+          </div>
+        </div>
+
+        {/* Desktop Executive Hardware Telemetry Strip (Visible md and up) */}
         <div className="hidden md:flex items-center space-x-2 text-xs font-mono select-none">
           {/* CPU Pill */}
           <div 
@@ -104,12 +122,13 @@ export default function Navbar({
           {/* NVMe Storage Pill */}
           <div 
             className="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition"
-            title={`High-Speed NVMe Storage: ${disk.used_gb} GB used / ${disk.total_gb} GB total`}
+            title={`High-Speed NVMe Storage: ${disk.used_gb} GB used / ${Math.round(disk.total_gb)} GB total`}
           >
             <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
             <div className="flex items-baseline space-x-1">
               <span className="text-slate-400 text-[10px]">Disk</span>
               <span className="text-white font-semibold">{disk.used_gb}G</span>
+              <span className="text-slate-500 text-[10px]">/ {Math.round(disk.total_gb)}G</span>
               <span className="text-emerald-400/90 text-[10px] font-medium">({disk.percent}%)</span>
             </div>
             <div className="w-10 bg-slate-800 h-1 rounded-full overflow-hidden">
