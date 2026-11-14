@@ -5,8 +5,9 @@ import VideoCard from './components/VideoCard';
 import VideoPlayerModal from './components/VideoPlayerModal';
 import DriveSyncModal from './components/DriveSyncModal';
 import UrlDownloadModal from './components/UrlDownloadModal';
+import MongoDbModal from './components/MongoDbModal';
 import TransfersDrawer from './components/TransfersDrawer';
-import LoginModal from './components/LoginModal';
+import LoginPage from './components/LoginPage';
 import StatsDashboard from './components/StatsDashboard';
 
 export default function App() {
@@ -17,30 +18,11 @@ export default function App() {
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isMongoModalOpen, setIsMongoModalOpen] = useState(false);
   const [transfers, setTransfers] = useState({});
   const [metrics, setMetrics] = useState(null);
 
-  // Polling /api/system/metrics every 3 seconds
-  const fetchMetrics = useCallback(async () => {
-    try {
-      const res = await fetch('/api/system/metrics');
-      if (res.ok) {
-        const data = await res.json();
-        setMetrics(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch telemetry metrics:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 3000);
-    return () => clearInterval(interval);
-  }, [fetchMetrics]);
-
-  // Auth state
+  // Authentication State
   const [token, setToken] = useState(() => localStorage.getItem('drive_auth_token'));
   const [user, setUser] = useState(() => {
     try {
@@ -63,16 +45,41 @@ export default function App() {
     localStorage.removeItem('drive_auth_user');
     setToken(null);
     setUser(null);
+    setVideos([]);
+    setMetrics(null);
   };
 
   const getAuthHeaders = useCallback(() => {
     return token ? { 'Authorization': `Bearer ${token}` } : {};
   }, [token]);
 
-  // 1. Fetch catalog
-  const fetchVideos = useCallback(async () => {
+  // 1. Fetch System Hardware & Throughput Metrics
+  const fetchMetrics = useCallback(async () => {
+    if (!token) return;
     try {
-      const res = await fetch('/api/videos');
+      const res = await fetch('/api/system/metrics', { headers: getAuthHeaders() });
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setMetrics(data);
+      }
+    } catch (err) {
+      console.error('Failed to load metrics:', err);
+    }
+  }, [token, getAuthHeaders]);
+
+  // 2. Fetch Video Catalog
+  const fetchVideos = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/videos', { headers: getAuthHeaders() });
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setVideos(data);
@@ -82,20 +89,27 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token, getAuthHeaders]);
 
   useEffect(() => {
-    fetchVideos();
-  }, [fetchVideos]);
+    if (token) {
+      fetchVideos();
+      fetchMetrics();
+      const interval = setInterval(fetchMetrics, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [token, fetchVideos, fetchMetrics]);
 
-  // 2. Stable WebSocket connection (UI-01 fix: persistent lifecycle without modal dependency)
+  // 3. Stable Authenticated WebSocket Connection
   useEffect(() => {
+    if (!token) return;
+
     let ws;
     let reconnectTimer;
 
     const connectWs = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/transfers`;
+      const wsUrl = `${protocol}//${window.location.host}/ws/transfers?token=${encodeURIComponent(token)}`;
       ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event) => {
@@ -108,7 +122,6 @@ export default function App() {
               [msg.video_id]: msg
             }));
 
-            // Use ref to check selected video without triggering hook re-creation
             const activeModal = selectedVideoRef.current;
             if (activeModal && activeModal.video_id === msg.video_id && msg.status === 'DOWNLOAD_COMPLETE') {
               setSelectedVideo((prev) => ({
@@ -148,21 +161,17 @@ export default function App() {
       if (ws) ws.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [fetchVideos]);
+  }, [token, fetchVideos]);
 
-  // 3. Authenticated On-Demand Drive Download
+  // 4. Trigger On-Demand Drive Download
   const handleTriggerDownload = async (videoId) => {
-    if (!token) {
-      setIsLoginModalOpen(true);
-      return;
-    }
     try {
       const res = await fetch(`/api/videos/${videoId}/download`, {
         method: 'POST',
         headers: getAuthHeaders()
       });
       if (res.status === 401) {
-        setIsLoginModalOpen(true);
+        handleLogout();
         return;
       }
       fetchVideos();
@@ -171,19 +180,15 @@ export default function App() {
     }
   };
 
-  // 4. Authenticated Delete Video
+  // 5. Delete Video
   const handleDeleteVideo = async (videoId) => {
-    if (!token) {
-      setIsLoginModalOpen(true);
-      return;
-    }
     try {
       const res = await fetch(`/api/videos/${videoId}`, {
         method: 'DELETE',
         headers: getAuthHeaders()
       });
       if (res.status === 401) {
-        setIsLoginModalOpen(true);
+        handleLogout();
         return;
       }
       if (res.ok) {
@@ -199,7 +204,7 @@ export default function App() {
 
   const filteredVideos = useMemo(() => {
     return videos.filter((video) => {
-      const matchesSearch = video.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = (video.title || '').toLowerCase().includes(searchQuery.toLowerCase());
       if (!matchesSearch) return false;
       if (activeFilter === 'LOCAL') return video.status === 'LOCAL_READY';
       if (activeFilter === 'CLOUD') return video.status === 'REMOTE_ONLY';
@@ -216,32 +221,39 @@ export default function App() {
     };
   }, [videos, transfers]);
 
+  // STRICT AUTH WALL: If not authenticated, render ONLY the Login Page!
+  if (!token || !user) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // Once authenticated, unlock the full platform
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-screen bg-slate-950 flex flex-col selection:bg-sky-500 selection:text-white">
+      {/* Top Hardware Telemetry Header */}
       <Navbar
         user={user}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
-        onOpenSync={() => (token ? setIsSyncModalOpen(true) : setIsLoginModalOpen(true))}
-        onOpenUrl={() => (token ? setIsUrlModalOpen(true) : setIsLoginModalOpen(true))}
+        onOpenSync={() => setIsSyncModalOpen(true)}
+        onOpenUrl={() => setIsUrlModalOpen(true)}
+        onOpenMongoDb={() => setIsMongoModalOpen(true)}
+        metrics={metrics}
         activeTransfersCount={counts.active}
         onRefresh={() => {
           fetchVideos();
           fetchMetrics();
         }}
-        metrics={metrics}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Executive-Tier Metrics Dashboard */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Executive Real-Time Operations Stats Dashboard */}
         <StatsDashboard
           metrics={metrics}
-          videos={videos}
-          transfers={transfers}
-          onFilterChange={setActiveFilter}
+          videosCount={counts}
+          activeTransfers={transfers}
         />
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        {/* Search & Filter Toolbar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-2">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
@@ -281,8 +293,9 @@ export default function App() {
           </div>
         </div>
 
+        {/* Video Grid */}
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-24 text-slate-500 space-y-3">
+          <div className="flex flex-col items-center justify-center py-20 text-slate-500 space-y-3">
             <RefreshCw className="w-8 h-8 animate-spin text-sky-400" />
             <p className="text-sm">Loading media catalog...</p>
           </div>
@@ -309,13 +322,13 @@ export default function App() {
             </p>
             <div className="flex items-center space-x-3">
               <button
-                onClick={() => (token ? setIsSyncModalOpen(true) : setIsLoginModalOpen(true))}
+                onClick={() => setIsSyncModalOpen(true)}
                 className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-xs font-semibold shadow-lg shadow-sky-500/20 transition"
               >
                 Sync Google Drive
               </button>
               <button
-                onClick={() => (token ? setIsUrlModalOpen(true) : setIsLoginModalOpen(true))}
+                onClick={() => setIsUrlModalOpen(true)}
                 className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
               >
                 Add External Link
@@ -325,16 +338,25 @@ export default function App() {
         )}
       </main>
 
-      {/* Modals & Telemetry Drawer */}
+      {/* Video Player Modal with Authenticated Range Streaming */}
       {selectedVideo && (
         <VideoPlayerModal
           video={selectedVideo}
+          token={token}
           activeTransfer={transfers[selectedVideo.video_id]}
           onClose={() => setSelectedVideo(null)}
           onTriggerDownload={handleTriggerDownload}
         />
       )}
 
+      {/* MongoDB Live Explorer Modal */}
+      <MongoDbModal
+        isOpen={isMongoModalOpen}
+        authHeaders={getAuthHeaders()}
+        onClose={() => setIsMongoModalOpen(false)}
+      />
+
+      {/* Drive Sync Modal */}
       <DriveSyncModal
         isOpen={isSyncModalOpen}
         authHeaders={getAuthHeaders()}
@@ -342,6 +364,7 @@ export default function App() {
         onSyncComplete={fetchVideos}
       />
 
+      {/* External URL Ingestion Modal */}
       <UrlDownloadModal
         isOpen={isUrlModalOpen}
         authHeaders={getAuthHeaders()}
@@ -349,12 +372,7 @@ export default function App() {
         onDownloadStarted={fetchVideos}
       />
 
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLoginSuccess={handleLoginSuccess}
-      />
-
+      {/* Real-time Transfer Telemetry HUD Drawer */}
       <TransfersDrawer transfers={transfers} />
     </div>
   );

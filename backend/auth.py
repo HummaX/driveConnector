@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, status, Header, Query
+from fastapi import Depends, HTTPException, status, Header, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
@@ -72,7 +72,7 @@ async def init_admin_user():
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Dict[str, Any]:
-    """Enforces authentication; returns the authenticated user document."""
+    """Enforces authentication via standard Authorization: Bearer header."""
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -89,12 +89,50 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
     return user
 
-async def validate_ws_token(token: Optional[str] = Query(None)) -> bool:
-    """Validates token for WebSocket connection."""
+async def get_current_user_flexible(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    token: Optional[str] = Query(None)
+) -> Dict[str, Any]:
+    """
+    Flexible auth for video streams and media assets:
+    Accepts Bearer header, ?token= query parameter, or access_token cookie.
+    Guarantees HTML5 video elements can stream with full cryptographic verification.
+    """
+    raw_token = None
+    if credentials:
+        raw_token = credentials.credentials
+    elif token:
+        raw_token = token
+    elif "access_token" in request.cookies:
+        raw_token = request.cookies["access_token"]
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to stream or access media",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    payload = decode_access_token(raw_token)
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject")
+
+    user = await get_user_by_username(username)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
+
+async def validate_ws_token(token: Optional[str] = Query(None)) -> Optional[Dict[str, Any]]:
+    """Strictly validates token for WebSocket connections."""
     if not token:
-        return False
+        return None
     try:
-        decode_access_token(token)
-        return True
+        payload = decode_access_token(token)
+        username = payload.get("sub")
+        if username:
+            return await get_user_by_username(username)
     except Exception:
-        return False
+        pass
+    return None
