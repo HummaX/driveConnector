@@ -6,87 +6,110 @@ A hardened, high-performance self-hosted video streaming and on-demand ingestion
 
 ## 📊 System Architecture & Data Flow Chart
 
-```mermaid
-flowchart TD
-    subgraph Client ["Client Browser"]
-        UI["Web UI (React / Tailwind)"]
-        Player["Plyr Video Player"]
-        HUD["Live Transfer Overlay"]
-    end
+```text
+========================================================================================================
+                          DRIVECONNECTOR END-TO-END SYSTEM DATA FLOW
+========================================================================================================
 
-    subgraph Backend ["FastAPI Backend Engine (Port 8000)"]
-        Auth["JWT Auth / RBAC"]
-        StreamAPI["HTTP 206 Range Engine (/api/stream)"]
-        WS["WebSocket Telemetry (/ws/transfers)"]
-        Downloader["Downloader Engine (Drive & yt-dlp)"]
-        CatalogSync["Drive Catalog Sync (Drive API v3)"]
-    end
-
-    subgraph Workers ["Async Background Workers"]
-        FFmpeg["FFmpeg Pipeline (Poster, 4s Preview Loop, VTT Sprites)"]
-    end
-
-    subgraph Storage ["OVHcloud 1TB Block Storage (/mnt/storage)"]
-        MongoDB[("MongoDB 7.0 (/mnt/storage/mongodb)")]
-        VideoFiles[("Video Payloads (/mnt/storage/videos)")]
-        MetaFiles[("Asset Metadata (/mnt/storage/metadata)")]
-    end
-
-    subgraph Cloud ["External Cloud Sources"]
-        GDrive["Google Drive (Remote Video Files)"]
-        ExtURL["External Links (YouTube, Direct MP4)"]
-    end
-
-    %% Flow 1: Lightweight Sync
-    UI -->|1. Sync Catalog (No disk usage)| CatalogSync
-    CatalogSync -->|Scan Metadata & Poster| GDrive
-    CatalogSync -->|Store REMOTE_ONLY docs| MongoDB
-
-    %% Flow 2: On-Demand Fetching
-    UI -->|2. Click Play on Remote Video| Downloader
-    ExtURL -.->|Add URL| Downloader
-    Downloader -->|High-speed stream| GDrive
-    Downloader -->|Save .mp4 payload| VideoFiles
-    Downloader -.->|Live MB/s, ETA, %| WS -.-> HUD
-
-    %% Flow 3: Automated Processing
-    Downloader -->|Download complete -> Trigger| FFmpeg
-    FFmpeg -->|Extract poster.jpg, preview.mp4, sprites.jpg, thumbnails.vtt| MetaFiles
-    FFmpeg -->|Update status to LOCAL_READY| MongoDB
-
-    %% Flow 4: High-Performance Streaming
-    Player -->|3. HTTP 206 Range Request| StreamAPI
-    StreamAPI -->|Stream 4MB chunks| VideoFiles
-    Player -->|Scrub seekbar with thumbnails.vtt| MetaFiles
+ [ CLIENT BROWSER ]
+   │
+   ├── [ Web UI (React + Tailwind) ]
+   ├── [ Plyr Video Player ]
+   └── [ Real-Time Telemetry HUD Overlay ]
+         │                                              ▲
+         │ (1) User Actions                             │ (4) Live MB/s & ETA Telemetry
+         ▼                                              │
+ ┌──────────────────────────────────────────────────────┴─────────────────────────────────────────────┐
+ │ FASTAPI BACKEND SERVER (Port 8000)                                                                 │
+ │                                                                                                    │
+ │   • JWT Authentication / RBAC (admin / Admin@Drive2026!)                                           │
+ │   • Drive Catalog Sync Engine  ──────────────┐                                                     │
+ │   • High-Speed Downloader Engine (yt-dlp) ───┼──────────┐                                          │
+ │   • WebSocket Broadcaster (/ws/transfers) ───┤          │                                          │
+ │   • HTTP 206 Partial Content Range Streamer  │          │                                          │
+ └───────┬──────────────────────────────────────┼──────────┼──────────────────────────────────┬───────┘
+         │                                      │          │                                  │
+         │ (2) Scan Metadata Only               │          │ (3) High-Speed Stream            │
+         ▼                                      │          ▼                                  │
+   ┌───────────────────────────┐                │    ┌──────────────────────────┐             │
+   │ GOOGLE DRIVE (API v3)     │                │    │ EXTERNAL SOURCES         │             │
+   │ Remote Videos & Posters   │                │    │ YouTube, Direct MP4 links│             │
+   └───────────────────────────┘                │    └──────────────────────────┘             │
+                                                ▼                                             ▼
+ ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ OVHCLOUD 1TB BLOCK STORAGE (/mnt/storage)                                                          │
+ │                                                                                                    │
+ │   ├── /mnt/storage/mongodb/             <── Persistent MongoDB 7.0 Database Layer                  │
+ │   │     └── videos collection           (Stores status: REMOTE_ONLY -> DOWNLOADING -> LOCAL_READY) │
+ │   │                                                                                                │
+ │   ├── /mnt/storage/videos/              <── Local Video Payloads ({video_id}.mp4)                  │
+ │   │     └── Downloaded directly on-demand; streamed via HTTP 206 Partial Content Range            │
+ │   │                                                                                                │
+ │   └── /mnt/storage/metadata/{video_id}/ <── Generated Assets (FFmpeg Pipeline)                     │
+ │         ├── poster.jpg                  (High-res poster from Drive / 10% frame)                   │
+ │         ├── preview.mp4                 (4-second muted looping card hover preview)                │
+ │         ├── sprites.jpg                 (10-column tiled scrub sheet)                              │
+ │         └── thumbnails.vtt              (WebVTT timestamp mapping #xywh=x,y,w,h)                   │
+ └──────────────────────────────────────────────────────▲─────────────────────────────────────────────┘
+                                                        │
+                                                        │ (5) Background Process Job
+                                          ┌─────────────┴───────────────┐
+                                          │ ASYNC FFMPEG WORKER PIPELINE│
+                                          │ Throttled Concurrency (x2)  │
+                                          │ Timeout Guarded (180s)      │
+                                          └─────────────────────────────┘
 ```
 
 ---
 
-## 🔀 Git Versioning & Pull Request Approval Workflow
+## 🔀 Git Versioning & Pull Request Approval Protocol
 
-All changes follow a strict Pull Request gate protocol before landing on `main`:
+```text
+========================================================================================================
+                          GIT VERSIONING & PR APPROVAL PROTOCOL
+========================================================================================================
 
-```mermaid
-flowchart LR
-    subgraph Dev ["1. Development"]
-        Req["User Request / Task"] --> Branch["Create Feature Branch\n(feat/ or fix/)"]
-        Branch --> Code["Implement & Test"]
-        Code --> Commit["Commit Changes"]
-    end
+  [ 1. DEVELOP ]
+       User Request / Bug Report
+                  │
+                  ▼
+       git checkout -b <type>/<description> (feat/ or fix/)
+                  │
+                  ▼
+       Write Clean Code + Verify Local Syntax & Tests
+                  │
+                  ▼
+       git commit -m "feat/fix: descriptive summary"
 
-    subgraph Review ["2. Review & Approval Gate"]
-        Commit --> Push["Push Branch to Origin"]
-        Push --> PR["Open Pull Request on GitHub"]
-        PR --> UserReview{"User Approval Gate"}
-    end
-
-    subgraph Release ["3. Production Release"]
-        UserReview -->|Approved| Merge["Merge PR into 'main'"]
-        Merge --> Tag["Tag Semantic Version\n(e.g. v1.1.0, v1.2.0)"]
-        Tag --> Deploy["Deploy to OVHcloud Server"]
-        UserReview -->|Changes Requested| Revise["Revise on Branch"]
-        Revise --> PR
-    end
+  [ 2. REVIEW GATE ]
+                  │
+                  ▼
+       git push -u origin <branch-name>
+                  │
+                  ▼
+       Open GitHub Pull Request (PR)
+                  │
+                  ▼
+         ┌─────────────────────────────────┐
+         │     USER APPROVAL GATE          │
+         │  (Reviewed & approved in chat)  │
+         └────────────────┬────────────────┘
+                          │
+            Approved? ────┴──── No ──> Revise on Branch
+            │ (Yes)
+            ▼
+  [ 3. RELEASE ]
+       Merge Pull Request into 'main'
+                  │
+                  ▼
+       Tag Semantic Version (e.g. v1.1.0, v1.2.0, v1.2.1)
+                  │
+                  ▼
+       Publish Official GitHub Release
+                  │
+                  ▼
+       Deploy on OVHcloud Server: sudo bash update.sh
+========================================================================================================
 ```
 
 ---
@@ -172,8 +195,3 @@ Whenever a new release or update is approved, update your live server with:
 ```bash
 sudo bash update.sh
 ```
-
-### 4. Access the Application
-- **Media Streamer Web App**: `http://<SERVER_IP>:8000/`
-  - Click **Sign In** with Username `admin` / Password `Admin@Drive2026!`
-- **Mongo Express Database UI**: Accessible locally at `http://127.0.0.1:8081/` (or via SSH tunnel: `ssh -L 8081:localhost:8081 user@<SERVER_IP>`)
