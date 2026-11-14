@@ -46,17 +46,27 @@
 /* High-visibility Buffer Progress Bar */
 .plyr--video .plyr__progress__buffer,
 .plyr__progress__buffer {
-  color: rgba(56, 189, 248, 0.4) !important;
-  opacity: 0.9;
+  --plyr-video-progress-buffered-background: rgba(56, 189, 248, 0.45);
+  color: rgba(56, 189, 248, 0.45) !important;
+  opacity: 0.95;
   border-radius: 9999px;
+}
+.plyr--video .plyr__progress__buffer::-webkit-progress-bar {
+  background: transparent;
 }
 .plyr--video .plyr__progress__buffer::-webkit-progress-value {
-  background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.6)) !important;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.7)) !important;
   border-radius: 9999px;
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+  transition: width 0.2s ease;
 }
 .plyr--video .plyr__progress__buffer::-moz-progress-bar {
-  background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.6)) !important;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.7)) !important;
   border-radius: 9999px;
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+  transition: width 0.2s ease;
+}
+.plyr--video .plyr__progress__buffer::-ms-fill {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.7)) !important;
+  border-radius: 9999px;
 }

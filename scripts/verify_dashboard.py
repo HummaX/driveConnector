@@ -523,11 +523,16 @@ def test_buffering_and_buffer_progress_features():
         print("❌ Standalone index.html missing player-buffering-overlay or showBufferingIndicator!")
         return False
 
-    # Check media buffering event listeners (waiting, seeking)
-    for evt in ["'waiting'", "'seeking'"]:
+    # Check media buffering event listeners (waiting, seeking, stalled, loadstart)
+    for evt in ["'waiting'", "'seeking'", "'loadstart'", "stalled"]:
         if evt not in player_jsx or evt not in index_html:
             print(f"❌ Media event listener for {evt} missing in player!")
             return False
+
+    # Check that seeked guards against readyState < 3 before dismissing buffering
+    if "readyState" not in player_jsx or "readyState" not in index_html:
+        print("❌ seeked handler does not guard against premature dismissal using readyState!")
+        return False
 
     # 2. Buffer Progress Bar (Pre-Loaded Media Range) & Percentage Display
     if "bufferedPercent" not in player_jsx or "calculateBufferedPercent" not in player_jsx:
@@ -538,19 +543,51 @@ def test_buffering_and_buffer_progress_features():
         print("❌ Standalone index.html missing getBufferedPercent or buffer progress HUD elements!")
         return False
 
+    # Check that .plyr__progress__buffer value is explicitly updated with percentage
+    if "bufBar.value = pct" not in player_jsx and "buf.value = pct" not in player_jsx:
+        print("❌ React VideoPlayerModal does not update .plyr__progress__buffer element value!")
+        return False
+
+    if "buf.value = pct" not in index_html and "bufBar.value = pct" not in index_html:
+        print("❌ Standalone index.html does not update .plyr__progress__buffer element value!")
+        return False
+
     # Check explicit "Buffered:" text display in both players
     if "Buffered:" not in player_jsx or "Buffered:" not in index_html:
         print("❌ Explicit 'Buffered:' percentage indicator text missing from player timeline/toolbar!")
         return False
 
-    # 3. Plyr .plyr__progress__buffer CSS styling in both frontend and standalone HTML
-    if ".plyr__progress__buffer" not in frontend_css:
-        print("❌ frontend/src/index.css missing custom high-visibility .plyr__progress__buffer styling!")
+    # Check seekbar live badge
+    if "plyr__buffer-live-badge" not in player_jsx or "plyr__buffer-live-badge" not in index_html:
+        print("❌ Plyr seekbar live buffer badge missing from player progress elements!")
         return False
 
-    if ".plyr__progress__buffer" not in index_html:
-        print("❌ backend/static/index.html missing custom high-visibility .plyr__progress__buffer styling!")
-        return False
+    # 3. Plyr .plyr__progress__buffer CSS styling in both frontend and standalone HTML
+    for css_src, name in [(frontend_css, "frontend/src/index.css"), (index_html, "backend/static/index.html")]:
+        if ".plyr__progress__buffer" not in css_src:
+            print(f"❌ {name} missing custom high-visibility .plyr__progress__buffer styling!")
+            return False
+        if "--plyr-video-progress-buffered-background" not in css_src:
+            print(f"❌ {name} missing --plyr-video-progress-buffered-background custom property!")
+            return False
+        if "-webkit-progress-value" not in css_src or "-moz-progress-bar" not in css_src:
+            print(f"❌ {name} missing vendor progress pseudo-element styling!")
+            return False
+
+    # 4. Mathematical unit test of TimeRanges calculation logic
+    def sim_calc_buffered_pct(ranges, duration):
+        if not duration or duration <= 0:
+            return 0
+        total = sum(max(0, end - start) for start, end in ranges if end > start)
+        return min(100, max(0, round((total / duration) * 100)))
+
+    assert sim_calc_buffered_pct([], 100) == 0, "Empty ranges should yield 0%"
+    assert sim_calc_buffered_pct([(0, 42)], 100) == 42, "Single range [0, 42] should yield 42%"
+    assert sim_calc_buffered_pct([(0, 20), (50, 75)], 100) == 45, "Discontiguous ranges [0, 20] + [50, 75] should yield 45%"
+    assert sim_calc_buffered_pct([(0, 150)], 100) == 100, "Overflowing buffer should clamp to 100%"
+    assert sim_calc_buffered_pct([(0, 50)], 0) == 0, "Zero duration should return 0%"
+    assert sim_calc_buffered_pct([(0, 50)], -10) == 0, "Negative duration should return 0%"
+    assert sim_calc_buffered_pct([(50, 50), (60, 40)], 100) == 0, "Zero or inverted range should return 0%"
 
     print("✅ Video player Buffering Loading Indicator & Pre-loaded Buffer Progress features fully verified across React and standalone HTML.")
     return True

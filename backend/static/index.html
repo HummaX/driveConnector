@@ -22,19 +22,29 @@
     /* High-visibility Buffer Progress Bar */
     .plyr--video .plyr__progress__buffer,
     .plyr__progress__buffer {
-      color: rgba(56, 189, 248, 0.4) !important;
-      opacity: 0.9;
+      --plyr-video-progress-buffered-background: rgba(56, 189, 248, 0.45);
+      color: rgba(56, 189, 248, 0.45) !important;
+      opacity: 0.95;
       border-radius: 9999px;
+    }
+    .plyr--video .plyr__progress__buffer::-webkit-progress-bar {
+      background: transparent;
     }
     .plyr--video .plyr__progress__buffer::-webkit-progress-value {
-      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.6)) !important;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.7)) !important;
       border-radius: 9999px;
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+      transition: width 0.2s ease;
     }
     .plyr--video .plyr__progress__buffer::-moz-progress-bar {
-      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.6)) !important;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.7)) !important;
       border-radius: 9999px;
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+      transition: width 0.2s ease;
+    }
+    .plyr--video .plyr__progress__buffer::-ms-fill {
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.7)) !important;
+      border-radius: 9999px;
     }
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
@@ -1648,6 +1658,7 @@
     }
 
     let bufferMonitorInterval = null;
+    let currentBufferingState = false;
 
     function getBufferedPercent(videoEl) {
       if (!videoEl || !videoEl.duration || !isFinite(videoEl.duration) || videoEl.duration <= 0) return 0;
@@ -1656,9 +1667,11 @@
       if (!buf || buf.length === 0) return 0;
       let total = 0;
       for (let i = 0; i < buf.length; i++) {
-        const start = buf.start(i);
-        const end = buf.end(i);
-        if (end > start) total += (end - start);
+        try {
+          const start = buf.start(i);
+          const end = buf.end(i);
+          if (end > start) total += (end - start);
+        } catch (e) {}
       }
       const pct = Math.min(100, Math.max(0, Math.round((total / dur) * 100)));
       return isNaN(pct) ? 0 : pct;
@@ -1681,12 +1694,27 @@
       }
 
       if (activePlayer && activePlayer.elements) {
+        const buf = (activePlayer.elements.display && activePlayer.elements.display.buffer) ||
+                    (activePlayer.elements.progress && activePlayer.elements.progress.querySelector && activePlayer.elements.progress.querySelector('.plyr__progress__buffer')) ||
+                    (activePlayer.elements.container && activePlayer.elements.container.querySelector && activePlayer.elements.container.querySelector('.plyr__progress__buffer'));
+        if (buf) {
+          buf.value = pct;
+          buf.setAttribute('aria-valuenow', pct);
+          buf.setAttribute('title', `Buffered: ${pct}%`);
+          const span = buf.querySelector('span');
+          if (span) span.innerText = pct;
+        }
+
         if (activePlayer.elements.progress) {
-          const buf = activePlayer.elements.progress.querySelector('.plyr__progress__buffer');
-          if (buf) buf.setAttribute('title', `Buffered: ${pct}%`);
+          activePlayer.elements.progress.setAttribute('title', `Buffered: ${pct}%`);
           const badge = activePlayer.elements.progress.querySelector('.plyr__buffer-live-badge');
           if (badge) badge.innerText = `Buffered: ${pct}%`;
         }
+
+        if (activePlayer.elements.inputs && activePlayer.elements.inputs.seek) {
+          activePlayer.elements.inputs.seek.setAttribute('title', `Buffered: ${pct}%`);
+        }
+
         if (activePlayer.elements.container) {
           const fsTxt = activePlayer.elements.container.querySelector('.dc-fs-buffer-text');
           if (fsTxt) fsTxt.innerText = `Buffered: ${pct}%`;
@@ -1695,40 +1723,59 @@
     }
 
     function showBufferingIndicator(show) {
+      currentBufferingState = show;
+      const isFs = Boolean(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        (activePlayer && activePlayer.fullscreen && activePlayer.fullscreen.active)
+      );
+
       const overlay = document.getElementById('player-buffering-overlay');
       const beacon = document.getElementById('player-buffer-beacon');
-      if (overlay) {
+
+      if (beacon) {
+        beacon.className = show ? 'w-2 h-2 rounded-full bg-amber-400 animate-ping' : 'w-2 h-2 rounded-full bg-sky-400';
+      }
+
+      const fsOverlay = activePlayer && activePlayer.elements && activePlayer.elements.container
+        ? activePlayer.elements.container.querySelector('.dc-plyr-fs-buffering')
+        : null;
+
+      if (isFs && fsOverlay) {
+        // In fullscreen: use internal overlay to prevent double-spinner artifact
         if (show) {
-          overlay.classList.remove('hidden');
-          overlay.classList.add('flex');
+          fsOverlay.classList.remove('hidden');
+          fsOverlay.classList.add('flex');
         } else {
+          fsOverlay.classList.add('hidden');
+          fsOverlay.classList.remove('flex');
+        }
+        if (overlay) {
           overlay.classList.add('hidden');
           overlay.classList.remove('flex');
         }
-      }
-      if (beacon) {
-        if (show) {
-          beacon.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
-        } else {
-          beacon.className = 'w-2 h-2 rounded-full bg-sky-400';
-        }
-      }
-      if (activePlayer && activePlayer.elements && activePlayer.elements.container) {
-        const fsOverlay = activePlayer.elements.container.querySelector('.dc-plyr-fs-buffering');
-        if (fsOverlay) {
+      } else {
+        // In windowed mode: use player-buffering-overlay, keep fsOverlay hidden
+        if (overlay) {
           if (show) {
-            fsOverlay.classList.remove('hidden');
-            fsOverlay.classList.add('flex');
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
           } else {
-            fsOverlay.classList.add('hidden');
-            fsOverlay.classList.remove('flex');
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
           }
+        }
+        if (fsOverlay) {
+          fsOverlay.classList.add('hidden');
+          fsOverlay.classList.remove('flex');
         }
       }
     }
 
     function changePlayerQuality(q) {
       if (!activeVideoModal || !activePlayer) return;
+      showBufferingIndicator(true);
       currentSelectedQuality = q;
       const curTime = activePlayer.currentTime || 0;
       const streamBase = `/api/stream/${activeVideoModal.video_id}`;
@@ -1881,6 +1928,7 @@
       container.innerHTML = '';
 
       if (v.status === 'LOCAL_READY') {
+        showBufferingIndicator(true);
         const videoEl = document.createElement('video');
         videoEl.id = 'video-stream-element';
         videoEl.controls = true;
@@ -2007,18 +2055,42 @@
           updatePlayerBufferUI(videoEl);
         });
 
+        activePlayer.on('enterfullscreen', () => {
+          showBufferingIndicator(currentBufferingState);
+        });
+
+        activePlayer.on('exitfullscreen', () => {
+          showBufferingIndicator(currentBufferingState);
+        });
+
+        videoEl.addEventListener('stalled', () => {
+          if (!videoEl.paused && videoEl.readyState < 3) {
+            showBufferingIndicator(true);
+            updatePlayerBufferUI(videoEl);
+          }
+        });
+
         activePlayer.on('canplaythrough', () => {
           showBufferingIndicator(false);
           updatePlayerBufferUI(videoEl);
         });
 
         activePlayer.on('seeked', () => {
-          showBufferingIndicator(false);
+          if (videoEl.readyState >= 3 || videoEl.paused) {
+            showBufferingIndicator(false);
+          } else {
+            showBufferingIndicator(true);
+          }
           updatePlayerBufferUI(videoEl);
         });
 
         activePlayer.on('pause', () => {
           showBufferingIndicator(false);
+        });
+
+        activePlayer.on('ended', () => {
+          showBufferingIndicator(false);
+          updatePlayerBufferUI(videoEl);
         });
 
         activePlayer.on('progress', () => {
@@ -2092,6 +2164,7 @@
         clearInterval(bufferMonitorInterval);
         bufferMonitorInterval = null;
       }
+      currentBufferingState = false;
       showBufferingIndicator(false);
       const footerBuf = document.getElementById('player-footer-buffer');
       if (footerBuf) footerBuf.classList.add('hidden');

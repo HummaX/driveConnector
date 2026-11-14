@@ -30,7 +30,7 @@ export default function VideoPlayerModal({
   const [resumeNotice, setResumeNotice] = useState(null);
   const [isTranscodingModalOpen, setIsTranscodingModalOpen] = useState(false);
   const [replaceOriginal, setReplaceOriginal] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(true);
   const [bufferedPercent, setBufferedPercent] = useState(0);
 
   const isLocal = video.status === 'LOCAL_READY';
@@ -223,9 +223,11 @@ export default function VideoPlayerModal({
         if (!buf || buf.length === 0) return 0;
         let total = 0;
         for (let i = 0; i < buf.length; i++) {
-          const start = buf.start(i);
-          const end = buf.end(i);
-          if (end > start) total += (end - start);
+          try {
+            const start = buf.start(i);
+            const end = buf.end(i);
+            if (end > start) total += (end - start);
+          } catch (e) {}
         }
         const pct = Math.min(100, Math.max(0, Math.round((total / dur) * 100)));
         return isNaN(pct) ? 0 : pct;
@@ -235,16 +237,28 @@ export default function VideoPlayerModal({
         const pct = calculateBufferedPercent();
         setBufferedPercent(pct);
 
-        // Update Plyr native progress buffer tooltip and timeline badge
+        // Update Plyr native progress buffer element, tooltip, and timeline badge
+        const bufBar = (plyr.elements?.display && plyr.elements.display.buffer) ||
+                       (plyr.elements?.progress && plyr.elements.progress.querySelector && plyr.elements.progress.querySelector('.plyr__progress__buffer')) ||
+                       (plyr.elements?.container && plyr.elements.container.querySelector && plyr.elements.container.querySelector('.plyr__progress__buffer'));
+        if (bufBar) {
+          bufBar.value = pct;
+          bufBar.setAttribute('aria-valuenow', pct);
+          bufBar.setAttribute('title', `Buffered: ${pct}%`);
+          const span = bufBar.querySelector('span');
+          if (span) span.textContent = pct;
+        }
+
         if (plyr.elements?.progress) {
-          const bufBar = plyr.elements.progress.querySelector('.plyr__progress__buffer');
-          if (bufBar) {
-            bufBar.setAttribute('title', `Buffered: ${pct}%`);
-          }
+          plyr.elements.progress.setAttribute('title', `Buffered: ${pct}%`);
           const badge = plyr.elements.progress.querySelector('.plyr__buffer-live-badge');
           if (badge) {
             badge.textContent = `Buffered: ${pct}%`;
           }
+        }
+
+        if (plyr.elements?.inputs?.seek) {
+          plyr.elements.inputs.seek.setAttribute('title', `Buffered: ${pct}%`);
         }
 
         // Update full-screen overlay text if present
@@ -256,12 +270,22 @@ export default function VideoPlayerModal({
         }
       };
 
+      let isBufferingState = true;
       const setBufferingActive = (buffering) => {
+        isBufferingState = buffering;
         setIsBuffering(buffering);
+
+        const isFs = Boolean(
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          document.mozFullScreenElement ||
+          (plyr?.fullscreen?.active)
+        );
+
         if (plyr.elements?.container) {
           const fsOverlay = plyr.elements.container.querySelector('.dc-plyr-fs-buffering');
           if (fsOverlay) {
-            if (buffering) {
+            if (buffering && isFs) {
               fsOverlay.classList.remove('hidden');
               fsOverlay.classList.add('flex');
             } else {
@@ -284,7 +308,7 @@ export default function VideoPlayerModal({
           let badge = plyr.elements.progress.querySelector('.plyr__buffer-live-badge');
           if (!badge) {
             badge = document.createElement('span');
-            badge.className = 'plyr__buffer-live-badge absolute right-2 -top-6 text-[10px] font-mono px-2 py-0.5 rounded bg-[#0d1117]/90 border border-sky-500/30 text-sky-400 pointer-events-none shadow-md backdrop-blur-sm transition-opacity duration-200';
+            badge.className = 'plyr__buffer-live-badge absolute right-2 -top-6 text-[10px] font-mono px-2 py-0.5 rounded bg-[#0d1117]/90 border border-sky-500/30 text-sky-400 pointer-events-none shadow-md backdrop-blur-sm transition-opacity duration-200 z-10';
             badge.textContent = 'Buffered: 0%';
             plyr.elements.progress.style.position = 'relative';
             plyr.elements.progress.appendChild(badge);
@@ -319,6 +343,14 @@ export default function VideoPlayerModal({
         updateBufferMetrics();
       });
 
+      plyr.on('enterfullscreen', () => {
+        setBufferingActive(isBufferingState);
+      });
+
+      plyr.on('exitfullscreen', () => {
+        setBufferingActive(isBufferingState);
+      });
+
       plyr.on('waiting', () => {
         setBufferingActive(true);
         updateBufferMetrics();
@@ -332,6 +364,13 @@ export default function VideoPlayerModal({
       plyr.on('loadstart', () => {
         setBufferingActive(true);
         updateBufferMetrics();
+      });
+
+      videoEl.addEventListener('stalled', () => {
+        if (!videoEl.paused && videoEl.readyState < 3) {
+          setBufferingActive(true);
+          updateBufferMetrics();
+        }
       });
 
       plyr.on('playing', () => {
@@ -353,12 +392,21 @@ export default function VideoPlayerModal({
       });
 
       plyr.on('seeked', () => {
-        setBufferingActive(false);
+        if (videoEl.readyState >= 3 || videoEl.paused) {
+          setBufferingActive(false);
+        } else {
+          setBufferingActive(true);
+        }
         updateBufferMetrics();
       });
 
       plyr.on('pause', () => {
         setBufferingActive(false);
+      });
+
+      plyr.on('ended', () => {
+        setBufferingActive(false);
+        updateBufferMetrics();
       });
 
       plyr.on('progress', () => {
