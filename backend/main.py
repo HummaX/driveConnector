@@ -48,6 +48,11 @@ from downloader import (
     download_external_url,
     active_downloads
 )
+from ffmpeg_worker import (
+    active_processing,
+    transcode_video,
+    transcribe_video
+)
 
 SAFE_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
@@ -203,6 +208,10 @@ class DbQueryRequest(BaseModel):
     filter: Optional[Dict[str, Any]] = {}
     limit: Optional[int] = 50
 
+class TranscodeRequest(BaseModel):
+    quality: str = "720p"
+    replace_original: Optional[bool] = False
+
 # ----------------- WebSocket Real-Time Telemetry (Auth Guarded) -----------------
 @app.websocket("/ws/transfers")
 async def websocket_transfers_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
@@ -216,6 +225,11 @@ async def websocket_transfers_endpoint(websocket: WebSocket, token: Optional[str
     for v_id, state in active_downloads.items():
         try:
             await websocket.send_json(state)
+        except Exception:
+            break
+    for v_id, pstate in active_processing.items():
+        try:
+            await websocket.send_json(pstate)
         except Exception:
             break
     try:
@@ -356,19 +370,82 @@ async def remove_video(
         except OSError:
             pass
 
+    # Clean up multi-resolution renditions if present
+    for q in ["720p", "480p", "360p"]:
+        r_file = settings.videos_dir / f"{valid_id}_{q}.mp4"
+        if r_file.exists():
+            try:
+                os.remove(r_file)
+            except OSError:
+                pass
+
     await delete_video(valid_id)
     return {"status": "deleted", "video_id": valid_id}
+
+# ----------------- Transcoding & Transcription Operations (Auth Guarded) -----------------
+@app.post("/api/videos/{video_id}/transcode")
+async def trigger_video_transcode(
+    video_id: str,
+    payload: TranscodeRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Triggers background downscaling/transcoding to 720p, 480p, or 360p (Requires Auth)."""
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video.get("status") != "LOCAL_READY":
+        raise HTTPException(status_code=400, detail="Video must be stored locally before transcoding.")
+
+    quality = payload.quality.lower().strip()
+    if quality not in ["720p", "480p", "360p"]:
+        raise HTTPException(status_code=400, detail=f"Unsupported quality '{quality}'. Allowed: 720p, 480p, 360p.")
+
+    background_tasks.add_task(transcode_video, valid_id, quality, payload.replace_original or False)
+    return {
+        "status": "queued",
+        "video_id": valid_id,
+        "quality": quality,
+        "replace_original": payload.replace_original or False,
+        "message": f"Transcoding to {quality} started in background"
+    }
+
+@app.post("/api/videos/{video_id}/transcribe")
+async def trigger_video_transcription(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Triggers local AI subtitle transcription using faster-whisper (Requires Auth)."""
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video.get("status") != "LOCAL_READY":
+        raise HTTPException(status_code=400, detail="Video must be stored locally before transcribing.")
+
+    background_tasks.add_task(transcribe_video, valid_id)
+    return {
+        "status": "queued",
+        "video_id": valid_id,
+        "message": "AI Subtitle transcription initiated in background"
+    }
 
 # ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
 @app.get("/api/stream/{video_id}")
 async def stream_video(
     video_id: str,
     request: Request,
+    quality: Optional[str] = Query(None),
     current_user: Dict[str, Any] = Depends(get_current_user_flexible)
 ):
     """
     Authenticated HTTP Range Request Streaming Engine.
     Accepts Authorization Header, ?token= parameter, or cookie.
+    Accepts ?quality=720p, ?quality=480p, ?quality=360p for adaptive downscaled playback.
     Unauthorized users cannot stream video content.
     """
     valid_id = validate_video_id(video_id)
@@ -377,6 +454,13 @@ async def stream_video(
         raise HTTPException(status_code=404, detail="Video not found in catalog")
 
     video_path = settings.videos_dir / f"{valid_id}.mp4"
+
+    # Multi-resolution quality selection
+    if quality and quality.lower() not in ["original", "1080p", "source", ""]:
+        clean_q = quality.lower().strip()
+        rendition_file = settings.videos_dir / f"{valid_id}_{clean_q}.mp4"
+        if rendition_file.exists():
+            video_path = rendition_file
 
     if not video_path.exists() or video.get("status") == "REMOTE_ONLY":
         raise HTTPException(

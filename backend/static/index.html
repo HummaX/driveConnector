@@ -503,20 +503,145 @@
 
   <!-- ==================== 3. MODALS ==================== -->
   <!-- Player Modal -->
-  <div id="player-modal" onclick="closePlayerModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-      <div class="flex items-center justify-between px-6 py-3.5 bg-[#161b22] border-b border-[#30363d]">
-        <h3 id="player-title" class="text-sm font-semibold text-white truncate mr-4"></h3>
-        <button onclick="closePlayerModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#21262d] transition">
+  <div id="player-modal" onclick="closePlayerModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md">
+    <div id="player-modal-box" onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 max-h-[94vh]">
+      <div class="flex items-center justify-between px-5 py-3.5 bg-[#161b22] border-b border-[#30363d]">
+        <div class="flex items-center space-x-2.5 truncate mr-4">
+          <div class="p-1.5 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            <i data-lucide="film" class="w-4 h-4"></i>
+          </div>
+          <div class="truncate">
+            <h3 id="player-title" class="text-sm font-semibold text-white truncate"></h3>
+            <span id="player-resume-notice" class="text-[10px] text-emerald-400 font-mono hidden"></span>
+          </div>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          <button onclick="toggleTheaterMode()" title="Toggle Theater Mode" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-[#21262d] transition">
+            <i data-lucide="tv" class="w-4 h-4"></i>
+          </button>
+          <button onclick="closePlayerModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#21262d] transition">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Processing Telemetry Strip -->
+      <div id="player-processing-hud" class="hidden bg-purple-950/40 border-b border-purple-500/30 px-5 py-2.5 items-center justify-between text-xs font-mono">
+        <div class="flex items-center space-x-2 text-purple-300">
+          <i data-lucide="activity" class="w-4 h-4 text-purple-400 animate-spin"></i>
+          <span id="player-proc-stage" class="font-semibold">Processing:</span>
+          <span id="player-proc-details"></span>
+        </div>
+        <div class="flex items-center space-x-3">
+          <div class="w-28 bg-[#21262d] h-2 rounded-full overflow-hidden">
+            <div id="player-proc-bar" class="bg-purple-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+          <span id="player-proc-pct" class="text-purple-300 font-bold">0%</span>
+          <span id="player-proc-eta" class="text-slate-400 text-[11px]"></span>
+        </div>
+      </div>
+
+      <div id="player-container" class="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden"></div>
+
+      <!-- Supercharged Toolbar -->
+      <div id="player-supercharged-toolbar" class="px-5 py-2.5 bg-[#161b22] border-t border-[#30363d] flex flex-wrap items-center justify-between gap-2.5 text-xs">
+        <!-- Audio Booster & Speeds -->
+        <div class="flex items-center space-x-2.5 flex-wrap gap-y-2">
+          <!-- Audio Gain Booster -->
+          <div class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]">
+            <i data-lucide="volume-2" class="w-3.5 h-3.5 text-sky-400"></i>
+            <span class="text-[11px] font-mono text-slate-400">Boost:</span>
+            <div class="flex items-center space-x-1">
+              <button onclick="setAudioGain(100)" data-gain="100" class="gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-500 text-white">100%</button>
+              <button onclick="setAudioGain(125)" data-gain="125" class="gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white hover:bg-[#21262d]">125%</button>
+              <button onclick="setAudioGain(150)" data-gain="150" class="gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white hover:bg-[#21262d]">150%</button>
+              <button onclick="setAudioGain(175)" data-gain="175" class="gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white hover:bg-[#21262d]">175%</button>
+              <button onclick="setAudioGain(200)" data-gain="200" class="gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white hover:bg-[#21262d]">200%</button>
+            </div>
+          </div>
+
+          <!-- Speed -->
+          <div class="flex items-center space-x-1 bg-[#0d1117] px-2 py-1 rounded-lg border border-[#30363d]">
+            <span class="text-[11px] font-mono text-slate-400 mr-1">Speed:</span>
+            <button onclick="setPlayerSpeed(0.75)" data-speed="0.75" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white">0.75x</button>
+            <button onclick="setPlayerSpeed(1.0)" data-speed="1.0" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500 text-white">1x</button>
+            <button onclick="setPlayerSpeed(1.25)" data-speed="1.25" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white">1.25x</button>
+            <button onclick="setPlayerSpeed(1.5)" data-speed="1.5" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white">1.5x</button>
+            <button onclick="setPlayerSpeed(2.0)" data-speed="2.0" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white">2x</button>
+          </div>
+        </div>
+
+        <!-- Quality & AI Subtitles -->
+        <div class="flex items-center space-x-2.5 flex-wrap gap-y-2">
+          <!-- Quality Dropdown -->
+          <div class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]">
+            <i data-lucide="layers" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span class="text-[11px] font-mono text-slate-400">Quality:</span>
+            <select id="player-quality-select" onchange="changePlayerQuality(this.value)" class="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer">
+              <option value="original" class="bg-[#161b22] text-white">Original</option>
+              <option value="720p" class="bg-[#161b22] text-white">720p HD</option>
+              <option value="480p" class="bg-[#161b22] text-white">480p SD</option>
+              <option value="360p" class="bg-[#161b22] text-white">360p Low</option>
+            </select>
+            <button onclick="openTranscodeModal()" title="Transcode Video Renditions" class="p-1 rounded bg-[#21262d] hover:bg-[#30363d] text-slate-300 hover:text-white transition">
+              <i data-lucide="sliders" class="w-3 h-3"></i>
+            </button>
+          </div>
+
+          <!-- AI Subtitles Button / Status -->
+          <div id="player-subtitles-container">
+            <button id="btn-player-subtitles" onclick="generateSubtitlesForActiveVideo()" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 text-purple-300 border border-purple-500/30 font-mono text-xs transition">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-400"></i>
+              <span>Generate AI Subtitles</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-2.5 bg-[#0d1117] flex items-center justify-between text-xs text-slate-400 border-t border-[#30363d]/80 font-mono">
+        <span id="player-footer-path" class="font-mono text-[11px]"></span>
+        <div class="flex items-center space-x-3 text-slate-500 text-[11px]">
+          <span>Space/K Play • J/L ±10s • F Fullscreen</span>
+          <span id="player-footer-status" class="uppercase font-mono text-[11px] text-white"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Transcode Modal -->
+  <div id="transcode-modal" onclick="closeTranscodeModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div onclick="event.stopPropagation()" class="bg-[#161b22] border border-[#30363d] rounded-xl p-5 max-w-sm w-full space-y-4 shadow-2xl font-sans">
+      <div class="flex items-center justify-between">
+        <h4 class="text-sm font-bold text-white flex items-center space-x-2">
+          <i data-lucide="sliders" class="w-4 h-4 text-emerald-400"></i>
+          <span>Transcode & Downscale</span>
+        </h4>
+        <button onclick="closeTranscodeModal()" class="text-slate-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
-
-      <div id="player-container" class="relative aspect-video w-full bg-black flex items-center justify-center"></div>
-
-      <div class="px-6 py-2.5 bg-[#161b22] flex items-center justify-between text-xs text-slate-400 border-t border-[#30363d]">
-        <span id="player-footer-path" class="font-mono text-[11px]"></span>
-        <span id="player-footer-status" class="uppercase font-mono text-[11px] text-white"></span>
+      <p class="text-xs text-slate-400">
+        Generate downscaled versions or replace original to drastically reduce NVMe disk usage.
+      </p>
+      <div class="space-y-2">
+        <button onclick="triggerTranscode('720p')" class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] text-xs text-white font-mono transition">
+          <span>Transcode to 720p</span>
+          <span class="text-[10px] text-slate-500">~60% size</span>
+        </button>
+        <button onclick="triggerTranscode('480p')" class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] text-xs text-white font-mono transition">
+          <span>Transcode to 480p</span>
+          <span class="text-[10px] text-slate-500">~35% size</span>
+        </button>
+        <button onclick="triggerTranscode('360p')" class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] text-xs text-white font-mono transition">
+          <span>Transcode to 360p</span>
+          <span class="text-[10px] text-slate-500">~20% size</span>
+        </button>
+      </div>
+      <div class="pt-2 border-t border-[#30363d] flex items-center justify-between text-xs">
+        <label class="flex items-center space-x-2 text-slate-300 cursor-pointer select-none">
+          <input id="transcode-replace-orig" type="checkbox" class="rounded bg-[#0d1117] border-[#30363d] text-sky-500 focus:ring-0">
+          <span>Replace original to save disk</span>
+        </label>
       </div>
     </div>
   </div>
@@ -1202,7 +1327,8 @@
           const isLocal = v.status === 'LOCAL_READY';
           const isCloud = v.status === 'REMOTE_ONLY';
           const isDownloading = v.status === 'DOWNLOADING';
-          const isProcessing = v.status === 'PROCESSING';
+          const proc = processingJobs[v.video_id] || v.processing_info;
+          const isProcessing = v.status === 'PROCESSING' || Boolean(proc);
 
           const card = document.createElement('div');
           card.className = "group relative flex flex-col bg-[#0d1117]/80 hover:bg-[#161b22] border border-[#30363d]/80 hover:border-slate-600 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-200 cursor-pointer";
@@ -1239,11 +1365,17 @@
               ${posterMarkup}
               ${isLocal && safePreview ? `<video src="${safePreview}" loop muted playsinline preload="none" class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></video>` : ''}
               
-              <div class="absolute top-2 left-2 z-10">
-                ${isLocal ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#238636]/30 text-[#3fb950] border border-[#238636]/50 backdrop-blur-md shadow-sm"><i data-lucide="check-circle-2" class="w-3 h-3"></i><span>Saved on Server</span></span>` : ''}
-                ${isCloud ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 backdrop-blur-md shadow-sm"><i data-lucide="cloud" class="w-3 h-3"></i><span>Cloud Remote</span></span>` : ''}
-                ${isDownloading ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-sky-500/20 text-sky-300 border border-sky-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="download" class="w-3 h-3 animate-bounce"></i><span>Downloading...</span></span>` : ''}
-                ${isProcessing ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Generating Sprites</span></span>` : ''}
+              <div class="absolute top-2 left-2 z-10 max-w-[85%] truncate">
+                ${proc ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/30 text-purple-200 border border-purple-500/40 backdrop-blur-md shadow-sm animate-pulse truncate"><i data-lucide="loader-2" class="w-3 h-3 animate-spin shrink-0"></i><span class="truncate">${proc.stage_name || 'Processing'}: ${proc.percent}% ${proc.eta_seconds > 0 ? `(${proc.eta_seconds}s left)` : ''}</span></span>` : ''}
+                ${!proc && isProcessing ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Generating Sprites</span></span>` : ''}
+                ${!proc && isLocal ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#238636]/30 text-[#3fb950] border border-[#238636]/50 backdrop-blur-md shadow-sm"><i data-lucide="check-circle-2" class="w-3 h-3"></i><span>Saved on Server</span></span>` : ''}
+                ${!proc && isCloud ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 backdrop-blur-md shadow-sm"><i data-lucide="cloud" class="w-3 h-3"></i><span>Cloud Remote</span></span>` : ''}
+                ${!proc && isDownloading ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-sky-500/20 text-sky-300 border border-sky-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="download" class="w-3 h-3 animate-bounce"></i><span>Downloading...</span></span>` : ''}
+              </div>
+
+              <div class="absolute top-2 right-2 z-10 flex items-center space-x-1">
+                ${v.subtitles_url ? `<span class="px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="AI Subtitles Available">CC</span>` : ''}
+                ${v.renditions && Object.keys(v.renditions).length > 0 ? `<span class="px-1.5 py-0.5 rounded bg-sky-500/30 text-sky-300 border border-sky-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="Multi-Resolution Renditions Available">${Object.keys(v.renditions).length}Q</span>` : ''}
               </div>
 
               <div class="absolute bottom-2 left-2 z-10 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm text-[10px] font-mono text-slate-300 flex items-center space-x-1 border border-white/5">
@@ -1257,6 +1389,8 @@
                   <i data-lucide="play" class="w-5 h-5 fill-white translate-x-0.5"></i>
                 </div>
               </div>
+
+              ${proc ? `<div class="absolute bottom-0 left-0 right-0 h-1 bg-[#21262d] overflow-hidden"><div class="bg-purple-500 h-full transition-all duration-300" style="width: ${proc.percent || 0}%"></div></div>` : ''}
             </div>
             <div class="p-3 flex flex-col flex-1 justify-between gap-3">
               <div>
@@ -1265,6 +1399,7 @@
                   <span>${formatBytes(v.file_size_bytes)}</span>
                   <span>•</span>
                   <span class="text-slate-500">${isLocal ? 'NVMe Cached' : 'On-Demand'}</span>
+                  ${proc ? `<span>•</span><span class="text-purple-400 font-semibold">${proc.percent}%</span>` : ''}
                 </div>
               </div>
               <div class="flex items-center justify-between pt-2 border-t border-[#30363d]/60 text-xs">
@@ -1389,6 +1524,150 @@
       } catch (e) {}
     }
 
+    // Authenticated Player & Audio Booster Engine
+    let audioCtx = null;
+    let gainNode = null;
+    let currentGain = 100;
+    let isTheater = false;
+    let currentPlaybackSpeed = 1.0;
+    let currentSelectedQuality = 'original';
+    let processingJobs = {};
+
+    function toggleTheaterMode() {
+      isTheater = !isTheater;
+      const modalBox = document.getElementById('player-modal-box');
+      if (modalBox) {
+        if (isTheater) {
+          modalBox.className = "relative w-full w-[98vw] max-w-[98vw] h-[96vh] max-h-[96vh] bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300";
+        } else {
+          modalBox.className = "relative w-full max-w-5xl bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 max-h-[94vh]";
+        }
+      }
+    }
+
+    function setupAudioBooster(videoEl) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx && !audioCtx && videoEl) {
+          audioCtx = new AudioCtx();
+          const source = audioCtx.createMediaElementSource(videoEl);
+          gainNode = audioCtx.createGain();
+          gainNode.gain.value = currentGain / 100;
+          source.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+        }
+      } catch (err) {}
+    }
+
+    function setAudioGain(g) {
+      currentGain = g;
+      if (gainNode) gainNode.gain.value = g / 100;
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+      document.querySelectorAll('.gain-btn').forEach(b => {
+        if (parseInt(b.dataset.gain) === g) {
+          b.className = "gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-500 text-white";
+        } else {
+          b.className = "gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white hover:bg-[#21262d]";
+        }
+      });
+    }
+
+    function setPlayerSpeed(s) {
+      currentPlaybackSpeed = s;
+      if (activePlayer) activePlayer.speed = s;
+      document.querySelectorAll('.speed-btn').forEach(b => {
+        if (parseFloat(b.dataset.speed) === s) {
+          b.className = "speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500 text-white";
+        } else {
+          b.className = "speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white";
+        }
+      });
+    }
+
+    function changePlayerQuality(q) {
+      if (!activeVideoModal || !activePlayer) return;
+      currentSelectedQuality = q;
+      const curTime = activePlayer.currentTime || 0;
+      const streamBase = `/api/stream/${activeVideoModal.video_id}`;
+      const params = new URLSearchParams();
+      if (authToken) params.set('token', authToken);
+      if (q && q !== 'original') params.set('quality', q);
+      const qs = params.toString();
+      const srcUrl = qs ? `${streamBase}?${qs}` : streamBase;
+
+      const tracks = activeVideoModal.subtitles_url ? [{
+        kind: 'captions',
+        label: 'English AI',
+        srclang: 'en',
+        src: activeVideoModal.subtitles_url,
+        default: true
+      }] : [];
+
+      activePlayer.source = {
+        type: 'video',
+        title: activeVideoModal.title,
+        sources: [{ src: srcUrl, type: 'video/mp4' }],
+        tracks: tracks
+      };
+      activePlayer.once('ready', () => {
+        if (curTime > 0) activePlayer.currentTime = curTime;
+        activePlayer.speed = currentPlaybackSpeed;
+        activePlayer.play().catch(() => {});
+      });
+    }
+
+    function openTranscodeModal() {
+      const modal = document.getElementById('transcode-modal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }
+    }
+
+    function closeTranscodeModal() {
+      const modal = document.getElementById('transcode-modal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    }
+
+    async function triggerTranscode(quality) {
+      if (!activeVideoModal) return;
+      const replaceOrig = document.getElementById('transcode-replace-orig')?.checked || false;
+      closeTranscodeModal();
+      try {
+        await fetch(`/api/videos/${activeVideoModal.video_id}/transcode`, {
+          method: 'POST',
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ quality: quality, replace_original: replaceOrig })
+        });
+      } catch (err) {
+        console.error('Transcode error:', err);
+      }
+    }
+
+    async function generateSubtitlesForActiveVideo() {
+      if (!activeVideoModal) return;
+      const btn = document.getElementById('btn-player-subtitles');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Queuing AI Subtitles...</span>`;
+        updateIcons();
+      }
+      try {
+        await fetch(`/api/videos/${activeVideoModal.video_id}/transcribe`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+      } catch (err) {
+        console.error('Transcribe error:', err);
+      }
+    }
+
     // Authenticated Player Modal
     async function openPlayerModal(v) {
       activeVideoModal = v;
@@ -1397,6 +1676,55 @@
       document.getElementById('player-footer-status').innerText = v.status;
       document.getElementById('player-modal').classList.remove('hidden');
       document.getElementById('player-modal').classList.add('flex');
+
+      // Check live processing telemetry
+      const proc = processingJobs[v.video_id] || v.processing_info;
+      const procHud = document.getElementById('player-processing-hud');
+      if (procHud) {
+        if (proc) {
+          procHud.classList.remove('hidden');
+          procHud.classList.add('flex');
+          const stageEl = document.getElementById('player-proc-stage');
+          const detEl = document.getElementById('player-proc-details');
+          const barEl = document.getElementById('player-proc-bar');
+          const pctEl = document.getElementById('player-proc-pct');
+          const etaEl = document.getElementById('player-proc-eta');
+          if (stageEl) stageEl.innerText = `${proc.stage_name || 'Processing'}:`;
+          if (detEl) detEl.innerText = proc.details || `${proc.percent}%`;
+          if (barEl) barEl.style.width = `${proc.percent}%`;
+          if (pctEl) pctEl.innerText = `${proc.percent}%`;
+          if (etaEl) etaEl.innerText = proc.eta_seconds > 0 ? `${proc.eta_seconds}s left` : '';
+        } else {
+          procHud.classList.add('hidden');
+          procHud.classList.remove('flex');
+        }
+      }
+
+      // Populate Subtitles Status Button
+      const subContainer = document.getElementById('player-subtitles-container');
+      if (subContainer) {
+        if (v.subtitles_url) {
+          subContainer.innerHTML = `
+            <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono">
+              <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+              <span>AI Subtitles Active</span>
+            </div>
+          `;
+        } else {
+          subContainer.innerHTML = `
+            <button id="btn-player-subtitles" onclick="generateSubtitlesForActiveVideo()" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 text-purple-300 border border-purple-500/30 font-mono text-xs transition">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-400"></i>
+              <span>Generate AI Subtitles</span>
+            </button>
+          `;
+        }
+      }
+
+      // Check Quality Dropdown Options
+      const qSelect = document.getElementById('player-quality-select');
+      if (qSelect) {
+        qSelect.value = currentSelectedQuality;
+      }
 
       if (activePlayer) {
         activePlayer.destroy();
@@ -1417,22 +1745,90 @@
 
         const vttSrc = v.vtt_url || `/metadata/${v.video_id}/thumbnails.vtt`;
 
+        // Check Watch Position Memory
+        const savedPos = parseFloat(localStorage.getItem(`dc_playback_pos_${v.video_id}`) || '0');
+        const resumeNoticeEl = document.getElementById('player-resume-notice');
+        if (savedPos > 5 && resumeNoticeEl) {
+          const m = Math.floor(savedPos / 60);
+          const s = Math.floor(savedPos % 60);
+          resumeNoticeEl.innerText = `✓ Resumed at ${m}:${s < 10 ? '0' : ''}${s}`;
+          resumeNoticeEl.classList.remove('hidden');
+          setTimeout(() => { if (resumeNoticeEl) resumeNoticeEl.classList.add('hidden'); }, 4000);
+        }
+
+        const tracks = [];
+        if (v.subtitles_url) {
+          tracks.push({
+            kind: 'captions',
+            label: 'English AI',
+            srclang: 'en',
+            src: v.subtitles_url,
+            default: true
+          });
+        }
+
         activePlayer = new Plyr(videoEl, {
           autoplay: true,
+          controls: [
+            'play-large', 'play', 'progress', 'current-time', 'duration',
+            'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
+          ],
+          speed: {
+            selected: currentPlaybackSpeed,
+            options: [0.5, 0.75, 1, 1.25, 1.5, 2]
+          },
           previewThumbnails: {
             enabled: Boolean(v.vtt_url),
             src: vttSrc
+          },
+          keyboard: { focused: false, global: false },
+          tooltips: { controls: true, seek: true }
+        });
+
+        activePlayer.on('ready', () => {
+          if (savedPos > 5) {
+            activePlayer.currentTime = savedPos;
+          }
+          activePlayer.speed = currentPlaybackSpeed;
+          setupAudioBooster(videoEl);
+        });
+
+        activePlayer.on('play', () => {
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
           }
         });
 
-        const streamSrc = authToken 
-          ? `/api/stream/${v.video_id}?token=${encodeURIComponent(authToken)}`
-          : `/api/stream/${v.video_id}`;
+        // Watch Position Memory Throttled Save
+        let lastSave = 0;
+        activePlayer.on('timeupdate', () => {
+          const now = Date.now();
+          if (now - lastSave > 2000) {
+            lastSave = now;
+            const curr = activePlayer.currentTime;
+            const dur = activePlayer.duration;
+            if (curr > 5 && dur && curr < dur - 10) {
+              localStorage.setItem(`dc_playback_pos_${v.video_id}`, curr.toString());
+            } else if (dur && curr >= dur - 10) {
+              localStorage.removeItem(`dc_playback_pos_${v.video_id}`);
+            }
+          }
+        });
+
+        const streamBase = `/api/stream/${v.video_id}`;
+        const params = new URLSearchParams();
+        if (authToken) params.set('token', authToken);
+        if (currentSelectedQuality && currentSelectedQuality !== 'original') {
+          params.set('quality', currentSelectedQuality);
+        }
+        const qs = params.toString();
+        const streamSrc = qs ? `${streamBase}?${qs}` : streamBase;
 
         activePlayer.source = {
           type: 'video',
           title: v.title,
-          sources: [{ src: streamSrc, type: 'video/mp4' }]
+          sources: [{ src: streamSrc, type: 'video/mp4' }],
+          tracks: tracks
         };
       } else {
         container.innerHTML = `
@@ -1456,6 +1852,7 @@
         updateIcons();
         fetch(`/api/videos/${v.video_id}/download`, { method: 'POST', headers: getAuthHeaders() });
       }
+      updateIcons();
     }
 
     function closePlayerModal() {
@@ -1464,6 +1861,7 @@
         activePlayer = null;
       }
       activeVideoModal = null;
+      closeTranscodeModal();
       document.getElementById('player-modal').classList.add('hidden');
       document.getElementById('player-modal').classList.remove('flex');
     }
@@ -1889,28 +2287,48 @@
     }
 
     function renderTransfers() {
-      const list = Object.values(transfers);
+      const dlList = Object.values(transfers);
+      const procList = Object.values(processingJobs);
+      const allTasksCount = dlList.length + procList.length;
       const drawer = document.getElementById('transfers-drawer');
       const container = document.getElementById('transfers-list');
       const miniBar = document.getElementById('transfers-mini-bar');
       const miniPct = document.getElementById('transfers-mini-pct');
 
-      if (list.length === 0) {
+      if (allTasksCount === 0) {
         drawer.classList.add('hidden');
         return;
       }
       drawer.classList.remove('hidden');
-      document.getElementById('transfers-count').innerText = `${list.length} active`;
+      document.getElementById('transfers-count').innerText = `${allTasksCount} active`;
 
-      const activeList = list.filter(t => t.status === 'DOWNLOADING');
-      const avgPct = activeList.length > 0 
-        ? Math.round(activeList.reduce((acc, t) => acc + (t.percentage || 0), 0) / activeList.length)
+      const activeDl = dlList.filter(t => t.status === 'DOWNLOADING');
+      const activeProc = procList.filter(p => p.percent < 100);
+      const allPcts = [...activeDl.map(t => t.percentage || 0), ...activeProc.map(p => p.percent || 0)];
+      const avgPct = allPcts.length > 0 
+        ? Math.round(allPcts.reduce((acc, v) => acc + v, 0) / allPcts.length)
         : 100;
 
       if (miniBar) miniBar.style.width = `${avgPct}%`;
       if (miniPct) miniPct.innerText = `${avgPct}%`;
 
-      container.innerHTML = list.map(t => `
+      const procHtml = procList.map(p => `
+        <div class="bg-[#010409] p-2.5 rounded-lg border border-purple-500/30 space-y-1.5">
+          <div class="flex justify-between font-medium text-white truncate text-xs">
+            <span class="truncate flex items-center space-x-1"><i data-lucide="activity" class="w-3 h-3 text-purple-400 animate-spin"></i><span>${escapeHtml(p.stage_name || 'Processing')}</span></span>
+            <span class="text-purple-400 font-mono font-bold">${p.percent}%</span>
+          </div>
+          <div class="w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
+            <div class="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full" style="width: ${p.percent}%"></div>
+          </div>
+          <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+            <span class="text-purple-300">${escapeHtml(p.details || '')}</span>
+            <span>${p.eta_seconds > 0 ? `ETA ${p.eta_seconds}s` : ''}</span>
+          </div>
+        </div>
+      `).join('');
+
+      const dlHtml = dlList.map(t => `
         <div class="bg-[#010409] p-2.5 rounded-lg border border-[#30363d]/70 space-y-1.5">
           <div class="flex justify-between font-medium text-white truncate text-xs">
             <span class="truncate">${escapeHtml(t.title)}</span>
@@ -1926,6 +2344,9 @@
           </div>
         </div>
       `).join('');
+
+      container.innerHTML = procHtml + dlHtml;
+      updateIcons();
     }
 
     // Authenticated WebSocket Telemetry
@@ -1955,10 +2376,43 @@
                 fetchAllData();
               }
             }
-          } else if (msg.event === 'PROCESSING_COMPLETE') {
+          } else if (msg.event === 'PROCESSING_UPDATE') {
+            processingJobs[msg.video_id] = msg;
+            renderTransfers();
+            renderVideos();
+
             if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
-              activeVideoModal.vtt_url = msg.metadata.vtt_url;
-              activeVideoModal.preview_url = msg.metadata.preview_url;
+              const procHud = document.getElementById('player-processing-hud');
+              if (procHud) {
+                procHud.classList.remove('hidden');
+                procHud.classList.add('flex');
+                const stageEl = document.getElementById('player-proc-stage');
+                const detEl = document.getElementById('player-proc-details');
+                const barEl = document.getElementById('player-proc-bar');
+                const pctEl = document.getElementById('player-proc-pct');
+                const etaEl = document.getElementById('player-proc-eta');
+                if (stageEl) stageEl.innerText = `${msg.stage_name || 'Processing'}:`;
+                if (detEl) detEl.innerText = msg.details || `${msg.percent}%`;
+                if (barEl) barEl.style.width = `${msg.percent}%`;
+                if (pctEl) pctEl.innerText = `${msg.percent}%`;
+                if (etaEl) etaEl.innerText = msg.eta_seconds > 0 ? `${msg.eta_seconds}s left` : '';
+              }
+            }
+          } else if (msg.event === 'PROCESSING_COMPLETE') {
+            delete processingJobs[msg.video_id];
+            renderTransfers();
+            if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
+              const procHud = document.getElementById('player-processing-hud');
+              if (procHud) {
+                procHud.classList.add('hidden');
+                procHud.classList.remove('flex');
+              }
+              if (msg.metadata) {
+                if (msg.metadata.vtt_url) activeVideoModal.vtt_url = msg.metadata.vtt_url;
+                if (msg.metadata.subtitles_url) activeVideoModal.subtitles_url = msg.metadata.subtitles_url;
+                if (msg.metadata.renditions) activeVideoModal.renditions = msg.metadata.renditions;
+                if (msg.metadata.preview_url) activeVideoModal.preview_url = msg.metadata.preview_url;
+              }
               openPlayerModal(activeVideoModal);
             }
             fetchAllData();
@@ -1988,6 +2442,21 @@
         if (sInput) {
           e.preventDefault();
           sInput.focus();
+        }
+      } else if (!isInput && activePlayer) {
+        const key = e.key.toLowerCase();
+        if (key === ' ' || key === 'k') {
+          e.preventDefault();
+          activePlayer.togglePlay();
+        } else if (key === 'j') {
+          e.preventDefault();
+          activePlayer.rewind(10);
+        } else if (key === 'l') {
+          e.preventDefault();
+          activePlayer.forward(10);
+        } else if (key === 'f') {
+          e.preventDefault();
+          activePlayer.fullscreen.toggle();
         }
       }
     });

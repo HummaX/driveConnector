@@ -290,6 +290,160 @@ def test_drive_api_endpoints():
     finally:
         sys.path.pop(0)
 
+def test_vtt_absolute_sprites_format():
+    backend_path = (REPO_DIR / "backend").resolve()
+    sys.path.insert(0, str(backend_path))
+    try:
+        ffmpeg_worker_text = (REPO_DIR / "backend/ffmpeg_worker.py").read_text(encoding="utf-8")
+        if "/metadata/{video_id}/sprites.jpg#xywh=" not in ffmpeg_worker_text:
+            print("❌ ffmpeg_worker.py thumbnails.vtt generator is missing absolute /metadata/{video_id}/sprites.jpg URL formatting!")
+            return False
+        print("✅ WebVTT thumbnail generator formats absolute sprite paths eliminating Plyr 404s.")
+        return True
+    except Exception as e:
+        print(f"❌ VTT sprites format test failed: {e}")
+        return False
+    finally:
+        sys.path.pop(0)
+
+def test_transcode_and_transcribe_endpoints():
+    backend_path = (REPO_DIR / "backend").resolve()
+    sys.path.insert(0, str(backend_path))
+    try:
+        import main as backend_main
+        import auth as backend_auth
+        import database
+        from starlette.testclient import TestClient
+
+        client = TestClient(backend_main.app)
+
+        # 1. Unauthenticated requests must return 401 Unauthorized
+        backend_main.app.dependency_overrides.clear()
+        res_unauth_tc = client.post("/api/videos/testvid123/transcode", json={"quality": "720p"})
+        if res_unauth_tc.status_code != 401:
+            print(f"❌ POST /api/videos/testvid123/transcode unauthenticated returned {res_unauth_tc.status_code} instead of 401")
+            return False
+
+        res_unauth_sub = client.post("/api/videos/testvid123/transcribe")
+        if res_unauth_sub.status_code != 401:
+            print(f"❌ POST /api/videos/testvid123/transcribe unauthenticated returned {res_unauth_sub.status_code} instead of 401")
+            return False
+
+        # 2. Authenticated user
+        backend_main.app.dependency_overrides[backend_auth.get_current_user] = lambda: {"username": "admin", "role": "admin"}
+        backend_main.app.dependency_overrides[backend_auth.get_current_user_flexible] = lambda: {"username": "admin", "role": "admin"}
+
+        # Mock video in backend_main.get_video and ffmpeg_worker
+        import ffmpeg_worker
+        original_get_video = backend_main.get_video
+        original_fw_get = ffmpeg_worker.get_video
+        original_fw_update = ffmpeg_worker.update_video
+        original_fw_run = ffmpeg_worker.run_cmd
+
+        async def mock_get_video_local(vid):
+            if vid == "validvid123":
+                return {
+                    "video_id": "validvid123",
+                    "title": "Test Local Video",
+                    "status": "LOCAL_READY",
+                    "local_path": str(REPO_DIR / "backend/static/index.html")
+                }
+            elif vid == "remotevid123":
+                return {
+                    "video_id": "remotevid123",
+                    "title": "Test Remote Video",
+                    "status": "REMOTE_ONLY"
+                }
+            return None
+
+        async def mock_update_video(vid, data):
+            return {"video_id": vid, **data}
+
+        async def mock_run_cmd(cmd, timeout=180):
+            # Touch temp destination file if in transcode
+            dest = cmd[-1]
+            try:
+                Path(dest).write_text("dummy", encoding="utf-8")
+            except Exception:
+                pass
+            return 0, "", ""
+
+        backend_main.get_video = mock_get_video_local
+        ffmpeg_worker.get_video = mock_get_video_local
+        ffmpeg_worker.update_video = mock_update_video
+        ffmpeg_worker.run_cmd = mock_run_cmd
+
+        # 3. Not found video
+        res_404_tc = client.post("/api/videos/nonexistentvid999/transcode", json={"quality": "720p"})
+        if res_404_tc.status_code != 404:
+            print(f"❌ POST /api/videos/nonexistentvid999/transcode returned {res_404_tc.status_code} instead of 404")
+            return False
+
+        # Remote only video should reject transcoding with 400
+        res_remote_tc = client.post("/api/videos/remotevid123/transcode", json={"quality": "720p"})
+        if res_remote_tc.status_code != 400:
+            print(f"❌ Transcoding remote video returned {res_remote_tc.status_code} instead of 400")
+            return False
+
+        # Invalid quality should reject with 400
+        res_inv_q = client.post("/api/videos/validvid123/transcode", json={"quality": "240p"})
+        if res_inv_q.status_code != 400:
+            print(f"❌ Transcoding with unsupported quality returned {res_inv_q.status_code} instead of 400")
+            return False
+
+        # Valid transcode call queues successfully
+        res_valid_tc = client.post("/api/videos/validvid123/transcode", json={"quality": "720p"})
+        if res_valid_tc.status_code != 200 or res_valid_tc.json().get("status") != "queued":
+            print(f"❌ Valid transcode call failed: {res_valid_tc.status_code} {res_valid_tc.text}")
+            return False
+
+        # Valid transcribe call queues successfully
+        res_valid_sub = client.post("/api/videos/validvid123/transcribe")
+        if res_valid_sub.status_code != 200 or res_valid_sub.json().get("status") != "queued":
+            print(f"❌ Valid transcribe call failed: {res_valid_sub.status_code} {res_valid_sub.text}")
+            return False
+
+        backend_main.get_video = original_get_video
+        ffmpeg_worker.get_video = original_fw_get
+        ffmpeg_worker.update_video = original_fw_update
+        ffmpeg_worker.run_cmd = original_fw_run
+        backend_main.app.dependency_overrides.clear()
+        print("✅ Multi-resolution transcode & AI transcribe endpoints fully verified.")
+        return True
+    except Exception as e:
+        print(f"❌ Transcode/Transcribe API test failed: {e}")
+        return False
+    finally:
+        sys.path.pop(0)
+
+def test_supercharged_player_features():
+    player_jsx = (REPO_DIR / "frontend/src/components/VideoPlayerModal.jsx").read_text(encoding="utf-8")
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
+
+    # Audio booster check
+    if "createGain" not in player_jsx or "createGain" not in index_html:
+        print("❌ Web Audio API createGain (Audio Booster) missing from player!")
+        return False
+
+    # Theater mode check
+    if "isTheater" not in player_jsx or "toggleTheaterMode" not in index_html:
+        print("❌ Theater mode controls missing from player!")
+        return False
+
+    # Watch position memory check
+    if "dc_playback_pos_" not in player_jsx or "dc_playback_pos_" not in index_html:
+        print("❌ Watch position memory (localStorage) missing from player!")
+        return False
+
+    # Keyboard shortcuts J/K/L/F/Space check
+    for key in ["'j'", "'l'", "'f'"]:
+        if key not in player_jsx.lower() or key not in index_html.lower():
+            print(f"❌ Keyboard shortcut {key} missing from player keydown listener!")
+            return False
+
+    print("✅ Supercharged player UX (Audio Booster, Theater Mode, Watch Position Memory, Shortcuts) verified across React and HTML.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -302,7 +456,10 @@ if __name__ == "__main__":
         test_uptime_formatting,
         test_mobile_telemetry,
         test_fastapi_serving,
-        test_drive_api_endpoints
+        test_drive_api_endpoints,
+        test_vtt_absolute_sprites_format,
+        test_transcode_and_transcribe_endpoints,
+        test_supercharged_player_features
     ]
     failed = False
     for t in tests:

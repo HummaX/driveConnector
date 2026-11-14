@@ -1,17 +1,26 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, CheckCircle, AlertTriangle, Download } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckCircle, AlertTriangle, Download, Activity, Clock } from 'lucide-react';
 
-export default function TransfersDrawer({ transfers = {} }) {
+export default function TransfersDrawer({ transfers = {}, processingJobs = {} }) {
   const [isOpen, setIsOpen] = useState(true);
 
   const transferList = Object.values(transfers || {});
-  if (transferList.length === 0) return null;
+  const processingList = Object.values(processingJobs || {});
+  const totalTasks = transferList.length + processingList.length;
 
-  const activeCount = transferList.filter(t => t.status === 'DOWNLOADING').length;
-  // Compute overall average percentage of active transfers for minimized bar
-  const activeTransfers = transferList.filter(t => t.status === 'DOWNLOADING');
-  const avgPct = activeTransfers.length > 0 
-    ? Math.round(activeTransfers.reduce((acc, t) => acc + (t.percentage || 0), 0) / activeTransfers.length)
+  if (totalTasks === 0) return null;
+
+  const activeDownloads = transferList.filter(t => t.status === 'DOWNLOADING');
+  const activeProcessing = processingList.filter(p => p.percent < 100);
+  const activeCount = activeDownloads.length + activeProcessing.length;
+
+  // Compute average progress
+  const allActivePcts = [
+    ...activeDownloads.map(t => t.percentage || 0),
+    ...activeProcessing.map(p => p.percent || 0)
+  ];
+  const avgPct = allActivePcts.length > 0
+    ? Math.round(allActivePcts.reduce((a, b) => a + b, 0) / allActivePcts.length)
     : 100;
 
   return (
@@ -33,9 +42,9 @@ export default function TransfersDrawer({ transfers = {} }) {
             )}
           </span>
           <span className="text-xs font-semibold text-white tracking-tight flex items-center space-x-1.5">
-            <span>Active Transfers</span>
+            <span>Operations & Transfers</span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
-              {transferList.length}
+              {totalTasks}
             </span>
           </span>
         </div>
@@ -60,13 +69,55 @@ export default function TransfersDrawer({ transfers = {} }) {
       {/* Content */}
       {isOpen && (
         <div className="p-3 max-h-72 overflow-y-auto space-y-2.5 text-xs">
+          {/* Active Background Processing Jobs */}
+          {processingList.map((proc) => (
+            <div
+              key={`proc-${proc.video_id}`}
+              className="bg-[#010409] border border-purple-500/30 rounded-lg p-2.5 space-y-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="truncate flex-1">
+                  <p className="font-medium text-white truncate text-xs flex items-center space-x-1.5">
+                    <Activity className="w-3 h-3 text-purple-400 animate-spin shrink-0" />
+                    <span className="truncate">{proc.stage_name || 'Processing'}</span>
+                  </p>
+                  <span className="text-[10px] font-mono text-purple-300/80 truncate block">
+                    {proc.details || `Video ${proc.video_id.slice(0, 8)}`}
+                  </span>
+                </div>
+                <span className="text-[11px] text-purple-400 font-mono font-bold">
+                  {proc.percent}%
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full"
+                  style={{ width: `${proc.percent}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span className="text-purple-300">Stage: {proc.stage}</span>
+                {proc.eta_seconds > 0 && (
+                  <span className="flex items-center space-x-1">
+                    <Clock className="w-2.5 h-2.5 text-slate-500" />
+                    <span>ETA {proc.eta_seconds}s</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Active Downloads */}
           {transferList.map((transfer) => {
             const isCompleted = transfer.status === 'DOWNLOAD_COMPLETE';
             const isFailed = transfer.status === 'FAILED';
 
             return (
               <div
-                key={transfer.video_id}
+                key={`dl-${transfer.video_id}`}
                 className="bg-[#010409] border border-[#30363d]/60 rounded-lg p-2.5 space-y-2"
               >
                 <div className="flex items-start justify-between gap-2">
