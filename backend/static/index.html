@@ -196,6 +196,11 @@
 
         <!-- Mobile Micro-Telemetry Strip (Visible on mobile/tablet < md) -->
         <div class="flex md:hidden items-center space-x-2 text-[10px] font-mono select-none bg-[#161b22] px-2.5 py-1 rounded-lg border border-[#30363d]">
+          <div id="mobile-transfers-badge" class="hidden items-center space-x-1 text-sky-400 cursor-pointer" onclick="toggleTransfersDrawer()" title="Active transfer(s)">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span>
+            <span id="mobile-transfers-count" class="font-semibold">0 dl</span>
+            <span class="text-slate-700 ml-1">|</span>
+          </div>
           <div class="flex items-center space-x-1" title="CPU Utilization">
             <span id="mobile-cpu-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
             <span class="text-slate-400">CPU</span>
@@ -215,6 +220,11 @@
 
         <!-- Center: Hardware Telemetry Strip -->
         <div class="hidden md:flex items-center space-x-2 text-xs font-mono select-none">
+          <!-- Active Transfers Badge -->
+          <div id="header-transfers-badge" class="hidden items-center space-x-1.5 bg-sky-500/10 border border-sky-500/30 px-2.5 py-1.5 rounded-lg text-sky-400 animate-pulse font-mono cursor-pointer" onclick="toggleTransfersDrawer()" title="Active In-Progress Transfer/Processing Operations">
+            <i data-lucide="arrow-down-right" class="w-3.5 h-3.5 animate-bounce"></i>
+            <span id="header-transfers-count" class="font-semibold">0 Active</span>
+          </div>
           <!-- CPU -->
           <div class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition">
             <div class="flex items-center space-x-1.5">
@@ -2630,17 +2640,52 @@
       const miniPct = document.getElementById('transfers-mini-pct');
       const clearBtn = document.getElementById('transfers-clear-btn');
       const pingDot = document.getElementById('transfers-status-ping');
+      const headerTransfersBadge = document.getElementById('header-transfers-badge');
+      const headerTransfersCount = document.getElementById('header-transfers-count');
+      const mobileTransfersBadge = document.getElementById('mobile-transfers-badge');
+      const mobileTransfersCount = document.getElementById('mobile-transfers-count');
 
       if (allTasksCount === 0) {
         if (drawer) drawer.classList.add('hidden');
+        if (headerTransfersBadge) {
+          headerTransfersBadge.classList.add('hidden');
+          headerTransfersBadge.classList.remove('flex');
+        }
+        if (mobileTransfersBadge) {
+          mobileTransfersBadge.classList.add('hidden');
+          mobileTransfersBadge.classList.remove('flex');
+        }
         return;
       }
       if (drawer) drawer.classList.remove('hidden');
 
-      const activeDl = dlList.filter(t => t.status === 'DOWNLOADING' && (t.percentage || 0) < 100);
-      const activeProc = procList.filter(p => (p.percent || 0) < 100);
+      const isTransferDone = (t) => t.status !== 'FAILED' && ((t.percentage >= 100) || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE');
+      const activeDl = dlList.filter(t => !isTransferDone(t) && t.status !== 'FAILED' && (t.percentage || 0) < 100 && (t.status === 'DOWNLOADING' || t.status === 'QUEUED' || t.status === 'WAITING'));
+      const activeProc = procList.filter(p => (p.percent || 0) < 100 && p.status !== 'COMPLETED' && p.status !== 'FAILED');
       const activeTasksCount = activeDl.length + activeProc.length;
-      const completedCount = dlList.filter(t => (t.percentage >= 100) || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE').length;
+      const completedCount = dlList.filter(isTransferDone).length;
+
+      if (headerTransfersBadge && headerTransfersCount) {
+        if (activeTasksCount > 0) {
+          headerTransfersCount.innerText = `${activeTasksCount} Active`;
+          headerTransfersBadge.classList.remove('hidden');
+          headerTransfersBadge.classList.add('flex');
+        } else {
+          headerTransfersBadge.classList.add('hidden');
+          headerTransfersBadge.classList.remove('flex');
+        }
+      }
+
+      if (mobileTransfersBadge && mobileTransfersCount) {
+        if (activeTasksCount > 0) {
+          mobileTransfersCount.innerText = `${activeTasksCount} dl`;
+          mobileTransfersBadge.classList.remove('hidden');
+          mobileTransfersBadge.classList.add('flex');
+        } else {
+          mobileTransfersBadge.classList.add('hidden');
+          mobileTransfersBadge.classList.remove('flex');
+        }
+      }
 
       if (clearBtn) {
         if (completedCount > 0) clearBtn.classList.remove('hidden');

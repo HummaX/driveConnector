@@ -34,12 +34,13 @@ export default function VideoPlayerModal({
   const [bufferedPercent, setBufferedPercent] = useState(0);
 
   const isLocal = video.status === 'LOCAL_READY';
-  const isTransferDone = activeTransfer && (
+  const isTransferDone = Boolean(activeTransfer && (
     (activeTransfer.percentage || 0) >= 100 ||
     activeTransfer.status === 'DOWNLOAD_COMPLETE' ||
     activeTransfer.status === 'LOCAL_READY' ||
     activeTransfer.status === 'DONE'
-  );
+  ));
+  const isReadyToPlay = isLocal || isTransferDone || (video.status === 'PROCESSING' && Boolean(video.local_path));
   const isDownloading = !isTransferDone && (video.status === 'DOWNLOADING' || (activeTransfer && activeTransfer.status === 'DOWNLOADING'));
   const activeProc = processingJob || video.processing_info;
   const isProcessing = video.status === 'PROCESSING' || Boolean(activeProc);
@@ -149,7 +150,7 @@ export default function VideoPlayerModal({
 
   // 4. Stable Plyr lifecycle initialization
   useEffect(() => {
-    if (isLocal && playerContainerRef.current) {
+    if (isReadyToPlay && playerContainerRef.current) {
       const videoEl = playerContainerRef.current;
       const streamBase = `/api/stream/${video.video_id}`;
       const params = new URLSearchParams();
@@ -466,7 +467,7 @@ export default function VideoPlayerModal({
         gainNodeRef.current = null;
       }
     };
-  }, [isLocal, video.video_id, selectedQuality, video.vtt_url, video.subtitles_url, token, initAudioBooster]);
+  }, [isReadyToPlay, video.video_id, selectedQuality, video.vtt_url, video.subtitles_url, token, initAudioBooster]);
 
   // Handle Quality Change
   const handleQualitySelect = (q) => {
@@ -565,7 +566,7 @@ export default function VideoPlayerModal({
 
         {/* Player Viewport */}
         <div className="relative flex-1 min-h-[300px] bg-black flex items-center justify-center overflow-hidden">
-          {isLocal ? (
+          {isReadyToPlay ? (
             <div className="relative w-full h-full flex items-center justify-center">
               <video
                 ref={playerContainerRef}
@@ -588,6 +589,45 @@ export default function VideoPlayerModal({
                       </div>
                       <span className="text-[11px] text-sky-400 font-bold">Buffered: {bufferedPercent}%</span>
                     </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : isTransferDone ? (
+            <div className="flex flex-col items-center justify-center p-8 max-w-md w-full text-center space-y-6">
+              <div className="relative">
+                <div className="w-20 h-20 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <CheckCircle className="w-10 h-10" />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <h4 className="text-lg font-bold text-white">Download Complete</h4>
+                <p className="text-xs text-slate-400">
+                  Stream stored on 1TB NVMe Block Storage. Preparing player...
+                </p>
+              </div>
+
+              {activeTransfer && (
+                <div className="w-full space-y-3 bg-[#010409] border border-emerald-500/30 p-4 rounded-xl font-mono text-xs">
+                  <div className="w-full bg-[#21262d] h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center text-slate-300 text-xs">
+                    <span className="flex items-center space-x-1 font-bold text-emerald-400 text-sm">
+                      <CheckCircle className="w-4 h-4 text-emerald-400" />
+                      <span>Done</span>
+                    </span>
+                    <span className="text-emerald-400 font-semibold">{activeTransfer.total_str || activeTransfer.downloaded_str || '100%'}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-[11px] text-slate-500 pt-1 border-t border-[#30363d]/80">
+                    <span>Source: {activeTransfer.source || 'Storage'}</span>
+                    <span className="text-emerald-400 font-medium">Completed</span>
                   </div>
                 </div>
               )}

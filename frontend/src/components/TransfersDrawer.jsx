@@ -16,15 +16,22 @@ export default function TransfersDrawer({
   if (totalTasks === 0) return null;
 
   const isTransferDone = (t) =>
-    (t.percentage || 0) >= 100 ||
-    t.status === 'DOWNLOAD_COMPLETE' ||
-    t.status === 'LOCAL_READY' ||
-    t.status === 'DONE';
+    t.status !== 'FAILED' &&
+    ((t.percentage || 0) >= 100 ||
+      t.status === 'DOWNLOAD_COMPLETE' ||
+      t.status === 'LOCAL_READY' ||
+      t.status === 'DONE');
 
   const activeDownloads = transferList.filter(
-    (t) => t.status === 'DOWNLOADING' && (t.percentage || 0) < 100
+    (t) =>
+      !isTransferDone(t) &&
+      t.status !== 'FAILED' &&
+      (t.percentage || 0) < 100 &&
+      (t.status === 'DOWNLOADING' || t.status === 'QUEUED' || t.status === 'WAITING')
   );
-  const activeProcessing = processingList.filter((p) => (p.percent || 0) < 100);
+  const activeProcessing = processingList.filter(
+    (p) => (p.percent || 0) < 100 && p.status !== 'COMPLETED' && p.status !== 'FAILED'
+  );
   const activeCount = activeDownloads.length + activeProcessing.length;
   const completedCount = transferList.filter(isTransferDone).length;
 
