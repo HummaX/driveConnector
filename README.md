@@ -214,8 +214,8 @@ Best for public or shared Google Drive folders (**Anyone with the link can view*
 7. In Google Drive, open the folder containing your videos, right-click > **Share** > set General access to **Anyone with the link** (Viewer).
 8. In DriveConnector UI, click **Sync Drive** in the navbar:
    - Paste your **API Key**.
-   - (Optional) Paste your **Folder Link or ID**.
-   - Click **Test Connection** to verify live connectivity.
+   - Paste your **Folder Link or ID** (Required for API Key since it queries public folders; subfolders inside are automatically traversed).
+   - Click **Test Connection** to verify live connectivity and folder accessibility.
    - Click **Start Sync** to catalog all video metadata and poster thumbnails!
 
 ### Option 2: Service Account JSON (For Private Drives)

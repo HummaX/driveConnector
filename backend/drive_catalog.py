@@ -41,10 +41,11 @@ def extract_drive_id(raw: Optional[str]) -> Optional[str]:
     - Shared Folder URL with user index (e.g. 'https://drive.google.com/drive/u/0/folders/1fK29x...')
     - Open/Id link (e.g. 'https://drive.google.com/open?id=1fK29x...')
     - File link (e.g. 'https://drive.google.com/file/d/1fK29x.../view')
+    - Root alias (e.g. 'root' or 'https://drive.google.com/drive/my-drive')
     """
     if not raw:
         return None
-    raw_str = str(raw).strip()
+    raw_str = str(raw).strip().strip('"').strip("'")
     if not raw_str:
         return None
 
@@ -63,8 +64,16 @@ def extract_drive_id(raw: Optional[str]) -> Optional[str]:
     if m:
         return m.group(1)
 
+    # Handle my-drive root URL
+    if "drive.google.com" in raw_str and "my-drive" in raw_str:
+        return "root"
+
+    # Reject non-matching URLs instead of mangling URL text into an ID
+    if raw_str.startswith("http://") or raw_str.startswith("https://"):
+        return None
+
     # Direct ID with potential query params
-    clean = re.sub(r"[?&].*$", "", raw_str)
+    clean = re.sub(r"[?&#].*$", "", raw_str)
     clean = re.sub(r"[^a-zA-Z0-9_-]", "", clean)
     return clean or None
 
@@ -167,8 +176,10 @@ async def save_drive_config(new_data: Dict[str, Any]) -> Dict[str, Any]:
         updated["api_key"] = ""
         updated["service_account_json"] = ""
         updated["oauth_token"] = ""
+        updated["folder_id"] = ""
         updated["auth_type"] = "none"
         updated["status"] = "not_configured"
+        updated["last_tested_at"] = None
         updated["last_error"] = None
     else:
         # Auth type
@@ -177,7 +188,7 @@ async def save_drive_config(new_data: Dict[str, Any]) -> Dict[str, Any]:
 
         # API Key
         if "api_key" in new_data and new_data["api_key"] is not None:
-            clean_key = new_data["api_key"].strip()
+            clean_key = str(new_data["api_key"]).strip().strip('"').strip("'")
             if clean_key:
                 updated["api_key"] = clean_key
                 if not new_data.get("auth_type"):
@@ -185,7 +196,7 @@ async def save_drive_config(new_data: Dict[str, Any]) -> Dict[str, Any]:
 
         # Service Account JSON
         if "service_account_json" in new_data and new_data["service_account_json"] is not None:
-            raw_sa = new_data["service_account_json"].strip()
+            raw_sa = str(new_data["service_account_json"]).strip()
             if raw_sa:
                 try:
                     sa_dict = json.loads(raw_sa) if isinstance(raw_sa, str) else raw_sa
@@ -199,7 +210,7 @@ async def save_drive_config(new_data: Dict[str, Any]) -> Dict[str, Any]:
 
         # OAuth Token
         if "oauth_token" in new_data and new_data["oauth_token"] is not None:
-            clean_oauth = new_data["oauth_token"].strip()
+            clean_oauth = str(new_data["oauth_token"]).strip()
             if clean_oauth:
                 updated["oauth_token"] = clean_oauth
                 if not new_data.get("auth_type"):
@@ -303,7 +314,7 @@ def get_drive_service(custom_config: Optional[Dict[str, Any]] = None):
 def get_auth_headers(service=None) -> Dict[str, str]:
     """
     Safely retrieves Bearer Authorization header for authenticated HTTP asset requests.
-    Returns empty dict for developerKey (API Key) connections without crashing.
+    Handles Service Account, OAuth User Credentials, and returns empty dict for API Key.
     """
     if service is None:
         return {}
@@ -312,8 +323,8 @@ def get_auth_headers(service=None) -> Dict[str, str]:
     if not creds:
         return {}
 
-    # Only OAuth & Service Account credentials have token / refresh_token
-    if hasattr(creds, "expired") and hasattr(creds, "refresh_token") and creds.expired and creds.refresh_token:
+    # Refresh credentials if invalid or expired (works for Service Account & OAuth)
+    if hasattr(creds, "refresh") and not getattr(creds, "valid", False):
         try:
             creds.refresh(Request())
         except Exception as e:
@@ -327,14 +338,19 @@ def get_auth_headers(service=None) -> Dict[str, str]:
 def get_drive_download_params(drive_file_id: str) -> Tuple[str, Dict[str, str]]:
     """
     Returns (url, auth_headers) appropriate for the active authentication method.
-    Appends '&key={api_key}' if downloading via API Key.
+    Includes supportsAllDrives=true and appends '&key={api_key}' if downloading via API Key.
     """
-    service = get_drive_service()
-    auth_headers = get_auth_headers(service)
+    auth_headers = {}
+    try:
+        service = get_drive_service()
+        auth_headers = get_auth_headers(service)
+    except Exception:
+        pass
+
     config = get_active_drive_config()
     api_key = (config.get("api_key") or settings.GOOGLE_API_KEY or "").strip()
 
-    url = f"https://www.googleapis.com/drive/v3/files/{drive_file_id}?alt=media"
+    url = f"https://www.googleapis.com/drive/v3/files/{drive_file_id}?alt=media&supportsAllDrives=true"
     if not auth_headers and api_key:
         url = f"{url}&key={api_key}"
 
@@ -351,48 +367,77 @@ async def test_drive_connection(test_params: Optional[Dict[str, Any]] = None) ->
     cfg_to_test = dict(_ACTIVE_DRIVE_CONFIG)
     if test_params:
         for k, v in test_params.items():
-            if v is not None and str(v).strip():
+            if v is not None:
                 cfg_to_test[k] = v
 
     # Extract target folder if provided
     raw_folder = cfg_to_test.get("folder_id")
     target_folder = extract_drive_id(raw_folder)
+    auth_method = cfg_to_test.get("auth_type", "api_key")
 
     try:
         service = get_drive_service(custom_config=cfg_to_test)
-
-        # 1. Test basic Drive API discovery by querying 1 file
-        results = service.files().list(
-            pageSize=1,
-            fields="files(id, name)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True
-        ).execute()
-
         folder_info = None
         folder_msg = ""
-        if target_folder:
-            try:
-                # Query folder metadata or check files in parents
-                folder_meta = service.files().get(
-                    fileId=target_folder,
-                    fields="id, name, mimeType",
-                    supportsAllDrives=True
-                ).execute()
-                folder_info = folder_meta.get("name")
-                folder_msg = f" Verified access to folder '{folder_info}'."
-            except Exception:
-                # Alternatively check items inside folder
-                folder_items = service.files().list(
-                    q=f"'{target_folder}' in parents and trashed = false",
+
+        if auth_method == "api_key":
+            # API Key connection test:
+            # Google Drive API v3 does not permit unscoped listing across user storage with an API key.
+            if target_folder and target_folder.lower() != "root":
+                try:
+                    folder_meta = service.files().get(
+                        fileId=target_folder,
+                        fields="id, name, mimeType",
+                        supportsAllDrives=True
+                    ).execute()
+                    folder_info = folder_meta.get("name")
+                    folder_msg = f" Verified access to public folder '{folder_info}'."
+                except HttpError as folder_err:
+                    if folder_err.resp.status in (403, 404):
+                        raise
+                    raise
+            else:
+                # Validate API key validity against Drive API by querying a probe file ID
+                try:
+                    service.files().get(fileId="test_api_key_validity_probe").execute()
+                except HttpError as probe_err:
+                    if probe_err.resp.status == 404:
+                        # 404 Not Found proves the API key itself is active and recognized by Google Drive API!
+                        pass
+                    elif probe_err.resp.status == 400 and "API key not valid" in probe_err.content.decode('utf-8', errors='ignore'):
+                        raise
+                    else:
+                        raise
+                folder_msg = " API Key is valid and active. Note: Enter a shared Folder Link or ID to catalog videos."
+        else:
+            # Service Account or OAuth credentials test
+            if target_folder and target_folder.lower() != "root":
+                try:
+                    folder_meta = service.files().get(
+                        fileId=target_folder,
+                        fields="id, name, mimeType",
+                        supportsAllDrives=True
+                    ).execute()
+                    folder_info = folder_meta.get("name")
+                    folder_msg = f" Verified access to folder '{folder_info}'."
+                except Exception:
+                    folder_items = service.files().list(
+                        q=f"'{target_folder}' in parents and trashed = false",
+                        pageSize=1,
+                        fields="files(id, name)",
+                        supportsAllDrives=True,
+                        includeItemsFromAllDrives=True
+                    ).execute()
+                    folder_msg = f" Target folder ID '{target_folder}' is accessible."
+            else:
+                # Test general list access
+                results = service.files().list(
                     pageSize=1,
                     fields="files(id, name)",
                     supportsAllDrives=True,
                     includeItemsFromAllDrives=True
                 ).execute()
-                folder_msg = f" Target folder ID '{target_folder}' is accessible."
 
-        auth_method = cfg_to_test.get("auth_type", "api_key")
         success_msg = f"Successfully connected to Google Drive API v3 via {auth_method.replace('_', ' ').title()}!{folder_msg}"
 
         # Update cached test status
@@ -421,8 +466,18 @@ async def test_drive_connection(test_params: Optional[Dict[str, Any]] = None) ->
             friendly_err = "The Google Drive API key entered is invalid or inactive. Please verify it in Google Cloud Console."
         elif "Google Drive API has not been used" in detail_msg or "it is disabled" in detail_msg:
             friendly_err = "Google Drive API is not enabled in your Google Cloud Project. Please enable it in the APIs & Services Library."
+        elif status_code in (403, 404) and auth_method == "api_key":
+            if target_folder:
+                friendly_err = f"Google Drive folder '{target_folder}' could not be accessed ({status_code}). Ensure the folder's General access is set to 'Anyone with the link' (Viewer)."
+            else:
+                friendly_err = f"Google Drive API returned {status_code}: {detail_msg}. For API Key, provide a folder shared as 'Anyone with the link can view'."
+        elif status_code in (403, 404) and auth_method == "service_account":
+            if target_folder:
+                friendly_err = f"Google Drive folder '{target_folder}' not found or access denied. Ensure the folder is shared with your Service Account email."
+            else:
+                friendly_err = f"Service Account returned {status_code}: {detail_msg}"
         elif status_code == 403:
-            friendly_err = f"Google Drive API returned 403 Forbidden: {detail_msg}. Ensure the folder is set to 'Anyone with the link can view'."
+            friendly_err = f"Google Drive API returned 403 Forbidden: {detail_msg}. Ensure proper permissions are granted."
         elif status_code == 404:
             friendly_err = f"Google Drive folder '{target_folder}' was not found. Please verify the link or ID."
         else:
@@ -468,6 +523,9 @@ async def download_drive_thumbnail(
             if resp.status_code != 200:
                 # Fallback to standard thumbnail
                 resp = await client.get(thumbnail_link, headers=auth_headers)
+            if resp.status_code != 200 and auth_headers:
+                # Fallback to unauthenticated request (Google CDN often blocks Bearer auth on thumbnails)
+                resp = await client.get(thumbnail_link)
 
             if resp.status_code == 200 and len(resp.content) > 500:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -483,77 +541,117 @@ async def sync_drive_catalog(folder_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Lightweight Google Drive Catalog Sync:
     Scans Google Drive for all video files, downloads thumbnails, and inserts REMOTE_ONLY records.
+    Supports subfolder traversal when a folder is specified.
     """
     service = get_drive_service()
     auth_headers = get_auth_headers(service)
 
     raw_folder = folder_id or _ACTIVE_DRIVE_CONFIG.get("folder_id") or settings.GOOGLE_DRIVE_FOLDER_ID
     target_folder = extract_drive_id(raw_folder)
+    config = get_active_drive_config()
+    auth_type = config.get("auth_type", "api_key")
 
-    # Sanitize folder_id to prevent Google Drive API query injection
-    query_parts = ["mimeType contains 'video/'", "trashed = false"]
-    if target_folder:
-        sanitized_folder = re.sub(r"[^a-zA-Z0-9_-]", "", target_folder.strip())
-        if sanitized_folder:
-            query_parts.append(f"'{sanitized_folder}' in parents")
+    if auth_type == "api_key" and (not target_folder or target_folder.lower() == "root"):
+        raise ValueError(
+            "Google Drive API Key requires a target folder. "
+            "Please provide a Google Drive Folder Link or ID shared as 'Anyone with the link can view'."
+        )
 
-    q_str = " and ".join(query_parts)
-
-    page_token = None
+    folders_to_scan = [target_folder] if (target_folder and target_folder.lower() != "root") else [None]
+    visited_folders = set(folders_to_scan)
     total_found = 0
     synced_items = []
 
-    while True:
-        results = service.files().list(
-            q=q_str,
-            pageSize=100,
-            fields="nextPageToken, files(id, name, size, mimeType, thumbnailLink, hasThumbnail)",
-            pageToken=page_token,
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True
-        ).execute()
+    while folders_to_scan:
+        current_folder = folders_to_scan.pop(0)
 
-        files = results.get('files', [])
-        for file in files:
-            file_id = file.get('id')
-            title = file.get('name', 'Untitled Video')
-            file_size = int(file.get('size', 0))
-            thumb_link = file.get('thumbnailLink')
+        # 1. Query videos inside current folder
+        query_parts = ["mimeType contains 'video/'", "trashed = false"]
+        if current_folder:
+            sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", current_folder.strip())
+            if sanitized:
+                query_parts.append(f"'{sanitized}' in parents")
 
-            total_found += 1
+        q_videos = " and ".join(query_parts)
+        page_token = None
 
-            # Consistent UUID preservation
-            existing_doc = await get_video_by_drive_id(file_id)
-            if existing_doc:
-                video_id = existing_doc["video_id"]
-            else:
-                import uuid
-                video_id = str(uuid.uuid4())
+        while True:
+            results = service.files().list(
+                q=q_videos,
+                pageSize=100,
+                fields="nextPageToken, files(id, name, size, mimeType, thumbnailLink, hasThumbnail)",
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
 
-            meta_dir = settings.get_video_metadata_dir(video_id)
-            poster_path = meta_dir / "poster.jpg"
-            poster_url = None
+            files = results.get('files', [])
+            for file in files:
+                file_id = file.get('id')
+                title = file.get('name', 'Untitled Video')
+                file_size = int(file.get('size', 0))
+                thumb_link = file.get('thumbnailLink')
 
-            if not poster_path.exists() and thumb_link:
-                success = await download_drive_thumbnail(thumb_link, poster_path, auth_headers)
-                if success:
+                total_found += 1
+
+                # Consistent UUID preservation
+                existing_doc = await get_video_by_drive_id(file_id)
+                if existing_doc:
+                    video_id = existing_doc["video_id"]
+                else:
+                    import uuid
+                    video_id = str(uuid.uuid4())
+
+                meta_dir = settings.get_video_metadata_dir(video_id)
+                poster_path = meta_dir / "poster.jpg"
+                poster_url = None
+
+                if not poster_path.exists() and thumb_link:
+                    success = await download_drive_thumbnail(thumb_link, poster_path, auth_headers)
+                    if success:
+                        poster_url = f"/metadata/{video_id}/poster.jpg"
+                elif poster_path.exists():
                     poster_url = f"/metadata/{video_id}/poster.jpg"
-            elif poster_path.exists():
-                poster_url = f"/metadata/{video_id}/poster.jpg"
 
-            # Atomic upsert
-            doc = await upsert_drive_video(
-                drive_file_id=file_id,
-                title=title,
-                file_size_bytes=file_size,
-                poster_url=poster_url,
-                assigned_video_id=video_id
-            )
-            synced_items.append(doc)
+                # Atomic upsert
+                doc = await upsert_drive_video(
+                    drive_file_id=file_id,
+                    title=title,
+                    file_size_bytes=file_size,
+                    poster_url=poster_url,
+                    assigned_video_id=video_id
+                )
+                synced_items.append(doc)
 
-        page_token = results.get('nextPageToken')
-        if not page_token:
-            break
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+
+        # 2. Check for child subfolders if scanning a target folder
+        if current_folder and len(visited_folders) < 100:
+            sanitized_parent = re.sub(r"[^a-zA-Z0-9_-]", "", current_folder.strip())
+            if sanitized_parent:
+                q_subfolders = f"mimeType = 'application/vnd.google-apps.folder' and '{sanitized_parent}' in parents and trashed = false"
+                sf_page_token = None
+                while True:
+                    sf_results = service.files().list(
+                        q=q_subfolders,
+                        pageSize=50,
+                        fields="nextPageToken, files(id, name)",
+                        pageToken=sf_page_token,
+                        supportsAllDrives=True,
+                        includeItemsFromAllDrives=True
+                    ).execute()
+
+                    for sf in sf_results.get('files', []):
+                        sf_id = sf.get('id')
+                        if sf_id and sf_id not in visited_folders and len(visited_folders) < 100:
+                            visited_folders.add(sf_id)
+                            folders_to_scan.append(sf_id)
+
+                    sf_page_token = sf_results.get('nextPageToken')
+                    if not sf_page_token or len(visited_folders) >= 100:
+                        break
 
     return {
         "status": "success",

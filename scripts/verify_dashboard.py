@@ -241,17 +241,46 @@ def test_drive_api_endpoints():
         if "success" not in test_data or "message" not in test_data:
             print(f"❌ POST /api/drive/test response missing success or message: {test_data}")
             return False
+        if test_data["success"] is not False:
+            print(f"❌ POST /api/drive/test should report success=False for invalid key: {test_data}")
+            return False
+
+        # 5. Test POST /api/drive/config with clear_credentials
+        clear_res = client.post(
+            "/api/drive/config",
+            json={"clear_credentials": True}
+        )
+        if clear_res.status_code != 200:
+            print(f"❌ POST /api/drive/config clear_credentials failed: {clear_res.status_code}")
+            return False
+        cleared_cfg = clear_res.json().get("config", {})
+        if cleared_cfg.get("configured") is not False:
+            print(f"❌ Configured status should be False after clear_credentials: {cleared_cfg}")
+            return False
+        if cleared_cfg.get("folder_id") != "":
+            print(f"❌ Folder ID should be reset after clear_credentials: {cleared_cfg.get('folder_id')}")
+            return False
 
         # Clear dependency overrides
         backend_main.app.dependency_overrides.clear()
 
-        # 5. Test extract_drive_id edge cases
+        # 6. Test extract_drive_id edge cases
         assert drive_catalog.extract_drive_id("https://drive.google.com/drive/folders/1XYZ") == "1XYZ"
-        assert drive_catalog.extract_drive_id("https://drive.google.com/drive/u/0/folders/1XYZ") == "1XYZ"
+        assert drive_catalog.extract_drive_id("https://drive.google.com/drive/u/0/folders/1XYZ?usp=sharing") == "1XYZ"
         assert drive_catalog.extract_drive_id("https://drive.google.com/open?id=1XYZ") == "1XYZ"
-        assert drive_catalog.extract_drive_id("https://drive.google.com/file/d/1XYZ/view") == "1XYZ"
+        assert drive_catalog.extract_drive_id("https://drive.google.com/file/d/1XYZ/view?usp=sharing") == "1XYZ"
+        assert drive_catalog.extract_drive_id("https://drive.google.com/drive/my-drive") == "root"
+        assert drive_catalog.extract_drive_id("https://drive.google.com/drive/u/0/my-drive") == "root"
         assert drive_catalog.extract_drive_id("1XYZ") == "1XYZ"
+        assert drive_catalog.extract_drive_id(' "1XYZ" ') == "1XYZ"
         assert drive_catalog.extract_drive_id("") is None
+        assert drive_catalog.extract_drive_id("https://example.com/not-drive") is None
+
+        # 7. Test get_drive_download_params URL parameters
+        dl_url, auth_hdr = drive_catalog.get_drive_download_params("test_file_id_123")
+        assert "supportsAllDrives=true" in dl_url, "Download URL must include supportsAllDrives=true"
+        assert "alt=media" in dl_url, "Download URL must include alt=media"
+        assert isinstance(auth_hdr, dict), "Auth headers must be a dict"
 
         print("✅ Google Drive configuration and connectivity endpoints fully verified.")
         return True
