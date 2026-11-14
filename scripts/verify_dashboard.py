@@ -509,6 +509,52 @@ def test_supercharged_player_features():
     print("✅ Supercharged player UX (Audio Booster, Theater Mode, Watch Position Memory, Shortcuts) verified across React and HTML.")
     return True
 
+def test_buffering_and_buffer_progress_features():
+    player_jsx = (REPO_DIR / "frontend/src/components/VideoPlayerModal.jsx").read_text(encoding="utf-8")
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
+    frontend_css = (REPO_DIR / "frontend/src/index.css").read_text(encoding="utf-8")
+
+    # 1. Buffering Loading Indicator
+    if "isBuffering" not in player_jsx or "Buffering" not in player_jsx:
+        print("❌ React VideoPlayerModal missing buffering indicator overlay state/UI!")
+        return False
+
+    if "player-buffering-overlay" not in index_html or "showBufferingIndicator" not in index_html:
+        print("❌ Standalone index.html missing player-buffering-overlay or showBufferingIndicator!")
+        return False
+
+    # Check media buffering event listeners (waiting, seeking)
+    for evt in ["'waiting'", "'seeking'"]:
+        if evt not in player_jsx or evt not in index_html:
+            print(f"❌ Media event listener for {evt} missing in player!")
+            return False
+
+    # 2. Buffer Progress Bar (Pre-Loaded Media Range) & Percentage Display
+    if "bufferedPercent" not in player_jsx or "calculateBufferedPercent" not in player_jsx:
+        print("❌ React VideoPlayerModal missing HTML5 video buffered TimeRanges percentage calculation!")
+        return False
+
+    if "getBufferedPercent" not in index_html or "player-buffer-pct" not in index_html or "player-buffer-bar" not in index_html:
+        print("❌ Standalone index.html missing getBufferedPercent or buffer progress HUD elements!")
+        return False
+
+    # Check explicit "Buffered:" text display in both players
+    if "Buffered:" not in player_jsx or "Buffered:" not in index_html:
+        print("❌ Explicit 'Buffered:' percentage indicator text missing from player timeline/toolbar!")
+        return False
+
+    # 3. Plyr .plyr__progress__buffer CSS styling in both frontend and standalone HTML
+    if ".plyr__progress__buffer" not in frontend_css:
+        print("❌ frontend/src/index.css missing custom high-visibility .plyr__progress__buffer styling!")
+        return False
+
+    if ".plyr__progress__buffer" not in index_html:
+        print("❌ backend/static/index.html missing custom high-visibility .plyr__progress__buffer styling!")
+        return False
+
+    print("✅ Video player Buffering Loading Indicator & Pre-loaded Buffer Progress features fully verified across React and standalone HTML.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -525,7 +571,8 @@ if __name__ == "__main__":
         test_vtt_absolute_sprites_format,
         test_vtt_mimetype_and_time_format,
         test_transcode_and_transcribe_endpoints,
-        test_supercharged_player_features
+        test_supercharged_player_features,
+        test_buffering_and_buffer_progress_features
     ]
     failed = False
     for t in tests:
