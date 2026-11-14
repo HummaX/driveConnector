@@ -37,7 +37,7 @@ export default function StatsDashboard({
   const cloudCountFallback = (videos || []).filter((v) => v.status === 'REMOTE_ONLY').length;
   const transferValues = Object.values(transfers || {});
   const inQueueFallback = transferValues.filter(
-    (t) => t.status === 'DOWNLOADING' || t.status === 'WAITING'
+    (t) => (t.status === 'DOWNLOADING' || t.status === 'WAITING') && (t.percentage || 0) < 100
   ).length;
   const inProcessingFallback = transferValues.filter(
     (t) => t.status === 'PROCESSING'

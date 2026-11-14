@@ -893,13 +893,14 @@
   <div id="transfers-drawer" class="fixed bottom-4 right-4 z-40 w-96 max-w-[calc(100vw-2rem)] bg-[#0d1117]/95 border border-[#30363d] rounded-xl shadow-2xl hidden overflow-hidden backdrop-blur-xl">
     <div onclick="toggleTransfersDrawer()" class="px-4 py-2.5 bg-[#161b22]/90 border-b border-[#30363d]/80 flex items-center justify-between text-xs font-semibold text-white cursor-pointer select-none">
       <span class="flex items-center space-x-2">
-        <span class="relative flex h-2 w-2">
+        <span id="transfers-status-ping" class="relative flex h-2 w-2">
           <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
           <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
         </span>
         <span>Active Transfers</span>
       </span>
       <div class="flex items-center space-x-2">
+        <button id="transfers-clear-btn" type="button" onclick="event.stopPropagation(); clearCompletedTransfers();" class="hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#21262d] text-slate-400 hover:text-white border border-[#30363d] transition">Clear</button>
         <span id="transfers-mini-pct" class="hidden text-[10px] font-mono text-sky-400 font-semibold"></span>
         <span id="transfers-count" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium"></span>
       </div>
@@ -2604,6 +2605,21 @@
       }
     }
 
+    function dismissTransfer(videoId) {
+      delete transfers[videoId];
+      renderTransfers();
+    }
+
+    function clearCompletedTransfers() {
+      for (const id in transfers) {
+        const t = transfers[id];
+        if (t.percentage >= 100 || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE') {
+          delete transfers[id];
+        }
+      }
+      renderTransfers();
+    }
+
     function renderTransfers() {
       const dlList = Object.values(transfers);
       const procList = Object.values(processingJobs);
@@ -2612,23 +2628,59 @@
       const container = document.getElementById('transfers-list');
       const miniBar = document.getElementById('transfers-mini-bar');
       const miniPct = document.getElementById('transfers-mini-pct');
+      const clearBtn = document.getElementById('transfers-clear-btn');
+      const pingDot = document.getElementById('transfers-status-ping');
 
       if (allTasksCount === 0) {
-        drawer.classList.add('hidden');
+        if (drawer) drawer.classList.add('hidden');
         return;
       }
-      drawer.classList.remove('hidden');
-      document.getElementById('transfers-count').innerText = `${allTasksCount} active`;
+      if (drawer) drawer.classList.remove('hidden');
 
-      const activeDl = dlList.filter(t => t.status === 'DOWNLOADING');
-      const activeProc = procList.filter(p => p.percent < 100);
+      const activeDl = dlList.filter(t => t.status === 'DOWNLOADING' && (t.percentage || 0) < 100);
+      const activeProc = procList.filter(p => (p.percent || 0) < 100);
+      const activeTasksCount = activeDl.length + activeProc.length;
+      const completedCount = dlList.filter(t => (t.percentage >= 100) || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE').length;
+
+      if (clearBtn) {
+        if (completedCount > 0) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+      }
+
+      if (pingDot) {
+        if (activeTasksCount > 0) {
+          pingDot.innerHTML = `
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+          `;
+        } else {
+          pingDot.innerHTML = `<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>`;
+        }
+      }
+
+      const countBadge = document.getElementById('transfers-count');
+      if (countBadge) {
+        if (activeTasksCount > 0) {
+          countBadge.innerText = `${activeTasksCount} active`;
+          countBadge.className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium";
+        } else {
+          countBadge.innerText = "Done";
+          countBadge.className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium";
+        }
+      }
+
       const allPcts = [...activeDl.map(t => t.percentage || 0), ...activeProc.map(p => p.percent || 0)];
       const avgPct = allPcts.length > 0 
         ? Math.round(allPcts.reduce((acc, v) => acc + v, 0) / allPcts.length)
         : 100;
 
-      if (miniBar) miniBar.style.width = `${avgPct}%`;
-      if (miniPct) miniPct.innerText = `${avgPct}%`;
+      if (miniBar) {
+        miniBar.style.width = `${avgPct}%`;
+        miniBar.className = activeTasksCount > 0 ? "bg-sky-500 h-full transition-all duration-300" : "bg-emerald-500 h-full transition-all duration-300";
+      }
+      if (miniPct) {
+        miniPct.innerText = activeTasksCount > 0 ? `${avgPct}%` : 'Done';
+      }
 
       const procHtml = procList.map(p => `
         <div class="bg-[#010409] p-2.5 rounded-lg border border-purple-500/30 space-y-1.5">
@@ -2646,24 +2698,61 @@
         </div>
       `).join('');
 
-      const dlHtml = dlList.map(t => `
-        <div class="bg-[#010409] p-2.5 rounded-lg border border-[#30363d]/70 space-y-1.5">
-          <div class="flex justify-between font-medium text-white truncate text-xs">
-            <span class="truncate">${escapeHtml(t.title)}</span>
-            <span class="text-sky-400 font-mono font-bold">${t.percentage}%</span>
-          </div>
-          <div class="w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
-            <div class="bg-sky-500 h-full transition-all duration-300 rounded-full" style="width: ${t.percentage}%"></div>
-          </div>
-          <div class="flex justify-between text-[10px] text-slate-400 font-mono">
-            <span class="text-sky-300">${t.speed_mbs} MB/s</span>
-            <span>${escapeHtml(t.downloaded_str)} / ${escapeHtml(t.total_str)}</span>
-            <span>ETA ${t.eta_seconds}s</span>
-          </div>
-        </div>
-      `).join('');
+      const dlHtml = dlList.map(t => {
+        const isDone = (t.percentage >= 100) || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE';
+        const isFailed = t.status === 'FAILED';
 
-      container.innerHTML = procHtml + dlHtml;
+        if (isDone) {
+          return `
+            <div class="bg-[#010409] p-2.5 rounded-lg border border-emerald-500/30 space-y-1.5 transition-all">
+              <div class="flex justify-between items-center font-medium text-white truncate text-xs">
+                <span class="truncate flex items-center space-x-1.5">
+                  <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+                  <span class="truncate" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</span>
+                </span>
+                <span class="text-[10px] font-mono font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 shrink-0">Done</span>
+              </div>
+              <div class="w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
+                <div class="bg-emerald-500 h-full transition-all duration-300 rounded-full" style="width: 100%"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                <span class="text-emerald-400 font-medium flex items-center space-x-1"><i data-lucide="check" class="w-2.5 h-2.5"></i><span>Completed</span></span>
+                <span>${escapeHtml(t.total_str || t.downloaded_str || '100%')}</span>
+                <button type="button" class="text-slate-500 hover:text-slate-300 transition cursor-pointer" onclick="dismissTransfer('${escapeHtml(t.video_id)}')">Dismiss</button>
+              </div>
+            </div>
+          `;
+        } else if (isFailed) {
+          return `
+            <div class="bg-[#010409] p-2.5 rounded-lg border border-red-500/30 space-y-1.5">
+              <div class="flex justify-between items-center font-medium text-white truncate text-xs">
+                <span class="truncate text-red-300">${escapeHtml(t.title)}</span>
+                <span class="text-[10px] font-mono font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 shrink-0">Failed</span>
+              </div>
+              <div class="text-[10px] text-red-400 font-mono truncate">${escapeHtml(t.error || 'Download failed')}</div>
+            </div>
+          `;
+        } else {
+          return `
+            <div class="bg-[#010409] p-2.5 rounded-lg border border-[#30363d]/70 space-y-1.5">
+              <div class="flex justify-between font-medium text-white truncate text-xs">
+                <span class="truncate">${escapeHtml(t.title)}</span>
+                <span class="text-sky-400 font-mono font-bold">${t.percentage}%</span>
+              </div>
+              <div class="w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
+                <div class="bg-sky-500 h-full transition-all duration-300 rounded-full" style="width: ${t.percentage}%"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                <span class="text-sky-300">${t.speed_mbs} MB/s</span>
+                <span>${escapeHtml(t.downloaded_str)} / ${escapeHtml(t.total_str)}</span>
+                <span>ETA ${t.eta_seconds}s</span>
+              </div>
+            </div>
+          `;
+        }
+      }).join('');
+
+      if (container) container.innerHTML = procHtml + dlHtml;
       updateIcons();
     }
 
@@ -2677,18 +2766,34 @@
         try {
           const msg = JSON.parse(e.data);
           if (msg.event === 'TRANSFER_UPDATE') {
+            const isDone = (msg.percentage >= 100) || msg.status === 'DOWNLOAD_COMPLETE' || msg.status === 'LOCAL_READY' || msg.status === 'DONE';
+            if (isDone) {
+              msg.percentage = 100;
+              msg.status = (msg.status === 'DOWNLOADING') ? 'DOWNLOAD_COMPLETE' : msg.status;
+              msg.speed_mbs = 0;
+              msg.eta_seconds = 0;
+            }
             transfers[msg.video_id] = msg;
             renderTransfers();
+
+            if (isDone) {
+              setTimeout(() => {
+                if (transfers[msg.video_id] && !processingJobs[msg.video_id]) {
+                  delete transfers[msg.video_id];
+                  renderTransfers();
+                }
+              }, 8000);
+            }
 
             if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
               const bar = document.getElementById('modal-transfer-bar');
               const pct = document.getElementById('modal-transfer-pct');
               const speed = document.getElementById('modal-transfer-speed');
               if (bar) bar.style.width = `${msg.percentage}%`;
-              if (pct) pct.innerText = `${msg.percentage}%`;
+              if (pct) pct.innerText = isDone ? '100% (Done)' : `${msg.percentage}%`;
               if (speed) speed.innerText = `${msg.speed_mbs} MB/s`;
 
-              if (msg.status === 'DOWNLOAD_COMPLETE') {
+              if (isDone) {
                 activeVideoModal.status = 'LOCAL_READY';
                 openPlayerModal(activeVideoModal);
                 fetchAllData();
@@ -2718,6 +2823,14 @@
             }
           } else if (msg.event === 'PROCESSING_COMPLETE') {
             delete processingJobs[msg.video_id];
+            if (transfers[msg.video_id]) {
+              transfers[msg.video_id].status = 'LOCAL_READY';
+              transfers[msg.video_id].percentage = 100;
+              setTimeout(() => {
+                delete transfers[msg.video_id];
+                renderTransfers();
+              }, 5000);
+            }
             renderTransfers();
             if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
               const procHud = document.getElementById('player-processing-hud');

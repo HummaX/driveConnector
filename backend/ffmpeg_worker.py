@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, List
 
 from config import settings
 from database import get_video, update_video
-from downloader import manager
+from downloader import manager, active_downloads
 
 # Concurrency control semaphore to protect CPU and memory
 ffmpeg_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_FFMPEG)
@@ -315,6 +315,7 @@ async def process_video_background(video_id: str):
             )
 
             active_processing.pop(video_id, None)
+            active_downloads.pop(video_id, None)
 
             update_data = {
                 "status": "LOCAL_READY",
@@ -336,6 +337,7 @@ async def process_video_background(video_id: str):
         except Exception as e:
             print(f"[FFmpeg] Pipeline error processing {video_id}: {e}")
             active_processing.pop(video_id, None)
+            active_downloads.pop(video_id, None)
             fallback_data = {
                 "status": "LOCAL_READY",
                 "duration_seconds": 0.0,
@@ -483,6 +485,7 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                 })
 
             active_processing.pop(video_id, None)
+            active_downloads.pop(video_id, None)
 
             await manager.broadcast({
                 "event": "PROCESSING_COMPLETE",
@@ -499,6 +502,7 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
         except Exception as e:
             print(f"[FFmpeg] Error in transcode_video {video_id}: {e}")
             active_processing.pop(video_id, None)
+            active_downloads.pop(video_id, None)
             if temp_rendition.exists():
                 try:
                     os.remove(temp_rendition)
@@ -637,6 +641,7 @@ async def transcribe_video(video_id: str):
             })
 
             active_processing.pop(video_id, None)
+            active_downloads.pop(video_id, None)
 
             await manager.broadcast({
                 "event": "PROCESSING_COMPLETE",
@@ -651,6 +656,7 @@ async def transcribe_video(video_id: str):
         except Exception as e:
             print(f"[Whisper] Pipeline transcription error: {e}")
             active_processing.pop(video_id, None)
+            active_downloads.pop(video_id, None)
             if audio_path.exists():
                 try:
                     os.remove(audio_path)

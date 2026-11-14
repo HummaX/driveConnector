@@ -632,11 +632,16 @@ async def get_system_metrics(current_user: Dict[str, Any] = Depends(get_current_
     local_files = await db["videos"].count_documents({"status": "LOCAL_READY"})
     cloud_files = await db["videos"].count_documents({"status": "REMOTE_ONLY"})
     in_processing = await db["videos"].count_documents({"status": "PROCESSING"})
-    in_queue = len(active_downloads)
+    in_queue = len([
+        t for t in active_downloads.values() 
+        if t.get("status") in ("DOWNLOADING", "QUEUED") and float(t.get("percentage", 0)) < 100
+    ])
 
-    # Active download speed sum
+    # Active download speed sum (only active in-progress downloads)
     live_dl_speed = sum(
-        t.get("speed_mbs", 0.0) for t in active_downloads.values() if t.get("status") == "DOWNLOADING"
+        t.get("speed_mbs", 0.0) 
+        for t in active_downloads.values() 
+        if t.get("status") == "DOWNLOADING" and float(t.get("percentage", 0)) < 100
     )
 
     uptime_sec = int(time.time() - SERVER_START_TIME)

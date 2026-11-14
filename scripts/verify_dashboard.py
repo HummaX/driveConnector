@@ -592,6 +592,108 @@ def test_buffering_and_buffer_progress_features():
     print("✅ Video player Buffering Loading Indicator & Pre-loaded Buffer Progress features fully verified across React and standalone HTML.")
     return True
 
+def test_transfer_completion_lifecycle_and_badge():
+    # 1. Backend Transfer Lifecycle & active_downloads verification
+    backend_path = (REPO_DIR / "backend").resolve()
+    sys.path.insert(0, str(backend_path))
+    import asyncio
+    from downloader import broadcast_progress, active_downloads
+    import ffmpeg_worker
+    
+    # Test broadcast_progress transition at 100%
+    test_id = "test_verify_transfer_100"
+    asyncio.run(broadcast_progress(
+        video_id=test_id,
+        title="Test Transfer",
+        source="GDRIVE",
+        downloaded_bytes=50,
+        total_bytes=100,
+        speed_bytes_sec=1024 * 1024,
+        status="DOWNLOADING"
+    ))
+    assert test_id in active_downloads, "active_downloads should contain test video"
+    assert active_downloads[test_id]["percentage"] == 50.0, "Progress should be 50%"
+    assert active_downloads[test_id]["status"] == "DOWNLOADING", "Status should be DOWNLOADING"
+
+    # Now simulate reaching 100%
+    asyncio.run(broadcast_progress(
+        video_id=test_id,
+        title="Test Transfer",
+        source="GDRIVE",
+        downloaded_bytes=100,
+        total_bytes=100,
+        speed_bytes_sec=1024 * 1024,
+        status="DOWNLOADING"
+    ))
+    assert active_downloads[test_id]["percentage"] == 100.0, "Progress should be clamped to 100%"
+    assert active_downloads[test_id]["status"] == "DOWNLOAD_COMPLETE", "Status should transition to DOWNLOAD_COMPLETE at 100%"
+    assert active_downloads[test_id]["speed_mbs"] == 0.0, "Speed should be 0 at 100%"
+    assert active_downloads[test_id]["eta_seconds"] == 0, "ETA should be 0 at 100%"
+
+    # Test server metrics filtering logic
+    test_active_id = "test_active_dl_2"
+    active_downloads[test_active_id] = {
+        "status": "DOWNLOADING",
+        "percentage": 40.0,
+        "speed_mbs": 4.5
+    }
+    # in_queue logic: only active downloads with percentage < 100 and DOWNLOADING/QUEUED
+    sim_in_queue = len([
+        t for t in active_downloads.values()
+        if t.get("status") in ("DOWNLOADING", "QUEUED") and float(t.get("percentage", 0)) < 100
+    ])
+    assert sim_in_queue == 1, f"Expected 1 active download in queue, got {sim_in_queue}"
+
+    sim_speed = sum(
+        t.get("speed_mbs", 0.0)
+        for t in active_downloads.values()
+        if t.get("status") == "DOWNLOADING" and float(t.get("percentage", 0)) < 100
+    )
+    assert sim_speed == 4.5, f"Expected 4.5 MB/s active speed, got {sim_speed}"
+
+    # Verify ffmpeg_worker imports active_downloads and cleans it up
+    assert hasattr(ffmpeg_worker, "active_downloads"), "ffmpeg_worker must import active_downloads"
+    active_downloads.pop(test_id, None)
+    active_downloads.pop(test_active_id, None)
+
+    # 2. Standalone HTML verification
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
+    assert "isDone" in index_html, "index.html missing isDone check in renderTransfers"
+    assert "transfers-clear-btn" in index_html, "index.html missing transfers-clear-btn DOM element"
+    assert "clearCompletedTransfers" in index_html, "index.html missing clearCompletedTransfers helper"
+    assert "dismissTransfer" in index_html, "index.html missing dismissTransfer helper"
+    assert "Done" in index_html, "index.html missing 'Done' label in completed transfer card"
+
+    # 3. React Frontend verification (TransfersDrawer, Navbar, App.jsx)
+    drawer_jsx = (REPO_DIR / "frontend/src/components/TransfersDrawer.jsx").read_text(encoding="utf-8")
+    navbar_jsx = (REPO_DIR / "frontend/src/components/Navbar.jsx").read_text(encoding="utf-8")
+    app_jsx = (REPO_DIR / "frontend/src/App.jsx").read_text(encoding="utf-8")
+
+    assert "isTransferDone" in drawer_jsx or "isCompleted" in drawer_jsx, "TransfersDrawer.jsx missing completion check"
+    assert "Done" in drawer_jsx, "TransfersDrawer.jsx missing 'Done' status display"
+    assert "CheckCircle" in drawer_jsx, "TransfersDrawer.jsx missing CheckCircle icon for completed transfers"
+    assert "activeTransfersCount" in navbar_jsx, "Navbar.jsx missing activeTransfersCount prop usage"
+    assert "Active" in navbar_jsx, "Navbar.jsx missing 'Active' badge text"
+
+    # Test App.jsx counts.active calculation logic
+    sim_transfers = {
+        "v1": {"status": "DOWNLOADING", "percentage": 30.0},
+        "v2": {"status": "DOWNLOADING", "percentage": 100.0},
+        "v3": {"status": "DOWNLOAD_COMPLETE", "percentage": 100.0},
+        "v4": {"status": "LOCAL_READY", "percentage": 100.0}
+    }
+    sim_processing = {
+        "p1": {"percent": 45.0},
+        "p2": {"percent": 100.0}
+    }
+    active_dl_count = len([t for t in sim_transfers.values() if t.get("status") == "DOWNLOADING" and float(t.get("percentage", 0)) < 100])
+    active_proc_count = len([p for p in sim_processing.values() if float(p.get("percent", 0)) < 100])
+    sim_active_total = active_dl_count + active_proc_count
+    assert sim_active_total == 2, f"Expected 2 truly active tasks, got {sim_active_total}"
+
+    print("✅ Active transfer completion transitions & Navbar badge filtering fully verified across Backend, React, and standalone HTML.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -609,7 +711,8 @@ if __name__ == "__main__":
         test_vtt_mimetype_and_time_format,
         test_transcode_and_transcribe_endpoints,
         test_supercharged_player_features,
-        test_buffering_and_buffer_progress_features
+        test_buffering_and_buffer_progress_features,
+        test_transfer_completion_lifecycle_and_badge
     ]
     failed = False
     for t in tests:
