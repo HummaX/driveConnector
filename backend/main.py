@@ -373,10 +373,16 @@ async def remove_video(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    local_path = settings.videos_dir / f"{valid_id}.mp4"
-    if local_path.exists():
+    local_p = video.get("local_path")
+    if local_p and Path(local_p).exists():
         try:
-            os.remove(local_path)
+            os.remove(Path(local_p))
+        except OSError:
+            pass
+
+    for match in settings.videos_dir.glob(f"{valid_id}.*"):
+        try:
+            os.remove(match)
         except OSError:
             pass
 
@@ -484,7 +490,15 @@ async def stream_video(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found in catalog")
 
-    video_path = settings.videos_dir / f"{valid_id}.mp4"
+    local_p = video.get("local_path")
+    if local_p and Path(local_p).exists():
+        video_path = Path(local_p)
+    else:
+        candidate = next((p for p in settings.videos_dir.glob(f"{valid_id}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
+        if candidate and candidate.exists():
+            video_path = candidate
+        else:
+            video_path = settings.videos_dir / f"{valid_id}.mp4"
 
     # Multi-resolution quality selection with strict whitelist validation
     if quality:
@@ -509,6 +523,19 @@ async def stream_video(
     file_size = video_path.stat().st_size
     range_header = request.headers.get("range")
 
+    suffix = video_path.suffix.lower()
+    content_type_map = {
+        ".mp4": "video/mp4",
+        ".mkv": "video/x-matroska",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".avi": "video/x-msvideo",
+        ".m4v": "video/x-m4v",
+        ".ts": "video/mp2t",
+        ".flv": "video/x-flv",
+    }
+    content_type = content_type_map.get(suffix, "video/mp4")
+
     if not range_header:
         def file_iterator():
             with open(video_path, "rb") as f:
@@ -516,7 +543,7 @@ async def stream_video(
                     yield chunk
 
         headers = {
-            "Content-Type": "video/mp4",
+            "Content-Type": content_type,
             "Content-Length": str(file_size),
             "Accept-Ranges": "bytes"
         }
@@ -571,7 +598,7 @@ async def stream_video(
         "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
-        "Content-Type": "video/mp4",
+        "Content-Type": content_type,
         "Cache-Control": "no-cache",
     }
 

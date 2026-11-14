@@ -584,21 +584,23 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
             if replace_original:
                 # Replace the primary file to reclaim disk space
                 original_size = video_path.stat().st_size
-                backup_path = settings.videos_dir / f"{video_id}.mp4.orig"
+                primary_target = settings.videos_dir / f"{video_id}.mp4"
+                backup_path = settings.videos_dir / f"{video_id}.orig"
                 try:
                     if backup_path.exists():
                         os.remove(backup_path)
                     video_path.rename(backup_path)
-                    dest_rendition.rename(video_path)
+                    dest_rendition.rename(primary_target)
                     if backup_path.exists():
                         os.remove(backup_path)
                     renditions[target_quality] = {
-                        "path": str(video_path),
+                        "path": str(primary_target),
                         "file_size_bytes": new_size,
                         "resolution": target_quality,
                         "replaced_original": True
                     }
                     await update_video(video_id, {
+                        "local_path": str(primary_target),
                         "file_size_bytes": new_size,
                         "renditions": renditions,
                         "processing_info": None

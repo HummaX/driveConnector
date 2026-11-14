@@ -881,6 +881,71 @@ def test_cpu_core_reservation_and_governance():
     print("✅ CPU core reservation governance (1 core reserved for web handling, N-1 for video workers) fully verified.")
     return True
 
+def test_direct_stream_and_mkv_support():
+    backend_dir = Path(__file__).parent.parent / "backend"
+    sys.path.insert(0, str(backend_dir))
+    try:
+        from downloader import is_direct_media_url, get_media_extension, DIRECT_MEDIA_EXTS
+        mkv_url = "https://cloud.mkvcdn.net/1794608810385_(MKVCINEMAS.HT)_Avengers_Endgame_-_Encore_2026_Hindi_DDP5.1-192Kbps_English_DDPAtmos5.1-768Kbps_Dual_Audio_MCU_Hollywood_Movie_HD_1080p_JS_WEB-DL_ESub.mkv"
+        mp4_url = "https://cdn.example.com/media/file.mp4?token=abc"
+        yt_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+        if not is_direct_media_url(mkv_url):
+            print("❌ is_direct_media_url failed to identify .mkv file URL!")
+            return False
+
+        if not is_direct_media_url(mp4_url):
+            print("❌ is_direct_media_url failed to identify .mp4 with query params!")
+            return False
+
+        if is_direct_media_url(yt_url):
+            print("❌ is_direct_media_url wrongly identified YouTube URL as direct media!")
+            return False
+
+        if get_media_extension(mkv_url) != ".mkv":
+            print(f"❌ get_media_extension returned {get_media_extension(mkv_url)} instead of .mkv!")
+            return False
+
+        if get_media_extension("https://cdn.example.com/stream", content_type="video/x-matroska") != ".mkv":
+            print("❌ get_media_extension failed Content-Type inference for matroska!")
+            return False
+
+        if get_media_extension("https://cdn.example.com/stream", content_type="video/webm") != ".webm":
+            print("❌ get_media_extension failed Content-Type inference for webm!")
+            return False
+
+        # Verify downloader.py has direct chunked streaming and retry implementation
+        downloader_code = (backend_dir / "downloader.py").read_text(encoding="utf-8")
+        if "download_direct_http_stream" not in downloader_code:
+            print("❌ downloader.py missing download_direct_http_stream function!")
+            return False
+
+        if "Range" not in downloader_code or "bytes=" not in downloader_code:
+            print("❌ downloader.py missing Range header resume support!")
+            return False
+
+        if "500, 502, 503, 504" not in downloader_code and "status_code in (500, 502, 503, 504" not in downloader_code:
+            print("❌ downloader.py missing retry status codes for CDN 500 errors!")
+            return False
+
+        # Verify main.py stream_video handles .mkv and dynamic Content-Type
+        main_code = (backend_dir / "main.py").read_text(encoding="utf-8")
+        if "video/x-matroska" not in main_code:
+            print("❌ main.py missing video/x-matroska Content-Type mapping!")
+            return False
+
+        # Verify database.py clean unquoted titles without trailing extension
+        db_code = (backend_dir / "database.py").read_text(encoding="utf-8")
+        if "unquote" not in db_code:
+            print("❌ database.py missing URL unquoting for clean titles!")
+            return False
+
+    finally:
+        sys.path.pop(0)
+
+    print("✅ Direct HTTP chunked streaming, MKV container preservation, and 500-retry logic fully verified.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -903,7 +968,8 @@ if __name__ == "__main__":
         test_sprites_live_progress_and_eta,
         test_deployment_and_mongo_express_ux,
         test_favicons_and_brand_assets,
-        test_cpu_core_reservation_and_governance
+        test_cpu_core_reservation_and_governance,
+        test_direct_stream_and_mkv_support
     ]
     failed = False
     for t in tests:

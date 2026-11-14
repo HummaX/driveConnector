@@ -2,6 +2,8 @@ import re
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from urllib.parse import urlparse, unquote
+from pathlib import Path
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from pydantic import BaseModel, Field
 from config import settings
@@ -149,7 +151,10 @@ async def upsert_drive_video(
 async def create_url_video(url: str, title: Optional[str] = None) -> Dict[str, Any]:
     col = get_videos_collection()
     now = datetime.utcnow()
-    clean_title = (title or url.split("/")[-1].split("?")[0] or "External Video").strip()
+    parsed_path = urlparse(url).path
+    raw_filename = unquote(parsed_path.split("/")[-1]) if parsed_path else ""
+    default_title = Path(raw_filename).stem if raw_filename else "External Video"
+    clean_title = (title or default_title or "External Video").strip()
     new_video = VideoModel(
         title=clean_title,
         source="URL",
