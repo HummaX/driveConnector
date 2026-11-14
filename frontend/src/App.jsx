@@ -7,6 +7,7 @@ import DriveSyncModal from './components/DriveSyncModal';
 import UrlDownloadModal from './components/UrlDownloadModal';
 import TransfersDrawer from './components/TransfersDrawer';
 import LoginModal from './components/LoginModal';
+import StatsDashboard from './components/StatsDashboard';
 
 export default function App() {
   const [videos, setVideos] = useState([]);
@@ -18,6 +19,26 @@ export default function App() {
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [transfers, setTransfers] = useState({});
+  const [metrics, setMetrics] = useState(null);
+
+  // Polling /api/system/metrics every 3 seconds
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const res = await fetch('/api/system/metrics');
+      if (res.ok) {
+        const data = await res.json();
+        setMetrics(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch telemetry metrics:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 3000);
+    return () => clearInterval(interval);
+  }, [fetchMetrics]);
 
   // Auth state
   const [token, setToken] = useState(() => localStorage.getItem('drive_auth_token'));
@@ -204,10 +225,22 @@ export default function App() {
         onOpenSync={() => (token ? setIsSyncModalOpen(true) : setIsLoginModalOpen(true))}
         onOpenUrl={() => (token ? setIsUrlModalOpen(true) : setIsLoginModalOpen(true))}
         activeTransfersCount={counts.active}
-        onRefresh={fetchVideos}
+        onRefresh={() => {
+          fetchVideos();
+          fetchMetrics();
+        }}
+        metrics={metrics}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Executive-Tier Metrics Dashboard */}
+        <StatsDashboard
+          metrics={metrics}
+          videos={videos}
+          transfers={transfers}
+          onFilterChange={setActiveFilter}
+        />
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
