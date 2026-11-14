@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -24,9 +24,11 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin"
     ADMIN_DEFAULT_PASSWORD: str = "Admin@Drive2026!"
 
-    # Process Governance & Concurrency
+    # Process Governance & CPU Core Reservation
     MAX_CONCURRENT_FFMPEG: int = 2
     MIN_FREE_DISK_BYTES: int = 1024 * 1024 * 1024  # 1 GB reserve
+    RESERVED_CPU_CORES: int = 1
+    FFMPEG_THREADS: Optional[int] = None
 
     # CORS
     CORS_ORIGINS: List[str] = ["*"]
@@ -45,6 +47,22 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "ignore"
+
+    @property
+    def ffmpeg_worker_threads(self) -> int:
+        """
+        Dynamically calculates available CPU cores for video work,
+        ensuring RESERVED_CPU_CORES (default 1) is always spared for
+        FastAPI web handling, MongoDB, SSH, and system tasks.
+        Example: On an 8-core server, allocates 7 cores to video processing.
+        """
+        if self.FFMPEG_THREADS is not None and self.FFMPEG_THREADS > 0:
+            return self.FFMPEG_THREADS
+        try:
+            total = os.cpu_count() or 1
+        except Exception:
+            total = 1
+        return max(1, total - self.RESERVED_CPU_CORES)
 
     @property
     def videos_dir(self) -> Path:

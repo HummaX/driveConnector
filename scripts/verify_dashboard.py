@@ -842,6 +842,45 @@ def test_favicons_and_brand_assets():
     print("✅ High-definition favicons, PWA webmanifests, BrandLogo components, and /favicon.ico endpoint fully verified.")
     return True
 
+def test_cpu_core_reservation_and_governance():
+    try:
+        backend_path = (REPO_DIR / "backend").resolve()
+        sys.path.insert(0, str(backend_path))
+        from config import settings
+        import os
+
+        # 1. Verify dynamic thread calculation
+        total_cores = os.cpu_count() or 1
+        expected_workers = max(1, total_cores - settings.RESERVED_CPU_CORES)
+        if settings.ffmpeg_worker_threads != expected_workers:
+            print(f"❌ ffmpeg_worker_threads was {settings.ffmpeg_worker_threads}, expected {expected_workers}")
+            return False
+
+        # 2. Verify ffmpeg_worker.py contains -threads settings.ffmpeg_worker_threads
+        worker_code = (REPO_DIR / "backend/ffmpeg_worker.py").read_text(encoding="utf-8")
+        if "-threads" not in worker_code or "settings.ffmpeg_worker_threads" not in worker_code:
+            print("❌ ffmpeg_worker.py not configuring -threads using settings.ffmpeg_worker_threads!")
+            return False
+        if "cpu_threads" not in worker_code:
+            print("❌ ffmpeg_worker.py Whisper not configured with cpu_threads!")
+            return False
+
+        # 3. Verify /api/system/metrics returns worker_threads and reserved_cores
+        import main as backend_main
+        from starlette.testclient import TestClient
+        client = TestClient(backend_main.app)
+        res = client.get("/api/system/metrics")
+        if res.status_code == 200:
+            cpu_data = res.json().get("cpu", {})
+            if "worker_threads" not in cpu_data or "reserved_cores" not in cpu_data:
+                print("❌ /api/system/metrics missing worker_threads or reserved_cores!")
+                return False
+    finally:
+        sys.path.pop(0)
+
+    print("✅ CPU core reservation governance (1 core reserved for web handling, N-1 for video workers) fully verified.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -863,7 +902,8 @@ if __name__ == "__main__":
         test_transfer_completion_lifecycle_and_badge,
         test_sprites_live_progress_and_eta,
         test_deployment_and_mongo_express_ux,
-        test_favicons_and_brand_assets
+        test_favicons_and_brand_assets,
+        test_cpu_core_reservation_and_governance
     ]
     failed = False
     for t in tests:

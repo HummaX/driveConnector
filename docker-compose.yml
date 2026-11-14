@@ -59,6 +59,8 @@ services:
       - ADMIN_DEFAULT_PASSWORD=${ADMIN_DEFAULT_PASSWORD:-Admin@Drive2026!}
       - GOOGLE_CREDENTIALS_FILE=${GOOGLE_CREDENTIALS_FILE:-/app/credentials.json}
       - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID:-}
+      - RESERVED_CPU_CORES=${RESERVED_CPU_CORES:-1}
+      - FFMPEG_THREADS=${FFMPEG_THREADS:-}
     volumes:
       # Mount 1TB block storage for media, metadata, and database
       - ${STORAGE_DIR:-/mnt/storage}:${STORAGE_DIR:-/mnt/storage}

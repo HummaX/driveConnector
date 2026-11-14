@@ -662,6 +662,8 @@ async def get_system_metrics(current_user: Dict[str, Any] = Depends(get_current_
         "cpu": {
             "percent": cpu_percent,
             "cores": cpu_cores,
+            "worker_threads": settings.ffmpeg_worker_threads,
+            "reserved_cores": settings.RESERVED_CPU_CORES,
             "frequency_mhz": cpu_freq
         },
         "ram": {

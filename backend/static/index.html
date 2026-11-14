@@ -259,7 +259,7 @@
             <span id="header-transfers-count" class="font-semibold">0 Active</span>
           </div>
           <!-- CPU -->
-          <div class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition">
+          <div id="header-cpu-container" class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition" title="CPU Utilization">
             <div class="flex items-center space-x-1.5">
               <span id="header-cpu-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
               <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400"></i>
@@ -1257,6 +1257,12 @@
           const cpuDot = document.getElementById('header-cpu-dot');
           if (cpuDot) {
             cpuDot.className = `w-1.5 h-1.5 rounded-full ${cpuPct >= 85 ? 'bg-red-500' : cpuPct >= 65 ? 'bg-amber-400' : 'bg-emerald-400'}`;
+          }
+          const cpuContainer = document.getElementById('header-cpu-container');
+          if (cpuContainer && data.cpu) {
+            const workers = data.cpu.worker_threads || Math.max(1, (data.cpu.cores || 1) - 1);
+            const reserved = data.cpu.reserved_cores || 1;
+            cpuContainer.title = `Processor: ${data.cpu.cores || 1} Cores (${workers} Video Workers, ${reserved} Reserved for Web) @ ${data.cpu.frequency_mhz || 'Auto'} MHz`;
           }
 
           // Mobile Micro-Telemetry

@@ -98,7 +98,7 @@ export default function Navbar({
           {/* CPU Pill */}
           <div 
             className="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition"
-            title={`Processor: ${cpu.cores} Cores @ ${cpu.frequency_mhz || 'Auto'} MHz`}
+            title={`Processor: ${cpu.cores} Cores (${cpu.worker_threads || Math.max(1, (cpu.cores || 1) - 1)} Video Workers, ${cpu.reserved_cores || 1} Reserved for Web) @ ${cpu.frequency_mhz || 'Auto'} MHz`}
           >
             <div className="flex items-center space-x-1.5">
               <span className={`w-1.5 h-1.5 rounded-full ${getLoadStatusColor(cpu.percent)}`} />

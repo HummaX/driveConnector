@@ -215,6 +215,7 @@ async def generate_poster_if_needed(video_path: Path, poster_path: Path, duratio
     seek_time = max(1.0, duration * 0.1) if duration > 0 else 1.0
     cmd = [
         "ffmpeg", "-y",
+        "-threads", str(settings.ffmpeg_worker_threads),
         "-ss", str(seek_time),
         "-i", str(video_path),
         "-vframes", "1",
@@ -228,9 +229,12 @@ async def generate_hover_preview(video_path: Path, preview_path: Path, duration:
     if preview_path.exists() and preview_path.stat().st_size > 1000:
         return
 
+    threads = str(settings.ffmpeg_worker_threads)
+
     if duration < 5:
         cmd = [
             "ffmpeg", "-y",
+            "-threads", threads,
             "-i", str(video_path),
             "-t", "4",
             "-vf", "scale=480:-2",
@@ -259,6 +263,7 @@ async def generate_hover_preview(video_path: Path, preview_path: Path, duration:
 
     cmd = [
         "ffmpeg", "-y",
+        "-threads", threads,
         "-i", str(video_path),
         "-filter_complex", filter_complex,
         "-map", "[outv]",
@@ -274,6 +279,7 @@ async def generate_hover_preview(video_path: Path, preview_path: Path, duration:
     if code != 0 or not preview_path.exists():
         fallback_cmd = [
             "ffmpeg", "-y",
+            "-threads", threads,
             "-ss", str(t1),
             "-i", str(video_path),
             "-t", "4",
@@ -308,6 +314,7 @@ async def generate_vtt_sprites(video_id: str, video_path: Path, meta_dir: Path, 
 
     cmd = [
         "ffmpeg", "-y",
+        "-threads", str(settings.ffmpeg_worker_threads),
         "-i", str(video_path),
         "-vf", f"fps=1/{interval},scale={tile_w}:{tile_h},tile={cols}x{rows}",
         "-frames:v", "1",
@@ -505,6 +512,7 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
 
             cmd = [
                 "ffmpeg", "-y",
+                "-threads", str(settings.ffmpeg_worker_threads),
                 "-i", str(video_path),
                 "-vf", preset["vf"],
                 "-c:v", "libx264",
@@ -647,11 +655,13 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
             })
 
 def run_whisper_transcription(audio_path: Path) -> Optional[List[Dict[str, Any]]]:
-    """Runs local speech-to-text inference using faster-whisper on CPU with int8 precision."""
+    """Runs local speech-to-text inference using faster-whisper on CPU with int8 precision and core budgeting."""
     try:
         from faster_whisper import WhisperModel
         # 'tiny' or 'base' model provides high-speed, low-memory local transcription
-        model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        # Allocates (total_cores - 1) threads, keeping 1 core reserved for web handling
+        threads = settings.ffmpeg_worker_threads
+        model = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=threads)
         segments, _ = model.transcribe(str(audio_path), beam_size=1)
         res = []
         for s in segments:
@@ -706,6 +716,7 @@ async def transcribe_video(video_id: str):
                 # Extract 16kHz mono audio for Whisper model
                 cmd = [
                     "ffmpeg", "-y",
+                    "-threads", str(settings.ffmpeg_worker_threads),
                     "-i", str(video_path),
                     "-vn",
                     "-acodec", "pcm_s16le",
