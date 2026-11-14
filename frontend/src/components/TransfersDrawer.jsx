@@ -138,11 +138,11 @@ export default function TransfersDrawer({
               </div>
 
               <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                <span className="text-purple-300">Stage: {proc.stage}</span>
+                <span className="text-purple-300 truncate max-w-[200px]">{proc.details || `Stage: ${proc.stage}`}</span>
                 {proc.eta_seconds > 0 && (
-                  <span className="flex items-center space-x-1">
-                    <Clock className="w-2.5 h-2.5 text-slate-500" />
-                    <span>ETA {proc.eta_seconds}s</span>
+                  <span className="flex items-center space-x-1 text-purple-300 font-semibold shrink-0">
+                    <Clock className="w-2.5 h-2.5 text-purple-400" />
+                    <span>{proc.eta_seconds}s left</span>
                   </span>
                 )}
               </div>

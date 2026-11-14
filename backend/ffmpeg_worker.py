@@ -31,15 +31,18 @@ async def emit_processing_update(
     stage_name: str,
     percent: float,
     eta_seconds: int,
-    details: str
+    details: str,
+    stage_percent: Optional[float] = None
 ):
     """Broadcasts live processing telemetry to all connected WebSocket clients."""
+    sp = stage_percent if stage_percent is not None else percent
     payload = {
         "event": "PROCESSING_UPDATE",
         "video_id": video_id,
         "stage": stage,
         "stage_name": stage_name,
         "percent": min(100.0, max(0.0, round(percent, 1))),
+        "stage_percent": min(100.0, max(0.0, round(sp, 1))),
         "eta_seconds": max(0, int(eta_seconds)),
         "details": details
     }
@@ -49,6 +52,106 @@ async def emit_processing_update(
     except Exception:
         pass
     await manager.broadcast(payload)
+
+async def run_cmd_with_progress(
+    cmd: list,
+    duration: float,
+    timeout: int,
+    video_id: str,
+    stage: str,
+    stage_name: str,
+    base_percent: float = 40.0,
+    span_percent: float = 55.0
+) -> tuple[int, str, str]:
+    """
+    Executes an FFmpeg command with live '-progress pipe:1' monitoring,
+    streaming realtime percentage and countdown ETA to WebSocket clients.
+    """
+    progress_cmd = list(cmd)
+    if "-progress" not in progress_cmd:
+        progress_cmd.extend(["-progress", "pipe:1", "-nostats"])
+
+    safe_duration = max(1.0, duration)
+    start_time = time.time()
+    last_broadcast = 0.0
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *progress_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+    except Exception as e:
+        return -1, "", str(e)
+
+    speed_val = 1.0
+
+    async def monitor_stdout():
+        nonlocal last_broadcast, speed_val
+        try:
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="ignore").strip()
+                if text.startswith("speed="):
+                    s_str = text.split("=")[1].replace("x", "").strip()
+                    try:
+                        speed_val = max(0.05, float(s_str))
+                    except Exception:
+                        pass
+                elif text.startswith("out_time_us="):
+                    try:
+                        us = int(text.split("=")[1])
+                        sec = us / 1_000_000.0
+                        ratio = min(1.0, max(0.0, sec / safe_duration))
+                        now = time.time()
+                        if (now - last_broadcast >= 0.4) or (ratio >= 0.99):
+                            last_broadcast = now
+                            stage_pct = min(99, max(1, int(ratio * 100)))
+                            overall_pct = min(99.0, round(base_percent + (ratio * span_percent), 1))
+                            rem_sec = max(0.0, safe_duration - sec)
+
+                            if speed_val > 0.05:
+                                eta_seconds = max(1, int(rem_sec / speed_val))
+                            else:
+                                elapsed = now - start_time
+                                if ratio > 0.03:
+                                    eta_seconds = max(1, int((elapsed / ratio) - elapsed))
+                                else:
+                                    eta_seconds = max(1, int(safe_duration * 0.3))
+
+                            await emit_processing_update(
+                                video_id=video_id,
+                                stage=stage,
+                                stage_name=stage_name,
+                                percent=overall_pct,
+                                stage_percent=stage_pct,
+                                eta_seconds=eta_seconds,
+                                details=f"{stage_name}: {stage_pct}% ({eta_seconds}s left)"
+                            )
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(monitor_stdout(), proc.wait()),
+            timeout=timeout
+        )
+        _, stderr_bytes = await proc.communicate()
+        stderr_text = stderr_bytes.decode(errors="ignore") if stderr_bytes else ""
+        return proc.returncode, "", stderr_text
+    except asyncio.TimeoutError:
+        print(f"[FFmpeg] Command timed out after {timeout}s: {' '.join(cmd[:3])}")
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        return -1, "", "Timeout"
+    except Exception as e:
+        return -1, "", str(e)
 
 async def run_cmd(cmd: list, timeout: int = 180) -> tuple[int, str, str]:
     """Runs a system command asynchronously with strict timeout and resource safety."""
@@ -211,7 +314,16 @@ async def generate_vtt_sprites(video_id: str, video_path: Path, meta_dir: Path, 
         "-q:v", "3",
         str(sprites_path)
     ]
-    code, _, err = await run_cmd(cmd, timeout=180)
+    code, _, err = await run_cmd_with_progress(
+        cmd=cmd,
+        duration=safe_duration,
+        timeout=300,
+        video_id=video_id,
+        stage="SPRITES",
+        stage_name="Generating Sprites",
+        base_percent=45.0,
+        span_percent=50.0
+    )
     if code != 0 or not sprites_path.exists():
         print(f"[FFmpeg] Sprite generation error: {err}")
         return
@@ -299,14 +411,15 @@ async def process_video_background(video_id: str):
                 details="Hover preview compiled."
             )
 
-            # Stage 3: Sprite Sheet
+            # Stage 3: Sprite Sheet with Live Progress & Time Left
             await emit_processing_update(
                 video_id=video_id,
                 stage="SPRITES",
                 stage_name="Generating Sprites",
-                percent=75.0,
-                eta_seconds=4,
-                details="Generating Sprites: 75% (4s left)"
+                percent=45.0,
+                stage_percent=0.0,
+                eta_seconds=max(3, int(duration * 0.15)),
+                details="Starting sprite tile extraction..."
             )
             await generate_vtt_sprites(video_id, video_path, meta_dir, duration)
             await emit_processing_update(
@@ -314,8 +427,9 @@ async def process_video_background(video_id: str):
                 stage="SPRITES",
                 stage_name="Generating Sprites",
                 percent=95.0,
+                stage_percent=100.0,
                 eta_seconds=1,
-                details="Generating Sprites: 95% (1s left)"
+                details="Sprite sheet & WebVTT index ready."
             )
 
             active_processing.pop(video_id, None)
@@ -384,14 +498,10 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
 
     async with ffmpeg_semaphore:
         try:
-            await emit_processing_update(
-                video_id=video_id,
-                stage="TRANSCODE",
-                stage_name=f"Transcoding {target_quality}",
-                percent=10.0,
-                eta_seconds=25,
-                details=f"Starting {target_quality} video encode..."
-            )
+            duration = float(video.get("duration_seconds") or 0.0)
+            if duration <= 0:
+                info = await probe_video(video_path)
+                duration = float(info.get("duration") or 0.0)
 
             cmd = [
                 "ffmpeg", "-y",
@@ -408,17 +518,27 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                 str(temp_rendition)
             ]
 
-            # Track progress during transcode
+            # Track progress during transcode with live progress pipe
             await emit_processing_update(
                 video_id=video_id,
                 stage="TRANSCODE",
                 stage_name=f"Transcoding {target_quality}",
-                percent=40.0,
-                eta_seconds=15,
-                details=f"Encoding {target_quality} rendition: 40% (15s left)"
+                percent=10.0,
+                stage_percent=0.0,
+                eta_seconds=max(5, int(duration * 0.25)) if duration > 0 else 25,
+                details=f"Starting {target_quality} encoding..."
             )
 
-            code, _, err = await run_cmd(cmd, timeout=600)
+            code, _, err = await run_cmd_with_progress(
+                cmd=cmd,
+                duration=duration,
+                timeout=600,
+                video_id=video_id,
+                stage="TRANSCODE",
+                stage_name=f"Transcoding {target_quality}",
+                base_percent=10.0,
+                span_percent=85.0
+            )
 
             if code != 0 or not temp_rendition.exists():
                 print(f"[FFmpeg] Transcode failed: {err}")

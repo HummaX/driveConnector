@@ -700,6 +700,35 @@ def test_transfer_completion_lifecycle_and_badge():
     print("✅ Active transfer completion transitions & Navbar badge filtering fully verified across Backend, React, and standalone HTML.")
     return True
 
+def test_sprites_live_progress_and_eta():
+    ffmpeg_text = (REPO_DIR / "backend/ffmpeg_worker.py").read_text(encoding="utf-8")
+    assert "run_cmd_with_progress" in ffmpeg_text, "ffmpeg_worker.py missing run_cmd_with_progress"
+    assert "stage_percent" in ffmpeg_text, "ffmpeg_worker.py emit_processing_update missing stage_percent"
+    assert "-progress" in ffmpeg_text, "ffmpeg_worker.py missing -progress pipe flag"
+    assert "out_time_us" in ffmpeg_text, "ffmpeg_worker.py missing out_time_us parser"
+    
+    # HTML verification
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
+    assert "stage_percent" in index_html, "index.html missing stage_percent usage in sprite processing"
+    assert "Generating Sprites" in index_html, "index.html missing Generating Sprites label"
+    assert "s left" in index_html, "index.html missing 's left' ETA countdown in processing badge"
+
+    # React JSX verification
+    card_jsx = (REPO_DIR / "frontend/src/components/VideoCard.jsx").read_text(encoding="utf-8")
+    assert "stage_percent" in card_jsx, "VideoCard.jsx missing stage_percent"
+    assert "s left" in card_jsx, "VideoCard.jsx missing 's left' ETA countdown"
+    assert "bg-gradient-to-r from-purple-500 to-indigo-500" in card_jsx, "VideoCard.jsx missing processing progress bar"
+
+    app_jsx = (REPO_DIR / "frontend/src/App.jsx").read_text(encoding="utf-8")
+    assert "stage_percent" in app_jsx, "App.jsx table view missing stage_percent"
+    assert "s left" in app_jsx, "App.jsx table view missing 's left' ETA countdown"
+
+    drawer_jsx = (REPO_DIR / "frontend/src/components/TransfersDrawer.jsx").read_text(encoding="utf-8")
+    assert "s left" in drawer_jsx, "TransfersDrawer.jsx missing 's left' ETA countdown"
+
+    print("✅ Realtime sprite generation progress bar & ETA countdown verified across Backend, React, and standalone HTML.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -718,7 +747,8 @@ if __name__ == "__main__":
         test_transcode_and_transcribe_endpoints,
         test_supercharged_player_features,
         test_buffering_and_buffer_progress_features,
-        test_transfer_completion_lifecycle_and_badge
+        test_transfer_completion_lifecycle_and_badge,
+        test_sprites_live_progress_and_eta
     ]
     failed = False
     for t in tests:

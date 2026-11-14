@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { 
   Search, Film, RefreshCw, LayoutGrid, List, 
   ArrowUpDown, X, Cloud, HardDrive, Plus, Sparkles, Database,
-  SlidersHorizontal, CheckCircle2, AlertCircle
+  SlidersHorizontal, CheckCircle2, AlertCircle, Loader2
 } from 'lucide-react';
 import Navbar from './components/Navbar';
 import VideoCard from './components/VideoCard';
@@ -607,6 +607,8 @@ export default function App() {
                   <tbody className="divide-y divide-[#30363d]/60 font-sans">
                     {filteredVideos.map((v) => {
                       const isLocal = v.status === 'LOCAL_READY';
+                      const proc = processingJobs[v.video_id] || v.processing_info;
+                      const isProcessing = v.status === 'PROCESSING' || Boolean(proc);
                       return (
                         <tr
                           key={v.video_id}
@@ -617,7 +619,25 @@ export default function App() {
                             <span title={v.title}>{v.title}</span>
                           </td>
                           <td className="px-4 py-3 font-mono text-[11px]">
-                            {isLocal ? (
+                            {proc ? (
+                              <div className="space-y-1 max-w-[200px]">
+                                <span className="inline-flex items-center space-x-1.5 text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 text-[10px] font-mono">
+                                  <Loader2 className="w-3 h-3 animate-spin text-purple-400 shrink-0" />
+                                  <span className="truncate">{proc.stage_name || 'Generating Sprites'}: {proc.stage_percent || proc.percent}% {proc.eta_seconds > 0 ? `(${proc.eta_seconds}s left)` : ''}</span>
+                                </span>
+                                <div className="w-full bg-[#21262d] h-1 rounded-full overflow-hidden">
+                                  <div
+                                    className="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full"
+                                    style={{ width: `${proc.stage_percent || proc.percent}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : isProcessing ? (
+                              <span className="inline-flex items-center space-x-1.5 text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 text-[10px] font-mono">
+                                <Loader2 className="w-3 h-3 animate-spin text-purple-400 shrink-0" />
+                                <span>Generating Sprites (in progress)</span>
+                              </span>
+                            ) : isLocal ? (
                               <span className="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                                 Saved on Server
                               </span>
