@@ -729,6 +729,55 @@ def test_sprites_live_progress_and_eta():
     print("✅ Realtime sprite generation progress bar & ETA countdown verified across Backend, React, and standalone HTML.")
     return True
 
+def test_deployment_and_mongo_express_ux():
+    compose_path = REPO_DIR / "docker-compose.yml"
+    compose_text = compose_path.read_text(encoding="utf-8")
+    if re.search(r"^version:\s*['\"0-9\.]+", compose_text, re.MULTILINE):
+        print("❌ docker-compose.yml still contains obsolete 'version:' attribute!")
+        return False
+    if "MONGO_EXPRESS_BIND" not in compose_text:
+        print("❌ docker-compose.yml missing MONGO_EXPRESS_BIND configuration!")
+        return False
+
+    setup_sh = (REPO_DIR / "setup.sh").read_text(encoding="utf-8")
+    if "auto-mount" not in setup_sh or "--auto-mount" not in setup_sh:
+        print("❌ setup.sh missing --auto-mount flag support!")
+        return False
+    if "git clone https://github.com/HummaX/driveConnector.git" not in setup_sh:
+        print("❌ setup.sh missing auto-clone fallback when run outside repository!")
+        return False
+    if "driveconnector-update" not in setup_sh:
+        print("❌ setup.sh missing driveconnector-update symlink installation!")
+        return False
+
+    update_sh = (REPO_DIR / "update.sh").read_text(encoding="utf-8")
+    if "BASH_SOURCE" not in update_sh or "docker image prune -f" not in update_sh:
+        print("❌ update.sh missing BASH_SOURCE resolution or docker image prune!")
+        return False
+
+    env_ex = (REPO_DIR / ".env.example").read_text(encoding="utf-8")
+    if "MONGO_EXPRESS_BIND=127.0.0.1" not in env_ex:
+        print("❌ .env.example missing MONGO_EXPRESS_BIND=127.0.0.1!")
+        return False
+
+    main_py = (REPO_DIR / "backend/main.py").read_text(encoding="utf-8")
+    if "ssh_tunnel_cmd" not in main_py or "mongo_express_bind" not in main_py:
+        print("❌ backend/main.py get_database_stats missing ssh_tunnel_cmd or mongo_express_bind!")
+        return False
+
+    react_modal = (REPO_DIR / "frontend/src/components/MongoDbModal.jsx").read_text(encoding="utf-8")
+    if "ssh_tunnel_cmd" not in react_modal or "tunnelCmd" not in react_modal or "copiedCmd" not in react_modal:
+        print("❌ MongoDbModal.jsx missing SSH tunnel copy functionality!")
+        return False
+
+    html_file = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
+    if "copyMongoTunnelCmd" not in html_file or "me-tunnel-cmd-text" not in html_file:
+        print("❌ index.html missing copyMongoTunnelCmd or me-tunnel-cmd-text!")
+        return False
+
+    print("✅ Deployment scripts, Compose v2 cleanup, and Mongo Express UI UX fully verified.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -748,7 +797,8 @@ if __name__ == "__main__":
         test_supercharged_player_features,
         test_buffering_and_buffer_progress_features,
         test_transfer_completion_lifecycle_and_badge,
-        test_sprites_live_progress_and_eta
+        test_sprites_live_progress_and_eta,
+        test_deployment_and_mongo_express_ux
     ]
     failed = False
     for t in tests:

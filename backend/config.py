@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://admin:secretpassword@localhost:27017/media_db?authSource=admin"
     DATABASE_NAME: str = "media_db"
 
+    # Mongo Express Web UI
+    MONGO_EXPRESS_BIND: str = "127.0.0.1"
+    MONGO_EXPRESS_PORT: int = 8081
+    MONGO_EXPRESS_USER: str = "admin"
+    MONGO_EXPRESS_PASS: str = "expresspassword"
+
     # OVHcloud Block Storage Paths
     STORAGE_DIR: str = "/mnt/storage"
 

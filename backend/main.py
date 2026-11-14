@@ -711,7 +711,10 @@ async def get_storage_stats(current_user: Dict[str, Any] = Depends(get_current_u
 
 # ----------------- MongoDB Integrated UI & Management API -----------------
 @app.get("/api/db/stats")
-async def get_database_stats(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_database_stats(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
     """Returns MongoDB collections, document counts, and storage stats (Requires Auth)."""
     db = get_db()
     collections_names = await db.list_collection_names()
@@ -724,11 +727,21 @@ async def get_database_stats(current_user: Dict[str, Any] = Depends(get_current_
             "count": count
         })
 
+    # Determine host IP or hostname for SSH tunnel or public Mongo Express
+    host_header = request.headers.get("host", "localhost")
+    host_ip = host_header.split(":")[0] if host_header else "localhost"
+    is_public = str(settings.MONGO_EXPRESS_BIND).strip() in ["0.0.0.0", "::"]
+
     return {
         "database": settings.DATABASE_NAME,
         "collections": stats,
-        "mongo_express_port": 8081,
-        "mongo_express_url": "http://127.0.0.1:8081/"
+        "mongo_express_port": settings.MONGO_EXPRESS_PORT,
+        "mongo_express_bind": settings.MONGO_EXPRESS_BIND,
+        "mongo_express_is_public": is_public,
+        "mongo_express_url": f"http://{host_ip}:{settings.MONGO_EXPRESS_PORT}/" if is_public else f"http://127.0.0.1:{settings.MONGO_EXPRESS_PORT}/",
+        "ssh_tunnel_cmd": f"ssh -L {settings.MONGO_EXPRESS_PORT}:127.0.0.1:{settings.MONGO_EXPRESS_PORT} ubuntu@{host_ip}",
+        "mongo_express_user": settings.MONGO_EXPRESS_USER,
+        "mongo_express_pass": settings.MONGO_EXPRESS_PASS,
     }
 
 @app.get("/api/db/collections/{collection_name}")

@@ -6,6 +6,16 @@
 
 set -e
 
+# Parse command-line arguments
+AUTO_MOUNT=0
+for arg in "$@"; do
+  case "$arg" in
+    --auto-mount)
+      AUTO_MOUNT=1
+      ;;
+  esac
+done
+
 # 1. Automatically escalate to sudo/root if run as non-root user
 if [ "$EUID" -ne 0 ]; then
   echo "[i] Root privileges required. Re-running script with sudo..."
@@ -17,6 +27,9 @@ echo "    Starting DriveConnector Automated Server Setup"
 echo "======================================================================"
 
 TARGET_USER="${SUDO_USER:-$USER}"
+if [ "$TARGET_USER" = "root" ] && [ -d "/home/ubuntu" ]; then
+  TARGET_USER="ubuntu"
+fi
 
 # 2. Update package repositories & install foundational tools
 echo "[+] Step 1/6: Updating package index and installing base dependencies..."
@@ -27,9 +40,41 @@ apt-get install -y --no-install-recommends \
     gnupg \
     lsb-release \
     git \
-    ufw
+    ufw \
+    e2fsprogs \
+    util-linux
 
-# 3. Install Docker and Docker Compose Plugin
+# 3. Ensure Repository Code is Present (Handle running outside repo or via curl | bash)
+REPO_DIR="$(pwd)"
+if [ ! -f "$REPO_DIR/docker-compose.yml" ] || [ ! -f "$REPO_DIR/.env.example" ]; then
+    if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ] && [ -d "/home/$TARGET_USER" ]; then
+        REPO_DIR="/home/$TARGET_USER/driveConnector"
+    elif [ -d "/home/ubuntu" ]; then
+        REPO_DIR="/home/ubuntu/driveConnector"
+    else
+        REPO_DIR="/opt/driveConnector"
+    fi
+
+    if [ -d "$REPO_DIR/.git" ]; then
+        echo "[+] Found existing repository at $REPO_DIR. Pulling latest code..."
+        cd "$REPO_DIR"
+        git fetch origin main || true
+        git reset --hard origin/main || true
+    else
+        echo "[+] Repository not detected in current directory. Cloning into $REPO_DIR..."
+        mkdir -p "$(dirname "$REPO_DIR")"
+        git clone https://github.com/HummaX/driveConnector.git "$REPO_DIR"
+        cd "$REPO_DIR"
+    fi
+
+    if [ -n "$TARGET_USER" ] && id "$TARGET_USER" &>/dev/null; then
+        chown -R "$TARGET_USER:$TARGET_USER" "$REPO_DIR" 2>/dev/null || true
+    fi
+else
+    cd "$REPO_DIR"
+fi
+
+# 4. Install Docker and Docker Compose Plugin
 if ! command -v docker &> /dev/null; then
     echo "[+] Step 2/6: Installing Docker Engine & Compose..."
     mkdir -p /etc/apt/keyrings
@@ -56,42 +101,111 @@ systemctl enable --now docker
 
 # Add non-root executing user to docker group
 if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
-    usermod -aG docker "$TARGET_USER"
+    usermod -aG docker "$TARGET_USER" 2>/dev/null || true
     echo "[+] Added user '$TARGET_USER' to docker group."
 fi
 
-# 4. Prepare OVHcloud 1TB Block Storage Mount directories
+# 5. Prepare OVHcloud 1TB Block Storage Mount and Storage Directories
 STORAGE_DIR="/mnt/storage"
-echo "[+] Step 3/6: Setting up block storage volume directories at $STORAGE_DIR..."
-mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata"
+echo "[+] Step 3/6: Checking Block Storage and storage directories at $STORAGE_DIR..."
 
-# UID 999 for official MongoDB container, 1000 for media assets
+if mountpoint -q "$STORAGE_DIR"; then
+    echo "[+] $STORAGE_DIR is already mounted ($(df -h "$STORAGE_DIR" | awk 'NR==2 {print $1 " (" $2 " total)"}'))."
+else
+    # Detect secondary block device (>= 500GB, unmounted, not root disk)
+    TARGET_DISK=""
+    ROOT_DISK=$(lsblk -n -o PKNAME "$(findmnt -n -o SOURCE / 2>/dev/null)" 2>/dev/null || true)
+    if [ -z "$ROOT_DISK" ]; then
+        ROOT_DISK=$(findmnt -n -o SOURCE / 2>/dev/null | sed -E 's#/dev/([a-z]+)[0-9]+#\1#' | sed -E 's#/dev/##')
+    fi
+
+    while read -r d_name d_size d_type d_mount; do
+        [ "$d_type" != "disk" ] && continue
+        [ "$d_name" = "$ROOT_DISK" ] && continue
+        [ -n "$d_mount" ] && continue
+
+        # Check if disk has any mounted partition
+        has_mount=$(lsblk -n -o MOUNTPOINT "/dev/$d_name" 2>/dev/null | grep -v '^$' || true)
+        [ -n "$has_mount" ] && continue
+
+        # Check if disk size >= 500 GB (500000000000 bytes)
+        if [ "$d_size" -ge 500000000000 ] 2>/dev/null; then
+            TARGET_DISK="/dev/$d_name"
+            break
+        fi
+    done < <(lsblk -b -d -n -o NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null || true)
+
+    if [ -n "$TARGET_DISK" ]; then
+        DISK_HR_SIZE=$(lsblk -d -n -o SIZE "$TARGET_DISK" 2>/dev/null || echo "1TB")
+        echo "[!] Detected unmounted high-capacity block storage: $TARGET_DISK ($DISK_HR_SIZE)"
+
+        DO_MOUNT=0
+        if [ "$AUTO_MOUNT" -eq 1 ]; then
+            DO_MOUNT=1
+            echo "[+] --auto-mount flag detected. Formatting and mounting $TARGET_DISK..."
+        elif [ -t 0 ]; then
+            read -r -p "    Format $TARGET_DISK as ext4 and mount to $STORAGE_DIR? [Y/n] " prompt_ans
+            case "$prompt_ans" in
+                [nN][oO]|[nN])
+                    echo "[!] Skipping block storage mount. Using host root drive."
+                    ;;
+                *)
+                    DO_MOUNT=1
+                    ;;
+            esac
+        else
+            echo "[!] Non-interactive mode without --auto-mount. Skipping automatic formatting."
+            echo "[!] To mount $TARGET_DISK automatically, re-run with: sudo bash setup.sh --auto-mount"
+        fi
+
+        if [ "$DO_MOUNT" -eq 1 ]; then
+            echo "[+] Wiping signatures on $TARGET_DISK..."
+            wipefs -a "$TARGET_DISK" 2>/dev/null || true
+            echo "[+] Formatting $TARGET_DISK as ext4..."
+            mkfs.ext4 -F -m 1 "$TARGET_DISK"
+            mkdir -p "$STORAGE_DIR"
+            mount "$TARGET_DISK" "$STORAGE_DIR"
+
+            DISK_UUID=$(blkid -s UUID -o value "$TARGET_DISK" 2>/dev/null || true)
+            if [ -n "$DISK_UUID" ]; then
+                if ! grep -q "$DISK_UUID" /etc/fstab && ! grep -q "$STORAGE_DIR" /etc/fstab; then
+                    echo "UUID=$DISK_UUID $STORAGE_DIR ext4 defaults,nofail 0 2" >> /etc/fstab
+                    echo "[+] Persisted $TARGET_DISK (UUID=$DISK_UUID) in /etc/fstab."
+                fi
+                systemctl daemon-reload 2>/dev/null || true
+            fi
+            echo "[+] Successfully mounted $TARGET_DISK at $STORAGE_DIR ($(df -h "$STORAGE_DIR" | awk 'NR==2 {print $2 " total, " $4 " free"}'))."
+        fi
+    else
+        echo "[i] No unmounted secondary block storage (>= 500GB) detected. Proceeding with $STORAGE_DIR on root drive."
+    fi
+fi
+
+# Ensure subdirectories and permission hierarchy
+mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata"
 chown -R 999:999 "$STORAGE_DIR/mongodb" 2>/dev/null || true
+chmod 777 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" 2>/dev/null || true
 chmod -R 775 "$STORAGE_DIR"
 
-# 5. Configuration & Git Code Update
-echo "[+] Step 4/6: Checking environment configuration & pulling latest git updates..."
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
+# 6. Configuration & Symlinks
+echo "[+] Step 4/6: Checking environment configuration & installing CLI tools..."
 if [ ! -f .env ]; then
     echo "[+] Generating .env from .env.example..."
     cp .env.example .env
 fi
 
-if [ -d .git ]; then
-    echo "[+] Pulling latest production code from GitHub (main)..."
-    git fetch origin main || true
-    git reset --hard origin/main || true
-fi
+# Install global update symlink
+chmod +x "$REPO_DIR/update.sh" 2>/dev/null || true
+ln -sf "$REPO_DIR/update.sh" /usr/local/bin/driveconnector-update
+echo "[+] Installed global CLI shortcut: driveconnector-update -> $REPO_DIR/update.sh"
 
-# 6. Build and launch Docker Compose stack
+# 7. Build and launch Docker Compose stack
 echo "[+] Step 5/6: Building and starting DriveConnector stack..."
 docker compose down --remove-orphans 2>/dev/null || true
 docker compose up -d --build
 
-# 7. Verification and status display
+# 8. Verification and status display
 echo "[+] Step 6/6: Verifying container health..."
 sleep 5
 docker compose ps
@@ -105,15 +219,19 @@ echo "    🚀 DriveConnector Media Server is ONLINE & READY!"
 echo "======================================================================"
 echo "  Web Streaming UI  : http://$SERVER_IP:8000/"
 echo "  API Documentation : http://$SERVER_IP:8000/docs"
-echo "  Mongo Express UI  : http://127.0.0.1:8081/ (via SSH tunnel)"
+echo "  Mongo Express UI  : http://127.0.0.1:8081/ (or public if configured in .env)"
+echo "  Storage Mount     : $STORAGE_DIR ($(df -h "$STORAGE_DIR" | awk 'NR==2 {print $2 " total, " $4 " available"}'))"
 echo ""
 echo "  Admin Login Credentials:"
 echo "    Username : admin"
 echo "    Password : Admin@Drive2026!"
+echo ""
+echo "  SSH Tunnel for Mongo Express (if bound to 127.0.0.1):"
+echo "    ssh -L 8081:127.0.0.1:8081 ubuntu@$SERVER_IP"
 echo "======================================================================"
 echo "  Useful Commands:"
-echo "    View logs   : cd $SCRIPT_DIR && docker compose logs -f"
-echo "    Stop server : cd $SCRIPT_DIR && docker compose down"
-echo "    Restart     : cd $SCRIPT_DIR && docker compose restart"
-echo "    Update code : cd $SCRIPT_DIR && bash update.sh"
+echo "    View logs   : cd $REPO_DIR && docker compose logs -f"
+echo "    Stop server : cd $REPO_DIR && docker compose down"
+echo "    Restart     : cd $REPO_DIR && docker compose restart"
+echo "    Update code : driveconnector-update (from any directory)"
 echo "======================================================================"

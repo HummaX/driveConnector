@@ -743,6 +743,39 @@
         </div>
       </div>
 
+      <!-- Mongo Express Banner / SSH Tunnel Helper -->
+      <div id="mongo-express-helper" class="px-6 py-3 bg-[#161b22] border-b border-[#30363d] flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div class="space-y-1">
+          <div class="flex items-center space-x-2 text-slate-200 font-semibold">
+            <i data-lucide="terminal" class="w-4 h-4 text-emerald-400"></i>
+            <span>Mongo Express Web UI (Port <span id="me-port-num">8081</span>)</span>
+            <span id="me-binding-badge" class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              SSH Tunnel Required
+            </span>
+          </div>
+          <div class="flex items-center space-x-3 text-[11px] text-slate-400">
+            <span>User: <strong id="me-user-val" class="text-slate-200 font-mono">admin</strong></span>
+            <span>•</span>
+            <span>Pass: <strong id="me-pass-val" class="text-slate-200 font-mono">expresspassword</strong></span>
+            <button onclick="copyMongoPassword()" class="text-[10px] text-sky-400 hover:text-sky-300 transition" id="me-copy-pass-btn">Copy Password</button>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <div class="flex items-center bg-[#010409] border border-[#30363d] rounded-lg px-2.5 py-1.5 font-mono text-[11px] text-emerald-400 select-all max-w-xs md:max-w-md overflow-x-auto">
+            <span id="me-tunnel-cmd-text" class="truncate">ssh -L 8081:127.0.0.1:8081 ubuntu@localhost</span>
+          </div>
+          <button id="me-copy-cmd-btn" onclick="copyMongoTunnelCmd()" title="Copy SSH Tunnel Command" class="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-slate-200 border border-[#30363d] transition shrink-0">
+            <i data-lucide="copy" class="w-3.5 h-3.5 text-slate-300" id="me-copy-icon"></i>
+            <span id="me-copy-cmd-label" class="text-[11px] font-medium">Copy Command</span>
+          </button>
+          <a id="me-open-link" href="http://localhost:8081" target="_blank" rel="noopener noreferrer" title="Open Mongo Express in browser" class="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 transition shrink-0 font-medium text-[11px]">
+            <span>Open :8081</span>
+            <i data-lucide="external-link" class="w-3 h-3"></i>
+          </a>
+        </div>
+      </div>
+
       <div class="px-6 py-3 bg-[#161b22]/50 border-b border-[#30363d] flex items-center justify-between gap-3">
         <div class="flex items-center space-x-2" id="mongo-cols-bar"></div>
         <input id="mongo-search-input" type="text" oninput="renderMongoDocs()" placeholder="Filter current collection..." class="w-64 px-3 py-1.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
@@ -2224,6 +2257,31 @@
     }
 
     // MongoDB Live UI
+    let activeMongoTunnelCmd = 'ssh -L 8081:127.0.0.1:8081 ubuntu@' + (window.location.hostname || 'localhost');
+    let activeMongoPass = 'expresspassword';
+
+    function copyMongoTunnelCmd() {
+      navigator.clipboard.writeText(activeMongoTunnelCmd);
+      const label = document.getElementById('me-copy-cmd-label');
+      if (label) {
+        label.innerText = 'Copied!';
+        label.classList.add('text-emerald-400');
+        setTimeout(() => {
+          label.innerText = 'Copy Command';
+          label.classList.remove('text-emerald-400');
+        }, 2000);
+      }
+    }
+
+    function copyMongoPassword() {
+      navigator.clipboard.writeText(activeMongoPass);
+      const btn = document.getElementById('me-copy-pass-btn');
+      if (btn) {
+        btn.innerText = 'Copied Password!';
+        setTimeout(() => { btn.innerText = 'Copy Password'; }, 2000);
+      }
+    }
+
     async function openMongoModal() {
       document.getElementById('mongo-modal').classList.remove('hidden');
       document.getElementById('mongo-modal').classList.add('flex');
@@ -2241,11 +2299,45 @@
         if (res.ok) {
           const data = await res.json();
           const bar = document.getElementById('mongo-cols-bar');
-          bar.innerHTML = data.collections.map(c => `
-            <button onclick="setMongoCol('${c.name}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold ${activeMongoCol === c.name ? 'bg-emerald-600 text-white' : 'bg-[#010409] text-slate-400 border border-[#30363d]'}">
-              ${c.name} (${c.count})
-            </button>
-          `).join('');
+          if (bar && data.collections) {
+            bar.innerHTML = data.collections.map(c => `
+              <button onclick="setMongoCol('${c.name}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold ${activeMongoCol === c.name ? 'bg-emerald-600 text-white' : 'bg-[#010409] text-slate-400 border border-[#30363d]'}">
+                ${c.name} (${c.count})
+              </button>
+            `).join('');
+          }
+
+          const port = data.mongo_express_port || 8081;
+          const host = window.location.hostname || 'localhost';
+          const isPublic = Boolean(data.mongo_express_is_public);
+          const tunnelCmd = data.ssh_tunnel_cmd || `ssh -L ${port}:127.0.0.1:${port} ubuntu@${host}`;
+          const user = data.mongo_express_user || 'admin';
+          const pass = data.mongo_express_pass || 'expresspassword';
+          const url = data.mongo_express_url || (isPublic ? `http://${host}:${port}/` : `http://localhost:${port}/`);
+
+          const portEl = document.getElementById('me-port-num');
+          if (portEl) portEl.innerText = port;
+          const badgeEl = document.getElementById('me-binding-badge');
+          if (badgeEl) {
+            badgeEl.className = isPublic 
+              ? 'text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : 'text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            badgeEl.innerText = isPublic ? 'Public Web UI' : 'SSH Tunnel Required';
+          }
+          const userEl = document.getElementById('me-user-val');
+          if (userEl) userEl.innerText = user;
+          const passEl = document.getElementById('me-pass-val');
+          if (passEl) passEl.innerText = pass;
+          const cmdEl = document.getElementById('me-tunnel-cmd-text');
+          if (cmdEl) cmdEl.innerText = tunnelCmd;
+          const openLinkEl = document.getElementById('me-open-link');
+          if (openLinkEl) {
+            openLinkEl.href = isPublic ? url : `http://localhost:${port}`;
+            openLinkEl.innerHTML = `<span>${isPublic ? 'Open Mongo Express' : 'Open :' + port}</span><i data-lucide="external-link" class="w-3 h-3"></i>`;
+          }
+          activeMongoTunnelCmd = tunnelCmd;
+          activeMongoPass = pass;
+          updateIcons();
         }
       } catch (e) {}
     }

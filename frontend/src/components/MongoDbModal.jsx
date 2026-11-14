@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, X, RefreshCw, Trash2, Layers, Search, Server } from 'lucide-react';
+import { Database, X, RefreshCw, Trash2, Layers, Search, Server, Copy, Check, ExternalLink, Terminal, ShieldCheck, Key } from 'lucide-react';
 
 export default function MongoDbModal({ isOpen, onClose, authHeaders = {} }) {
   const [dbStats, setDbStats] = useState(null);
@@ -8,6 +8,8 @@ export default function MongoDbModal({ isOpen, onClose, authHeaders = {} }) {
   const [totalDocs, setTotalDocs] = useState(0);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [copiedCmd, setCopiedCmd] = useState(false);
+  const [copiedPass, setCopiedPass] = useState(false);
 
   // 1. Fetch DB Collections and Document Counts
   const fetchStats = async () => {
@@ -68,6 +70,14 @@ export default function MongoDbModal({ isOpen, onClose, authHeaders = {} }) {
 
   if (!isOpen) return null;
 
+  const currentHost = window.location.hostname || 'localhost';
+  const port = dbStats?.mongo_express_port || 8081;
+  const isPublic = Boolean(dbStats?.mongo_express_is_public);
+  const tunnelCmd = dbStats?.ssh_tunnel_cmd || `ssh -L ${port}:127.0.0.1:${port} ubuntu@${currentHost}`;
+  const mongoExpressUrl = dbStats?.mongo_express_url || `http://${currentHost}:${port}/`;
+  const username = dbStats?.mongo_express_user || 'admin';
+  const password = dbStats?.mongo_express_pass || 'expresspassword';
+
   const filteredDocs = documents.filter((doc) => {
     if (!search.trim()) return true;
     return JSON.stringify(doc).toLowerCase().includes(search.toLowerCase());
@@ -114,6 +124,92 @@ export default function MongoDbModal({ isOpen, onClose, authHeaders = {} }) {
             </button>
           </div>
         </div>
+
+        {/* Mongo Express Access & SSH Tunnel Helper Card */}
+        {isPublic ? (
+          <div className="px-6 py-3 bg-emerald-950/20 border-b border-emerald-500/20 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center space-x-2 text-emerald-400">
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span className="font-semibold">Mongo Express Web UI is public on port {port}</span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                (User: <span className="text-emerald-300 font-bold">{username}</span>)
+              </span>
+            </div>
+            <a
+              href={mongoExpressUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition shadow-sm"
+            >
+              <span>Open Mongo Express ({port})</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        ) : (
+          <div className="px-6 py-3 bg-[#161b22] border-b border-[#30363d] flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2 text-slate-200 font-semibold">
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <span>Mongo Express Web UI (Port {port})</span>
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  Bound to 127.0.0.1 (SSH Tunnel Required)
+                </span>
+              </div>
+              <div className="flex items-center space-x-3 text-[11px] text-slate-400">
+                <span>User: <strong className="text-slate-200 font-mono">{username}</strong></span>
+                <span>•</span>
+                <span>Pass: <strong className="text-slate-200 font-mono">{password}</strong></span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(password);
+                    setCopiedPass(true);
+                    setTimeout(() => setCopiedPass(false), 2000);
+                  }}
+                  className="text-[10px] text-sky-400 hover:text-sky-300 transition"
+                >
+                  {copiedPass ? 'Copied Password!' : 'Copy Password'}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center bg-[#010409] border border-[#30363d] rounded-lg px-2.5 py-1.5 font-mono text-[11px] text-emerald-400 select-all max-w-xs md:max-w-md overflow-x-auto">
+                <span className="truncate">{tunnelCmd}</span>
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(tunnelCmd);
+                  setCopiedCmd(true);
+                  setTimeout(() => setCopiedCmd(false), 2000);
+                }}
+                title="Copy SSH Tunnel Command"
+                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-slate-200 border border-[#30363d] transition shrink-0"
+              >
+                {copiedCmd ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-[11px] text-emerald-400 font-medium">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-slate-300" />
+                    <span className="text-[11px] font-medium">Copy Command</span>
+                  </>
+                )}
+              </button>
+              <a
+                href={`http://localhost:${port}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open localhost:8081 after starting SSH tunnel"
+                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 transition shrink-0 font-medium text-[11px]"
+              >
+                <span>Open :8081</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        )}
 
         {/* Toolbar & Collections Tabs */}
         <div className="px-6 py-3 bg-[#161b22]/50 border-b border-[#30363d] flex flex-wrap items-center justify-between gap-3">
@@ -208,9 +304,11 @@ export default function MongoDbModal({ isOpen, onClose, authHeaders = {} }) {
           </div>
 
           <div className="flex items-center space-x-2 text-[11px] bg-[#010409] px-3 py-1.5 rounded-lg border border-[#30363d] text-slate-400 font-mono">
-            <span>Mongo Express Port: 8081</span>
+            <span>Mongo Express Port: {port}</span>
             <span>•</span>
-            <span className="text-emerald-400">Local SSH tunnel: ssh -L 8081:localhost:8081 user@server</span>
+            <span className="text-emerald-400">
+              {isPublic ? `Public: http://${currentHost}:${port}/` : `Tunnel: ${tunnelCmd}`}
+            </span>
           </div>
         </div>
       </div>
