@@ -162,9 +162,7 @@ async def download_drive_video(video_id: str):
         expected_size = int(video.get("file_size_bytes") or 0)
         check_disk_space(expected_size)
 
-        service = drive_catalog.get_drive_service()
-        auth_headers = drive_catalog.get_auth_headers(service)
-        url = f"https://www.googleapis.com/drive/v3/files/{drive_file_id}?alt=media"
+        url, auth_headers = drive_catalog.get_drive_download_params(drive_file_id)
 
         async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
             async with client.stream("GET", url, headers=auth_headers) as response:

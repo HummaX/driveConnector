@@ -198,6 +198,38 @@ sudo bash update.sh
 
 ---
 
+## ☁️ Connecting Google Drive via UI
+
+DriveConnector allows you to connect your Google Drive directly from your web browser without touching server configuration files.
+
+### Option 1: Google Drive API Key (Fastest & Free — 2 Minutes)
+Best for public or shared Google Drive folders (**Anyone with the link can view**).
+
+1. Go to **[Google Cloud Console](https://console.cloud.google.com/)**.
+2. Create a new project (e.g. `DriveConnector`) or select an existing one.
+3. In the search bar, search for **Google Drive API** and click **Enable**.
+4. In the left navigation, go to **APIs & Services > Credentials**.
+5. Click **+ CREATE CREDENTIALS** at the top and choose **API key**.
+6. Copy your API Key (`AIzaSy...`).
+7. In Google Drive, open the folder containing your videos, right-click > **Share** > set General access to **Anyone with the link** (Viewer).
+8. In DriveConnector UI, click **Sync Drive** in the navbar:
+   - Paste your **API Key**.
+   - (Optional) Paste your **Folder Link or ID**.
+   - Click **Test Connection** to verify live connectivity.
+   - Click **Start Sync** to catalog all video metadata and poster thumbnails!
+
+### Option 2: Service Account JSON (For Private Drives)
+For private corporate or personal Google Drive folders:
+1. In Google Cloud Console, navigate to **IAM & Admin > Service Accounts**.
+2. Click **Create Service Account**, name it, and click Done.
+3. Click on the newly created Service Account > **Keys** tab > **Add Key > Create new key > JSON**.
+4. In Google Drive, share your target folder with the Service Account's email address (`xxx@project.iam.gserviceaccount.com`).
+5. In DriveConnector UI, click **Sync Drive** > switch to the **Service Account JSON** tab:
+   - Paste the JSON key (or click **Upload .json**).
+   - Click **Test Connection** and **Start Sync**.
+
+---
+
 ## 🤖 Automated PR Review & CI Pipeline
 
 Every Pull Request can be automatically reviewed and pushed using the automated PR tool (`scripts/auto_pr.py`) and GitHub Actions CI (`ci/auto-review.yml`):
