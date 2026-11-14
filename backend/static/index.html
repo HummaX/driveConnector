@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DriveConnector - 1TB Stream & On-Demand Media Ingestion</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Plyr Video Player CSS & JS -->
+  <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+  <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+  <style>
+    body { background-color: #030712; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #030712; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+    .plyr--video { border-radius: 0.75rem; overflow: hidden; }
+    .plyr--full-ui input[type=range] { color: #0ea5e9; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-30 w-full bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="p-2 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-lg shadow-sky-500/20">
+          <i data-lucide="play-square" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-white flex items-center space-x-2">
+            <span>DriveConnector</span>
+            <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">1TB Mount</span>
+          </h1>
+          <p class="text-[11px] text-slate-400 hidden sm:block">On-Demand Cloud Media Ingestion & Range-Streaming</p>
+        </div>
+      </div>
+
+      <!-- Storage Widget -->
+      <div id="storage-widget" class="hidden md:flex items-center space-x-3 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs">
+        <i data-lucide="hard-drive" class="w-4 h-4 text-sky-400"></i>
+        <div class="flex flex-col min-w-[120px]">
+          <div class="flex justify-between items-center text-[11px] text-slate-300 font-medium">
+            <span>1TB Storage</span>
+            <span id="storage-text">Loading...</span>
+          </div>
+          <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1 overflow-hidden">
+            <div id="storage-bar" class="h-full bg-sky-500 transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center space-x-2.5">
+        <button onclick="fetchVideos()" title="Refresh" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+        <button onclick="openSyncModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-800 transition">
+          <i data-lucide="cloud" class="w-4 h-4 text-sky-400"></i>
+          <span>Sync Drive</span>
+        </button>
+        <button onclick="openUrlModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow-md shadow-indigo-600/20 transition">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          <span>Add URL</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
+    <!-- Toolbar -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div class="relative flex-1 max-w-md">
+        <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
+        <input id="search-input" type="text" oninput="renderVideos()" placeholder="Search library by title..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition" />
+      </div>
+      <div class="flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-medium">
+        <button onclick="setFilter('ALL')" id="filter-all" class="px-3 py-1.5 rounded-lg bg-sky-500 text-white">All (<span id="count-all">0</span>)</button>
+        <button onclick="setFilter('LOCAL')" id="filter-local" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">Saved Local (<span id="count-local">0</span>)</button>
+        <button onclick="setFilter('CLOUD')" id="filter-cloud" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">On Cloud (<span id="count-cloud">0</span>)</button>
+      </div>
+    </div>
+
+    <!-- Video Grid -->
+    <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+  </main>
+
+  <!-- Player Modal -->
+  <div id="player-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+    <div class="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800">
+        <h3 id="player-title" class="text-base font-semibold text-white truncate"></h3>
+        <button onclick="closePlayerModal()" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div id="player-container" class="relative aspect-video w-full bg-black flex items-center justify-center">
+        <!-- Plyr element inserted dynamically -->
+      </div>
+
+      <div class="px-6 py-3 bg-slate-950 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800">
+        <span id="player-footer-path"></span>
+        <span id="player-footer-status" class="uppercase font-mono text-white"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drive Sync Modal -->
+  <div id="sync-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
+      <button onclick="closeSyncModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <h3 class="text-lg font-semibold text-white mb-1">Sync Google Drive Catalog</h3>
+      <p class="text-xs text-slate-400 mb-4">Fetches metadata and poster thumbnails (0 disk space used)</p>
+      <input id="sync-folder-input" type="text" placeholder="Folder ID (optional; blank for root)" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white mb-4 focus:outline-none focus:border-sky-500" />
+      <div id="sync-status" class="text-xs mb-4 hidden"></div>
+      <div class="flex justify-end space-x-2">
+        <button onclick="closeSyncModal()" class="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
+        <button id="sync-btn" onclick="triggerSync()" class="px-4 py-2 rounded-lg text-xs font-medium bg-sky-500 hover:bg-sky-400 text-white shadow-lg">Start Sync</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- URL Modal -->
+  <div id="url-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
+      <button onclick="closeUrlModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <h3 class="text-lg font-semibold text-white mb-1">External Link Ingestion</h3>
+      <p class="text-xs text-slate-400 mb-4">Direct MP4 URL, YouTube, Vimeo, or generic video stream</p>
+      <input id="url-input" type="url" placeholder="https://example.com/video.mp4" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white mb-3 focus:outline-none focus:border-indigo-500" />
+      <input id="url-title-input" type="text" placeholder="Custom Title (optional)" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white mb-4 focus:outline-none focus:border-indigo-500" />
+      <div class="flex justify-end space-x-2">
+        <button onclick="closeUrlModal()" class="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
+        <button onclick="triggerUrlDownload()" class="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg">Start Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-Time Transfers Floating Drawer -->
+  <div id="transfers-drawer" class="fixed bottom-4 right-4 z-40 w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl hidden overflow-hidden">
+    <div class="px-4 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs font-semibold text-white">
+      <span class="flex items-center space-x-2">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+        </span>
+        <span>Live Transfers</span>
+      </span>
+      <span id="transfers-count" class="text-[11px] text-slate-400"></span>
+    </div>
+    <div id="transfers-list" class="p-3 max-h-64 overflow-y-auto space-y-2.5 text-xs"></div>
+  </div>
+
+  <script>
+    let videos = [];
+    let currentFilter = 'ALL';
+    let transfers = {};
+    let activePlayer = null;
+    let activeVideoModal = null;
+
+    // Load Lucide Icons
+    function updateIcons() {
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // Format Helpers
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
+    function formatDuration(sec) {
+      if (!sec) return '';
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    // Fetch storage metrics
+    async function fetchStorage() {
+      try {
+        const res = await fetch('/api/system/storage');
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('storage-text').innerText = `${data.used_gb} GB / ${data.total_gb} GB`;
+          document.getElementById('storage-bar').style.width = `${Math.min(100, data.used_percent)}%`;
+        }
+      } catch (e) {}
+    }
+
+    // Fetch video catalog
+    async function fetchVideos() {
+      try {
+        const res = await fetch('/api/videos');
+        if (res.ok) {
+          videos = await res.json();
+          renderVideos();
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Render Grid
+    function renderVideos() {
+      const query = (document.getElementById('search-input').value || '').toLowerCase();
+      const filtered = videos.filter(v => {
+        const matchTitle = v.title.toLowerCase().includes(query);
+        if (!matchTitle) return false;
+        if (currentFilter === 'LOCAL') return v.status === 'LOCAL_READY';
+        if (currentFilter === 'CLOUD') return v.status === 'REMOTE_ONLY';
+        return true;
+      });
+
+      // Update Counts
+      document.getElementById('count-all').innerText = videos.length;
+      document.getElementById('count-local').innerText = videos.filter(v => v.status === 'LOCAL_READY').length;
+      document.getElementById('count-cloud').innerText = videos.filter(v => v.status === 'REMOTE_ONLY').length;
+
+      const container = document.getElementById('video-grid');
+      container.innerHTML = '';
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full py-16 text-center text-slate-500">
+            <i data-lucide="film" class="w-10 h-10 mx-auto mb-2 opacity-50"></i>
+            <p>No videos found in this view</p>
+          </div>
+        `;
+        updateIcons();
+        return;
+      }
+
+      filtered.forEach(v => {
+        const isLocal = v.status === 'LOCAL_READY';
+        const card = document.createElement('div');
+        card.className = "group relative flex flex-col bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden shadow-lg hover:shadow-2xl hover:border-slate-700 transition cursor-pointer";
+        card.onclick = () => openPlayerModal(v);
+
+        card.innerHTML = `
+          <div class="relative aspect-video w-full bg-slate-950 overflow-hidden">
+            <img src="${v.poster_url || ''}" class="w-full h-full object-cover transition-opacity duration-300 ${isLocal && v.preview_url ? 'group-hover:opacity-0' : ''}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 60%22 fill=%22%230f172a%22><text x=%2250%%22 y=%2250%%22 fill=%22%23475569%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>No Preview</text></svg>'" />
+            ${isLocal && v.preview_url ? `<video src="${v.preview_url}" loop muted playsinline class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>` : ''}
+            
+            <div class="absolute top-2.5 left-2.5 z-10">
+              ${isLocal ? `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/90 text-white backdrop-blur shadow">Saved on Server</span>` : `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/90 text-white backdrop-blur shadow">On Cloud (Click to Fetch)</span>`}
+            </div>
+
+            ${v.duration_seconds > 0 ? `<div class="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/80 font-mono text-[10px] text-white">${formatDuration(v.duration_seconds)}</div>` : ''}
+
+            <div class="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition">
+              <div class="p-3.5 rounded-full bg-sky-500 text-white shadow-xl"><i data-lucide="play" class="w-5 h-5 fill-white translate-x-0.5"></i></div>
+            </div>
+          </div>
+          <div class="p-3.5 flex flex-col flex-1 justify-between">
+            <div>
+              <h4 class="text-sm font-semibold text-white line-clamp-2 leading-snug mb-1" title="${v.title}">${v.title}</h4>
+              <div class="flex items-center space-x-2 text-[11px] text-slate-400">
+                <span>${v.source === 'GDRIVE' ? 'Google Drive' : 'External Link'}</span>
+                <span>•</span>
+                <span>${formatBytes(v.file_size_bytes)}</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-3 mt-2 border-t border-slate-800/80 text-xs">
+              <span class="text-[11px] text-slate-500">${isLocal ? '/mnt/storage' : 'Click to Download'}</span>
+              <button onclick="event.stopPropagation(); deleteVideo('${v.video_id}')" class="text-slate-500 hover:text-red-400 p-1 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      updateIcons();
+    }
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.getElementById('filter-all').className = filter === 'ALL' ? 'px-3 py-1.5 rounded-lg bg-sky-500 text-white' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      document.getElementById('filter-local').className = filter === 'LOCAL' ? 'px-3 py-1.5 rounded-lg bg-emerald-600 text-white' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      document.getElementById('filter-cloud').className = filter === 'CLOUD' ? 'px-3 py-1.5 rounded-lg bg-amber-600 text-white' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      renderVideos();
+    }
+
+    // Video Player Modal
+    async function openPlayerModal(v) {
+      activeVideoModal = v;
+      document.getElementById('player-title').innerText = v.title;
+      document.getElementById('player-footer-path').innerText = v.local_path || `/mnt/storage/videos/${v.video_id}.mp4`;
+      document.getElementById('player-footer-status').innerText = v.status;
+      document.getElementById('player-modal').classList.remove('hidden');
+      document.getElementById('player-modal').classList.add('flex');
+
+      const container = document.getElementById('player-container');
+      container.innerHTML = '';
+
+      if (v.status === 'LOCAL_READY') {
+        const videoEl = document.createElement('video');
+        videoEl.id = 'video-stream-element';
+        videoEl.controls = true;
+        videoEl.playsInline = true;
+        videoEl.crossOrigin = 'anonymous';
+        videoEl.className = 'w-full h-full';
+        container.appendChild(videoEl);
+
+        const vttSrc = v.vtt_url || `/metadata/${v.video_id}/thumbnails.vtt`;
+
+        activePlayer = new Plyr(videoEl, {
+          autoplay: true,
+          previewThumbnails: {
+            enabled: Boolean(v.vtt_url),
+            src: vttSrc
+          }
+        });
+
+        activePlayer.source = {
+          type: 'video',
+          title: v.title,
+          sources: [{ src: `/api/stream/${v.video_id}`, type: 'video/mp4' }]
+        };
+      } else {
+        // Show On-Demand Live HUD & trigger download
+        container.innerHTML = `
+          <div class="flex flex-col items-center justify-center p-8 text-center space-y-4 font-mono">
+            <i data-lucide="download-cloud" class="w-12 h-12 text-sky-400 animate-bounce"></i>
+            <div>
+              <h4 class="text-lg font-bold text-white">Fetching On-Demand From Cloud</h4>
+              <p class="text-xs text-slate-400">Streaming directly into /mnt/storage/videos/. Auto-plays on completion.</p>
+            </div>
+            <div id="modal-transfer-hud" class="w-full max-w-sm bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-2">
+              <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div id="modal-transfer-bar" class="bg-sky-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <div class="flex justify-between font-bold text-sky-400">
+                <span id="modal-transfer-pct">0%</span>
+                <span id="modal-transfer-speed">0 MB/s</span>
+              </div>
+            </div>
+          </div>
+        `;
+        updateIcons();
+        fetch(`/api/videos/${v.video_id}/download`, { method: 'POST' });
+      }
+    }
+
+    function closePlayerModal() {
+      if (activePlayer) {
+        activePlayer.destroy();
+        activePlayer = null;
+      }
+      activeVideoModal = null;
+      document.getElementById('player-modal').classList.add('hidden');
+      document.getElementById('player-modal').classList.remove('flex');
+    }
+
+    // Delete Video
+    async function deleteVideo(id) {
+      if (!confirm('Are you sure you want to remove this video and all assets from 1TB storage?')) return;
+      await fetch(`/api/videos/${id}`, { method: 'DELETE' });
+      fetchVideos();
+    }
+
+    // Modals
+    function openSyncModal() { document.getElementById('sync-modal').classList.remove('hidden'); document.getElementById('sync-modal').classList.add('flex'); }
+    function closeSyncModal() { document.getElementById('sync-modal').classList.add('hidden'); document.getElementById('sync-modal').classList.remove('flex'); }
+    function openUrlModal() { document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex'); }
+    function closeUrlModal() { document.getElementById('url-modal').classList.add('hidden'); document.getElementById('url-modal').classList.remove('flex'); }
+
+    async function triggerSync() {
+      const folder = document.getElementById('sync-folder-input').value.trim();
+      const btn = document.getElementById('sync-btn');
+      const status = document.getElementById('sync-status');
+      btn.innerText = 'Scanning...';
+      btn.disabled = true;
+      status.classList.remove('hidden');
+      status.innerText = 'Querying Google Drive API v3...';
+
+      try {
+        const res = await fetch('/api/videos/sync-drive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder_id: folder || null })
+        });
+        const data = await res.json();
+        status.innerText = `Success: Cataloged ${data.total_cataloged} items!`;
+        fetchVideos();
+        setTimeout(closeSyncModal, 1500);
+      } catch (e) {
+        status.innerText = `Error: ${e.message}`;
+      } finally {
+        btn.innerText = 'Start Sync';
+        btn.disabled = false;
+      }
+    }
+
+    async function triggerUrlDownload() {
+      const url = document.getElementById('url-input').value.trim();
+      const title = document.getElementById('url-title-input').value.trim();
+      if (!url) return;
+      await fetch('/api/videos/download-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, title: title || null })
+      });
+      closeUrlModal();
+      fetchVideos();
+    }
+
+    // WebSocket Telemetry
+    function initWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/transfers`);
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.event === 'TRANSFER_UPDATE') {
+          transfers[msg.video_id] = msg;
+          renderTransfers();
+
+          // If current modal is downloading this video, update modal HUD
+          if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
+            const bar = document.getElementById('modal-transfer-bar');
+            const pct = document.getElementById('modal-transfer-pct');
+            const speed = document.getElementById('modal-transfer-speed');
+            if (bar) bar.style.width = `${msg.percentage}%`;
+            if (pct) pct.innerText = `${msg.percentage}%`;
+            if (speed) speed.innerText = `${msg.speed_mbs} MB/s`;
+
+            if (msg.status === 'DOWNLOAD_COMPLETE') {
+              activeVideoModal.status = 'LOCAL_READY';
+              openPlayerModal(activeVideoModal);
+              fetchVideos();
+            }
+          }
+        } else if (msg.event === 'PROCESSING_COMPLETE') {
+          if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
+            activeVideoModal.vtt_url = msg.metadata.vtt_url;
+            activeVideoModal.preview_url = msg.metadata.preview_url;
+            openPlayerModal(activeVideoModal);
+          }
+          fetchVideos();
+        }
+      };
+
+      ws.onclose = () => setTimeout(initWebSocket, 3000);
+    }
+
+    function renderTransfers() {
+      const list = Object.values(transfers);
+      const drawer = document.getElementById('transfers-drawer');
+      const container = document.getElementById('transfers-list');
+      if (list.length === 0) {
+        drawer.classList.add('hidden');
+        return;
+      }
+      drawer.classList.remove('hidden');
+      document.getElementById('transfers-count').innerText = `${list.length} active`;
+      container.innerHTML = list.map(t => `
+        <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
+          <div class="flex justify-between font-medium text-white truncate">
+            <span class="truncate">${t.title}</span>
+            <span class="text-sky-400 font-mono">${t.percentage}%</span>
+          </div>
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div class="bg-sky-500 h-full" style="width: ${t.percentage}%"></div>
+          </div>
+          <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+            <span>${t.speed_mbs} MB/s</span>
+            <span>${t.downloaded_str} / ${t.total_str}</span>
+            <span>ETA ${t.eta_seconds}s</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Startup
+    fetchStorage();
+    fetchVideos();
+    initWebSocket();
+    setInterval(fetchStorage, 10000);
+  </script>
+</body>
+</html>
