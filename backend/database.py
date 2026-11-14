@@ -36,6 +36,31 @@ def get_videos_collection() -> AsyncIOMotorCollection:
 def get_users_collection() -> AsyncIOMotorCollection:
     return get_db()["users"]
 
+def get_settings_collection() -> AsyncIOMotorCollection:
+    return get_db()["settings"]
+
+async def get_drive_config_from_db() -> Optional[Dict[str, Any]]:
+    """Retrieves saved Google Drive configuration from MongoDB."""
+    try:
+        col = get_settings_collection()
+        doc = await col.find_one({"_id": "drive_config"})
+        return doc
+    except Exception as e:
+        print(f"[Database] Notice: Could not read drive_config from DB: {e}")
+        return None
+
+async def save_drive_config_to_db(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Persists Google Drive configuration to MongoDB settings collection."""
+    doc_to_save = dict(config)
+    doc_to_save["_id"] = "drive_config"
+    doc_to_save["updated_at"] = datetime.utcnow()
+    try:
+        col = get_settings_collection()
+        await col.replace_one({"_id": "drive_config"}, doc_to_save, upsert=True)
+    except Exception as e:
+        print(f"[Database] Notice: Could not write drive_config to DB: {e}")
+    return doc_to_save
+
 async def init_db():
     global client, db
     client = AsyncIOMotorClient(

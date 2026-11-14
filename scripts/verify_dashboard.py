@@ -159,6 +159,108 @@ def test_fastapi_serving():
     finally:
         sys.path.pop(0)
 
+def test_drive_api_endpoints():
+    try:
+        backend_path = (REPO_DIR / "backend").resolve()
+        sys.path.insert(0, str(backend_path))
+        import main as backend_main
+        import auth as backend_auth
+        import drive_catalog
+        from starlette.testclient import TestClient
+
+        client = TestClient(backend_main.app)
+
+        # 1. Verify strict authentication guarding (without override)
+        backend_main.app.dependency_overrides.clear()
+        unauth_get = client.get("/api/drive/config")
+        if unauth_get.status_code != 401:
+            print(f"❌ GET /api/drive/config returned {unauth_get.status_code} instead of 401 Unauthorized")
+            return False
+
+        unauth_post = client.post("/api/drive/config", json={"api_key": "test"})
+        if unauth_post.status_code != 401:
+            print(f"❌ POST /api/drive/config returned {unauth_post.status_code} instead of 401 Unauthorized")
+            return False
+
+        unauth_test = client.post("/api/drive/test", json={"api_key": "test"})
+        if unauth_test.status_code != 401:
+            print(f"❌ POST /api/drive/test returned {unauth_test.status_code} instead of 401 Unauthorized")
+            return False
+
+        # 2. Test authenticated calls via FastAPI dependency override
+        backend_main.app.dependency_overrides[backend_auth.get_current_user] = lambda: {
+            "username": "admin",
+            "role": "admin"
+        }
+
+        # Authenticated GET /api/drive/config
+        auth_get = client.get("/api/drive/config")
+        if auth_get.status_code != 200:
+            print(f"❌ GET /api/drive/config with auth failed: {auth_get.status_code}")
+            return False
+        cfg = auth_get.json()
+        for required_key in ["auth_type", "configured", "has_api_key", "has_service_account", "folder_id", "status"]:
+            if required_key not in cfg:
+                print(f"❌ /api/drive/config missing key: {required_key}")
+                return False
+
+        # 3. Test POST /api/drive/config with URL extraction
+        folder_url = "https://drive.google.com/drive/folders/1ABC_testFolderId99"
+        post_res = client.post(
+            "/api/drive/config",
+            json={
+                "auth_type": "api_key",
+                "api_key": "AIzaSyTestApiKey1234567890",
+                "folder_id": folder_url
+            }
+        )
+        if post_res.status_code != 200:
+            print(f"❌ POST /api/drive/config failed: {post_res.status_code} {post_res.text}")
+            return False
+        saved_data = post_res.json()
+        saved_cfg = saved_data.get("config", {})
+        if saved_cfg.get("folder_id") != "1ABC_testFolderId99":
+            print(f"❌ Folder ID was not correctly extracted from URL: {saved_cfg.get('folder_id')}")
+            return False
+        if "AIzaSyTestApiKey1234567890" in str(saved_cfg):
+            print("❌ Full unmasked API key was exposed in response!")
+            return False
+        if not saved_cfg.get("has_api_key") or not saved_cfg.get("api_key_masked"):
+            print("❌ api_key_masked not properly generated")
+            return False
+
+        # 4. Test POST /api/drive/test with invalid key
+        test_res = client.post(
+            "/api/drive/test",
+            json={"api_key": "AIzaSyInvalidKeyForTesting"}
+        )
+        if test_res.status_code != 200:
+            print(f"❌ POST /api/drive/test returned {test_res.status_code}")
+            return False
+        test_data = test_res.json()
+        if "success" not in test_data or "message" not in test_data:
+            print(f"❌ POST /api/drive/test response missing success or message: {test_data}")
+            return False
+
+        # Clear dependency overrides
+        backend_main.app.dependency_overrides.clear()
+
+        # 5. Test extract_drive_id edge cases
+        assert drive_catalog.extract_drive_id("https://drive.google.com/drive/folders/1XYZ") == "1XYZ"
+        assert drive_catalog.extract_drive_id("https://drive.google.com/drive/u/0/folders/1XYZ") == "1XYZ"
+        assert drive_catalog.extract_drive_id("https://drive.google.com/open?id=1XYZ") == "1XYZ"
+        assert drive_catalog.extract_drive_id("https://drive.google.com/file/d/1XYZ/view") == "1XYZ"
+        assert drive_catalog.extract_drive_id("1XYZ") == "1XYZ"
+        assert drive_catalog.extract_drive_id("") is None
+
+        print("✅ Google Drive configuration and connectivity endpoints fully verified.")
+        return True
+    except Exception as e:
+        print(f"❌ Drive API test failed: {e}")
+        return False
+    finally:
+        sys.path.pop(0)
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -170,7 +272,8 @@ if __name__ == "__main__":
         test_list_view_delete_confirmation,
         test_uptime_formatting,
         test_mobile_telemetry,
-        test_fastapi_serving
+        test_fastapi_serving,
+        test_drive_api_endpoints
     ]
     failed = False
     for t in tests:

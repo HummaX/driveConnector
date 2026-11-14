@@ -100,6 +100,10 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize MongoDB, ensure directories exist, seed admin user, prime network counters
     await init_db()
     await init_admin_user()
+    try:
+        await drive_catalog.load_drive_config_from_db()
+    except Exception as e:
+        print(f"[MediaServer] Notice: Could not load initial drive config: {e}")
     settings.videos_dir
     settings.metadata_dir
     try:
@@ -180,6 +184,21 @@ class DownloadUrlRequest(BaseModel):
 class SyncDriveRequest(BaseModel):
     folder_id: Optional[str] = None
 
+class DriveConfigUpdate(BaseModel):
+    auth_type: Optional[str] = None
+    api_key: Optional[str] = None
+    service_account_json: Optional[str] = None
+    oauth_token: Optional[str] = None
+    folder_id: Optional[str] = None
+    clear_credentials: Optional[bool] = False
+
+class DriveTestRequest(BaseModel):
+    auth_type: Optional[str] = None
+    api_key: Optional[str] = None
+    service_account_json: Optional[str] = None
+    oauth_token: Optional[str] = None
+    folder_id: Optional[str] = None
+
 class DbQueryRequest(BaseModel):
     filter: Optional[Dict[str, Any]] = {}
     limit: Optional[int] = 50
@@ -227,6 +246,44 @@ async def get_single_video(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
+
+# ----------------- Drive Configuration Endpoints (Auth Guarded) -----------------
+@app.get("/api/drive/config")
+async def get_drive_config_endpoint(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Returns current Google Drive integration configuration with masked credentials."""
+    cfg = await drive_catalog.get_drive_config()
+    return drive_catalog.mask_drive_config(cfg)
+
+@app.post("/api/drive/config")
+async def save_drive_config_endpoint(
+    payload: DriveConfigUpdate,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Saves Google Drive API Key or Service Account credentials."""
+    try:
+        updated = await drive_catalog.save_drive_config(payload.model_dump(exclude_unset=True))
+        return {
+            "status": "success",
+            "message": "Google Drive configuration saved successfully.",
+            "config": drive_catalog.mask_drive_config(updated)
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save drive configuration: {str(e)}")
+
+@app.post("/api/drive/test")
+async def test_drive_connection_endpoint(
+    payload: Optional[DriveTestRequest] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Tests connectivity to Google Drive API v3 with provided or saved credentials."""
+    try:
+        data = payload.model_dump(exclude_unset=True) if payload else None
+        result = await drive_catalog.test_drive_connection(data)
+        return result
+    except Exception as e:
+        return {"success": False, "message": f"Connection test failed: {str(e)}"}
 
 @app.post("/api/videos/sync-drive")
 async def sync_drive(

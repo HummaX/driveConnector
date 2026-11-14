@@ -562,18 +562,118 @@
   </div>
 
   <!-- Drive Sync Modal -->
-  <div id="sync-modal" onclick="closeSyncModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-[#0d1117] border border-[#30363d] rounded-xl p-6 shadow-2xl">
-      <button onclick="closeSyncModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
+  <div id="sync-modal" onclick="closeSyncModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-lg bg-[#0d1117] border border-[#30363d] rounded-2xl p-6 shadow-2xl my-8">
+      <button onclick="closeSyncModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#161b22] transition">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
-      <h3 class="text-base font-semibold text-white mb-1">Sync Google Drive Catalog</h3>
-      <p class="text-xs text-slate-400 mb-4">Fetches metadata and poster thumbnails (0 disk space used)</p>
-      <input id="sync-folder-input" type="text" placeholder="Folder ID (optional; blank for root)" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-4 focus:outline-none focus:border-sky-500" />
-      <div id="sync-status" class="text-xs mb-4 hidden"></div>
-      <div class="flex justify-end space-x-2">
-        <button onclick="closeSyncModal()" class="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22]">Cancel</button>
-        <button id="sync-btn" onclick="triggerSync()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50">Start Sync</button>
+
+      <!-- Header -->
+      <div class="flex items-center space-x-3 mb-4">
+        <div class="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400">
+          <i data-lucide="cloud" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h3 class="text-base font-bold text-white tracking-tight">Google Drive Integration</h3>
+            <span id="sync-connection-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700">Setup Required</span>
+          </div>
+          <p class="text-xs text-slate-400">Configure Google API Key or Service Account to sync and stream media</p>
+        </div>
+      </div>
+
+      <!-- Auth Method Selector Tabs -->
+      <div class="flex rounded-lg bg-[#010409] p-1 border border-[#30363d] mb-4">
+        <button id="sync-tab-apikey" type="button" onclick="switchDriveTab('apikey')" class="flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold bg-[#161b22] text-sky-400 shadow-sm border border-[#30363d] transition">
+          <i data-lucide="key" class="w-3.5 h-3.5"></i>
+          <span>Google API Key</span>
+          <span class="px-1.5 py-0.5 rounded text-[9px] bg-sky-500/20 text-sky-300 font-normal">Fastest</span>
+        </button>
+        <button id="sync-tab-sa" type="button" onclick="switchDriveTab('sa')" class="flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold text-slate-400 hover:text-white transition">
+          <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+          <span>Service Account JSON</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: Google API Key Section -->
+      <div id="sync-section-apikey" class="space-y-3 mb-4">
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-xs font-medium text-slate-300 flex items-center space-x-1.5">
+              <span>Google Drive API Key</span>
+            </label>
+            <button id="sync-guide-toggle" type="button" onclick="toggleDriveGuide()" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center space-x-1">
+              <span>How to get key?</span>
+              <i data-lucide="chevron-down" class="w-3 h-3"></i>
+            </button>
+          </div>
+          <input id="sync-api-key-input" type="password" placeholder="AIzaSy..." class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition" />
+          <p class="text-[11px] text-slate-400 mt-1">
+            Ideal for public/shared Google Drive folders. Make sure folder sharing is set to <strong class="text-slate-300">&quot;Anyone with the link can view&quot;</strong>.
+          </p>
+        </div>
+
+        <!-- Collapsible 2-Minute Guide -->
+        <div id="sync-guide-box" class="hidden p-3.5 rounded-xl bg-[#161b22] border border-sky-500/20 text-xs text-slate-300 space-y-2">
+          <div class="flex items-center justify-between text-sky-400 font-semibold">
+            <span>How to generate a free API Key (under 2 mins):</span>
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" class="flex items-center space-x-1 text-[11px] hover:underline">
+              <span>Console</span>
+              <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+          </div>
+          <ol class="list-decimal list-inside space-y-1 text-[11px] text-slate-300">
+            <li>Open <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" class="text-sky-400 underline">Google Cloud Console</a> and create or select a project.</li>
+            <li>Go to <strong>APIs &amp; Services &gt; Library</strong>, search <strong>Google Drive API</strong>, and click <strong>Enable</strong>.</li>
+            <li>Go to <strong>APIs &amp; Services &gt; Credentials</strong>, click <strong>+ Create Credentials &gt; API key</strong>.</li>
+            <li>Copy your key, paste it in the field above, and click <strong>Test Connection</strong>!</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Tab 2: Service Account Section -->
+      <div id="sync-section-sa" class="hidden space-y-3 mb-4">
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-xs font-medium text-slate-300">Service Account JSON Key</label>
+            <label class="cursor-pointer text-[11px] text-sky-400 hover:text-sky-300">
+              <span>Upload .json</span>
+              <input id="sync-sa-file" type="file" accept=".json,application/json" onchange="handleSaFileUpload(event)" class="hidden" />
+            </label>
+          </div>
+          <textarea id="sync-sa-input" rows="4" placeholder='{"type": "service_account", "project_id": "...", "private_key": "..."}' class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition"></textarea>
+          <p class="text-[11px] text-slate-400 mt-1">
+            For private Google Drives. Share your Drive folder with the Service Account&apos;s <code class="text-sky-400 bg-slate-800/60 px-1 py-0.5 rounded">client_email</code>.
+          </p>
+        </div>
+      </div>
+
+      <!-- Target Folder ID / URL -->
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-slate-300 mb-1">Google Drive Folder Link or ID (Optional)</label>
+        <input id="sync-folder-input" type="text" placeholder="e.g. 1A2b3C... or https://drive.google.com/drive/folders/..." class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition" />
+        <p class="text-[11px] text-slate-400 mt-1">Paste any Google Drive folder URL or ID. Blank scans root.</p>
+      </div>
+
+      <!-- Status Feedback -->
+      <div id="sync-status" class="text-xs mb-4 hidden p-3 rounded-lg border"></div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center justify-between pt-3 border-t border-[#30363d]">
+        <button id="sync-test-btn" type="button" onclick="testDriveConnection()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 transition">
+          <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+          <span>Test Connection</span>
+        </button>
+        <div class="flex items-center space-x-2">
+          <button id="sync-save-btn" type="button" onclick="saveDriveConfig()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22] border border-[#30363d] hover:border-slate-500 transition">
+            <i data-lucide="save" class="w-3.5 h-3.5"></i>
+            <span>Save</span>
+          </button>
+          <button id="sync-btn" type="button" onclick="triggerSync()" class="flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50 transition">
+            <i data-lucide="cloud" class="w-3.5 h-3.5"></i>
+            <span>Start Sync</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1448,19 +1548,215 @@
       fetchMongoDocs(activeMongoCol);
     }
 
-    // Modal triggers
-    function openSyncModal() { document.getElementById('sync-modal').classList.remove('hidden'); document.getElementById('sync-modal').classList.add('flex'); }
-    function closeSyncModal() { document.getElementById('sync-modal').classList.add('hidden'); document.getElementById('sync-modal').classList.remove('flex'); }
-    function openUrlModal() { document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex'); }
-    function closeUrlModal() { document.getElementById('url-modal').classList.add('hidden'); document.getElementById('url-modal').classList.remove('flex'); }
+    // Modal triggers & Drive Configuration
+    let currentDriveTab = 'apikey';
+    let activeDriveConfig = null;
+
+    function switchDriveTab(tab) {
+      currentDriveTab = tab;
+      const tabApiKey = document.getElementById('sync-tab-apikey');
+      const tabSa = document.getElementById('sync-tab-sa');
+      const secApiKey = document.getElementById('sync-section-apikey');
+      const secSa = document.getElementById('sync-section-sa');
+
+      if (tab === 'apikey') {
+        tabApiKey.className = 'flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold bg-[#161b22] text-sky-400 shadow-sm border border-[#30363d] transition';
+        tabSa.className = 'flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold text-slate-400 hover:text-white transition';
+        secApiKey.classList.remove('hidden');
+        secSa.classList.add('hidden');
+      } else {
+        tabSa.className = 'flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold bg-[#161b22] text-sky-400 shadow-sm border border-[#30363d] transition';
+        tabApiKey.className = 'flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-md text-xs font-semibold text-slate-400 hover:text-white transition';
+        secSa.classList.remove('hidden');
+        secApiKey.classList.add('hidden');
+      }
+      if (window.lucide) { lucide.createIcons(); }
+    }
+
+    function toggleDriveGuide() {
+      const box = document.getElementById('sync-guide-box');
+      box.classList.toggle('hidden');
+    }
+
+    function handleSaFileUpload(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          document.getElementById('sync-sa-input').value = e.target.result;
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    async function openSyncModal() {
+      const modal = document.getElementById('sync-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+
+      const status = document.getElementById('sync-status');
+      status.classList.add('hidden');
+      status.innerText = '';
+
+      try {
+        const res = await fetch('/api/drive/config', { headers: getAuthHeaders() });
+        if (res.ok) {
+          const cfg = await res.json();
+          activeDriveConfig = cfg;
+          const badge = document.getElementById('sync-connection-badge');
+          if (cfg.status === 'connected') {
+            badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+            badge.innerText = 'Connected';
+          } else if (cfg.configured) {
+            badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/25';
+            badge.innerText = 'Configured';
+          } else {
+            badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700';
+            badge.innerText = 'Setup Required';
+          }
+
+          if (cfg.folder_id && !document.getElementById('sync-folder-input').value) {
+            document.getElementById('sync-folder-input').value = cfg.folder_id;
+          }
+          if (cfg.has_api_key && cfg.api_key_masked) {
+            document.getElementById('sync-api-key-input').placeholder = `Active: ${cfg.api_key_masked} (Paste new key to change)`;
+          }
+          if (cfg.has_service_account && !cfg.has_api_key) {
+            switchDriveTab('sa');
+          }
+        }
+      } catch (e) {
+        console.warn('Could not load drive config', e);
+      }
+      if (window.lucide) { lucide.createIcons(); }
+    }
+
+    function closeSyncModal() {
+      document.getElementById('sync-modal').classList.add('hidden');
+      document.getElementById('sync-modal').classList.remove('flex');
+    }
+
+    async function testDriveConnection() {
+      const btn = document.getElementById('sync-test-btn');
+      const status = document.getElementById('sync-status');
+      const apiKey = document.getElementById('sync-api-key-input').value.trim();
+      const saJson = document.getElementById('sync-sa-input').value.trim();
+      const folder = document.getElementById('sync-folder-input').value.trim();
+
+      btn.disabled = true;
+      btn.innerText = 'Testing...';
+      status.className = 'text-xs mb-4 p-3 rounded-lg border bg-sky-500/10 border-sky-500/20 text-sky-400';
+      status.innerText = 'Testing connectivity to Google Drive API v3...';
+      status.classList.remove('hidden');
+
+      try {
+        const payload = {
+          auth_type: currentDriveTab === 'apikey' ? 'api_key' : 'service_account',
+          api_key: apiKey || undefined,
+          service_account_json: saJson || undefined,
+          folder_id: folder || undefined
+        };
+
+        const res = await fetch('/api/drive/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          status.className = 'text-xs mb-4 p-3 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
+          status.innerText = data.message;
+          const badge = document.getElementById('sync-connection-badge');
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+          badge.innerText = 'Connected';
+        } else {
+          status.className = 'text-xs mb-4 p-3 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
+          status.innerText = data.message || 'Connection test failed.';
+        }
+      } catch (err) {
+        status.className = 'text-xs mb-4 p-3 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
+        status.innerText = `Error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Test Connection';
+      }
+    }
+
+    async function saveDriveConfig() {
+      const btn = document.getElementById('sync-save-btn');
+      const status = document.getElementById('sync-status');
+      const apiKey = document.getElementById('sync-api-key-input').value.trim();
+      const saJson = document.getElementById('sync-sa-input').value.trim();
+      const folder = document.getElementById('sync-folder-input').value.trim();
+
+      btn.disabled = true;
+      btn.innerText = 'Saving...';
+
+      try {
+        const payload = {
+          auth_type: currentDriveTab === 'apikey' ? 'api_key' : 'service_account',
+          folder_id: folder || undefined
+        };
+        if (apiKey) payload.api_key = apiKey;
+        if (saJson) payload.service_account_json = saJson;
+
+        const res = await fetch('/api/drive/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || 'Failed to save configuration');
+        }
+
+        const data = await res.json();
+        activeDriveConfig = data.config;
+
+        status.className = 'text-xs mb-4 p-3 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
+        status.innerText = 'Credentials saved successfully!';
+        status.classList.remove('hidden');
+
+        const badge = document.getElementById('sync-connection-badge');
+        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+        badge.innerText = 'Configured';
+
+        document.getElementById('sync-api-key-input').value = '';
+        document.getElementById('sync-sa-input').value = '';
+        if (data.config && data.config.api_key_masked) {
+          document.getElementById('sync-api-key-input').placeholder = `Active: ${data.config.api_key_masked} (Paste new key to change)`;
+        }
+      } catch (err) {
+        status.className = 'text-xs mb-4 p-3 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
+        status.innerText = `Save error: ${err.message}`;
+        status.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Save';
+      }
+    }
 
     async function triggerSync() {
       const folder = document.getElementById('sync-folder-input').value.trim();
+      const apiKey = document.getElementById('sync-api-key-input').value.trim();
+      const saJson = document.getElementById('sync-sa-input').value.trim();
       const btn = document.getElementById('sync-btn');
       const status = document.getElementById('sync-status');
+
+      // If user typed new credentials, save them first
+      if (apiKey || saJson) {
+        await saveDriveConfig();
+      }
+
       btn.innerText = 'Scanning...';
       btn.disabled = true;
       status.classList.remove('hidden');
+      status.className = 'text-xs mb-4 p-3 rounded-lg border bg-sky-500/10 border-sky-500/20 text-sky-400';
       status.innerText = 'Querying Google Drive API v3...';
 
       try {
@@ -1470,17 +1766,26 @@
           body: JSON.stringify({ folder_id: folder || null })
         });
         if (res.status === 401) { handleLogout(); return; }
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || 'Catalog sync failed');
+        }
         const data = await res.json();
+        status.className = 'text-xs mb-4 p-3 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
         status.innerText = `Success: Cataloged ${data.total_cataloged} items!`;
         fetchAllData();
         setTimeout(closeSyncModal, 1500);
       } catch (e) {
+        status.className = 'text-xs mb-4 p-3 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
         status.innerText = `Error: ${e.message}`;
       } finally {
         btn.innerText = 'Start Sync';
         btn.disabled = false;
       }
     }
+
+    function openUrlModal() { document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex'); }
+    function closeUrlModal() { document.getElementById('url-modal').classList.add('hidden'); document.getElementById('url-modal').classList.remove('flex'); }
 
     async function triggerUrlDownload() {
       const url = document.getElementById('url-input').value.trim();

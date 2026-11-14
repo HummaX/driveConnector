@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["*"]
 
     # Google Drive API Config
+    GOOGLE_API_KEY: str = ""
     GOOGLE_CREDENTIALS_FILE: str = "credentials.json"
     GOOGLE_TOKEN_FILE: str = "token.json"
     GOOGLE_DRIVE_FOLDER_ID: str = ""
