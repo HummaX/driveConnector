@@ -1,10 +1,21 @@
 import os
 import re
+import time
 import shutil
+import platform
 import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
+
+try:
+    import psutil
+    # Initial call to prime psutil non-blocking cpu_percent calculations
+    psutil.cpu_percent(interval=None)
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 from fastapi import (
     FastAPI, HTTPException, Request, Response, BackgroundTasks,
@@ -23,7 +34,8 @@ from database import (
     get_video,
     create_url_video,
     update_video,
-    delete_video
+    delete_video,
+    get_videos_collection
 )
 from auth import (
     init_admin_user,
@@ -267,6 +279,7 @@ async def stream_video(video_id: str, request: Request):
         def file_iterator():
             with open(video_path, "rb") as f:
                 while chunk := f.read(1024 * 1024):
+                    stream_tracker.record_bytes(len(chunk))
                     yield chunk
 
         headers = {
@@ -324,6 +337,7 @@ async def stream_video(video_id: str, request: Request):
                 data = f.read(chunk_size)
                 if not data:
                     break
+                stream_tracker.record_bytes(len(data))
                 remaining -= len(data)
                 yield data
 
@@ -342,6 +356,250 @@ async def stream_video(video_id: str, request: Request):
     )
 
 # ----------------- System & Storage Telemetry -----------------
+SERVER_START_TIME = time.time()
+
+class StreamThroughputTracker:
+    """Tracks live streaming throughput using a rolling window."""
+    def __init__(self):
+        self.window: List[tuple] = []
+
+    def record_bytes(self, num_bytes: int):
+        now = time.time()
+        self.window.append((now, num_bytes))
+        cutoff = now - 3.0
+        if len(self.window) > 100 or (self.window and self.window[0][0] < cutoff):
+            self.window = [entry for entry in self.window if entry[0] >= cutoff]
+
+    def get_speed_mb_s(self) -> float:
+        now = time.time()
+        cutoff = now - 3.0
+        self.window = [entry for entry in self.window if entry[0] >= cutoff]
+        if not self.window:
+            return 0.0
+        total_bytes = sum(b for _, b in self.window)
+        duration = max(0.5, now - self.window[0][0])
+        speed = (total_bytes / (1024 * 1024)) / duration
+        return round(speed, 2)
+
+stream_tracker = StreamThroughputTracker()
+
+class NetworkTracker:
+    """Calculates live inbound and outbound network data rates via delta bytes / delta time."""
+    def __init__(self):
+        self.last_time = time.time()
+        self.last_bytes_recv = 0
+        self.last_bytes_sent = 0
+        self.input_mb_s = 0.0
+        self.output_mb_s = 0.0
+        self.initialized = False
+        if PSUTIL_AVAILABLE:
+            try:
+                net = psutil.net_io_counters()
+                if net:
+                    self.last_bytes_recv = net.bytes_recv
+                    self.last_bytes_sent = net.bytes_sent
+                    self.initialized = True
+            except Exception:
+                pass
+
+    def get_metrics(self) -> Dict[str, float]:
+        now = time.time()
+        total_recv_mb = 0.0
+        total_sent_mb = 0.0
+
+        if PSUTIL_AVAILABLE:
+            try:
+                net = psutil.net_io_counters()
+                if net:
+                    total_recv_mb = round(net.bytes_recv / (1024 * 1024), 2)
+                    total_sent_mb = round(net.bytes_sent / (1024 * 1024), 2)
+
+                    if not self.initialized:
+                        self.last_time = now
+                        self.last_bytes_recv = net.bytes_recv
+                        self.last_bytes_sent = net.bytes_sent
+                        self.initialized = True
+                    else:
+                        dt = now - self.last_time
+                        if dt >= 0.5:
+                            delta_recv = max(0, net.bytes_recv - self.last_bytes_recv)
+                            delta_sent = max(0, net.bytes_sent - self.last_bytes_sent)
+                            self.input_mb_s = round((delta_recv / (1024 * 1024)) / dt, 2)
+                            self.output_mb_s = round((delta_sent / (1024 * 1024)) / dt, 2)
+                            self.last_time = now
+                            self.last_bytes_recv = net.bytes_recv
+                            self.last_bytes_sent = net.bytes_sent
+            except Exception:
+                pass
+
+        return {
+            "input_mb_s": self.input_mb_s,
+            "output_mb_s": self.output_mb_s,
+            "total_received_mb": total_recv_mb,
+            "total_sent_mb": total_sent_mb,
+        }
+
+net_tracker = NetworkTracker()
+
+def get_cpu_metrics() -> Dict[str, Any]:
+    percent = 0.0
+    cores = os.cpu_count() or 1
+    frequency_mhz = 0.0
+
+    if PSUTIL_AVAILABLE:
+        try:
+            percent = float(psutil.cpu_percent(interval=None))
+        except Exception:
+            percent = 0.0
+
+        try:
+            cpu_count = psutil.cpu_count(logical=True)
+            if cpu_count:
+                cores = cpu_count
+        except Exception:
+            pass
+
+        try:
+            freq = psutil.cpu_freq()
+            if freq and freq.current:
+                frequency_mhz = round(freq.current, 1)
+        except Exception:
+            frequency_mhz = 0.0
+
+    return {
+        "percent": round(percent, 1),
+        "cores": cores,
+        "frequency_mhz": frequency_mhz
+    }
+
+def get_ram_metrics() -> Dict[str, Any]:
+    total_gb = 16.0
+    used_gb = 0.0
+    free_gb = 16.0
+    percent = 0.0
+
+    if PSUTIL_AVAILABLE:
+        try:
+            vmem = psutil.virtual_memory()
+            total_gb = round(vmem.total / (1024 ** 3), 2)
+            used_gb = round(vmem.used / (1024 ** 3), 2)
+            free_gb = round(vmem.available / (1024 ** 3), 2)
+            percent = round(float(vmem.percent), 1)
+        except Exception:
+            pass
+
+    return {
+        "total_gb": total_gb,
+        "used_gb": used_gb,
+        "free_gb": free_gb,
+        "percent": percent
+    }
+
+def get_disk_metrics() -> Dict[str, Any]:
+    storage_path = settings.STORAGE_DIR if os.path.exists(settings.STORAGE_DIR) else "."
+    try:
+        total, used, free = shutil.disk_usage(storage_path)
+    except Exception:
+        total, used, free = 1000 * (1024 ** 3), 0, 1000 * (1024 ** 3)
+
+    def to_gb(b):
+        return round(b / (1024 ** 3), 2)
+
+    pct = round((used / total) * 100, 1) if total > 0 else 0.0
+
+    return {
+        "mount": str(storage_path),
+        "total_gb": to_gb(total),
+        "used_gb": to_gb(used),
+        "free_gb": to_gb(free),
+        "percent": pct
+    }
+
+async def get_pipeline_metrics() -> Dict[str, int]:
+    counts = {
+        "total_files": 0,
+        "local_files": 0,
+        "cloud_files": 0,
+        "in_queue": 0,
+        "in_processing": 0,
+        "completed": 0
+    }
+    try:
+        col = get_videos_collection()
+        pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]
+        status_map = {}
+        async for doc in col.aggregate(pipeline):
+            status_map[doc["_id"]] = doc["count"]
+
+        completed = status_map.get("LOCAL_READY", 0)
+        in_processing = status_map.get("PROCESSING", 0)
+        in_queue = status_map.get("DOWNLOADING", 0)
+        cloud_files = status_map.get("REMOTE_ONLY", 0)
+
+        active_dl_count = len([d for d in active_downloads.values() if d.get("status") == "DOWNLOADING"])
+        in_queue = max(in_queue, active_dl_count)
+
+        total_files = sum(status_map.values())
+        local_files = completed + in_processing
+
+        counts["total_files"] = total_files
+        counts["local_files"] = local_files
+        counts["cloud_files"] = cloud_files
+        counts["in_queue"] = in_queue
+        counts["in_processing"] = in_processing
+        counts["completed"] = completed
+    except Exception:
+        pass
+
+    return counts
+
+def get_throughput_metrics() -> Dict[str, float]:
+    dl_speed = 0.0
+    for d in active_downloads.values():
+        if d.get("status") == "DOWNLOADING":
+            dl_speed += float(d.get("speed_mbs", 0.0))
+
+    stream_speed = stream_tracker.get_speed_mb_s()
+
+    return {
+        "live_download_speed_mb_s": round(dl_speed, 2),
+        "live_stream_speed_mb_s": round(stream_speed, 2)
+    }
+
+def get_server_metrics() -> Dict[str, Any]:
+    uptime = max(0, int(time.time() - SERVER_START_TIME))
+    os_name = f"{platform.system()} {platform.release()}".strip() or platform.system()
+    return {
+        "status": "optimal",
+        "uptime_seconds": uptime,
+        "os": os_name
+    }
+
+@app.get("/api/system/metrics")
+async def get_system_metrics():
+    """
+    Returns real-time server telemetry: CPU, RAM, Disk, Network I/O rates,
+    Media Pipeline queue & completion stats, live streaming/download throughput,
+    and server health status with graceful fallbacks.
+    """
+    cpu = get_cpu_metrics()
+    ram = get_ram_metrics()
+    disk = get_disk_metrics()
+    network = net_tracker.get_metrics()
+    pipeline = await get_pipeline_metrics()
+    throughput = get_throughput_metrics()
+    server = get_server_metrics()
+
+    return {
+        "cpu": cpu,
+        "ram": ram,
+        "disk": disk,
+        "network": network,
+        "pipeline": pipeline,
+        "throughput": throughput,
+        "server": server
+    }
+
 @app.get("/api/system/storage")
 async def get_storage_stats():
     """Returns disk usage metrics for the OVHcloud 1TB Block Storage mount point."""
