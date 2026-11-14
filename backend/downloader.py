@@ -381,8 +381,18 @@ async def download_direct_http_stream(video_id: str, url: str):
                         msg = err_text.decode("utf-8", errors="ignore")[:300] or f"HTTP {response.status_code}"
                         raise RuntimeError(f"Remote server returned HTTP {response.status_code}: {msg}")
 
+                    # Validate that response is actual media and not an HTML landing/error page
+                    ct = response.headers.get("content-type", "").lower()
+                    if ct.startswith("text/html"):
+                        if "gofile.io" in url:
+                            raise ValueError(
+                                "Gofile web links require JavaScript execution and an interactive browser session to unlock the direct stream token. Please provide a direct CDN stream link or public video URL."
+                            )
+                        raise ValueError(
+                            f"The provided link returned an HTML webpage ({ct}) instead of a video stream. Please ensure the URL points directly to media content."
+                        )
+
                     # Detect true extension from Content-Type if initial was generic
-                    ct = response.headers.get("content-type")
                     if ext == ".mp4" and ct:
                         true_ext = get_media_extension(url, content_type=ct)
                         if true_ext != ext:

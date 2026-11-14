@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import List, Optional
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 
 class Settings(BaseSettings):
     # MongoDB Config
@@ -42,6 +43,36 @@ class Settings(BaseSettings):
     # Host & Port
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+
+    @field_validator("FFMPEG_THREADS", mode="before")
+    @classmethod
+    def parse_ffmpeg_threads(cls, v):
+        if v is None or v == "" or (isinstance(v, str) and not v.strip()):
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("RESERVED_CPU_CORES", mode="before")
+    @classmethod
+    def parse_reserved_cpu_cores(cls, v):
+        if v is None or v == "" or (isinstance(v, str) and not v.strip()):
+            return 1
+        try:
+            return max(0, int(v))
+        except (ValueError, TypeError):
+            return 1
+
+    @field_validator("MAX_CONCURRENT_FFMPEG", mode="before")
+    @classmethod
+    def parse_max_concurrent_ffmpeg(cls, v):
+        if v is None or v == "" or (isinstance(v, str) and not v.strip()):
+            return 2
+        try:
+            return max(1, int(v))
+        except (ValueError, TypeError):
+            return 2
 
     class Config:
         env_file = ".env"

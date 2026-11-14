@@ -49,6 +49,10 @@ chmod 777 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" 2>/dev/null || true
 chmod -R 775 "$STORAGE_DIR" 2>/dev/null || true
 
+# Ensure global update CLI shortcut is installed
+chmod +x "$SCRIPT_DIR/update.sh" 2>/dev/null || true
+ln -sf "$SCRIPT_DIR/update.sh" /usr/local/bin/driveconnector-update 2>/dev/null || true
+
 echo "[+] Rebuilding and launching containers..."
 docker compose up -d --build
 
