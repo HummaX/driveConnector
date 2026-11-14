@@ -26,6 +26,7 @@ export default function App() {
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
   const [isMongoModalOpen, setIsMongoModalOpen] = useState(false);
   const [transfers, setTransfers] = useState({});
+  const [processingJobs, setProcessingJobs] = useState({});
   const [metrics, setMetrics] = useState(null);
 
   const searchInputRef = useRef(null);
@@ -158,18 +159,40 @@ export default function App() {
               }));
               fetchVideos();
             }
-          } else if (msg.event === 'PROCESSING_COMPLETE') {
+          } else if (msg.event === 'PROCESSING_UPDATE') {
+            setProcessingJobs((prev) => ({
+              ...prev,
+              [msg.video_id]: msg
+            }));
             setVideos((prev) =>
-              prev.map((v) => (v.video_id === msg.video_id ? { ...v, ...msg.metadata, status: 'LOCAL_READY' } : v))
+              prev.map((v) => (v.video_id === msg.video_id ? { ...v, status: 'PROCESSING', processing_info: msg } : v))
+            );
+            const activeModal = selectedVideoRef.current;
+            if (activeModal && activeModal.video_id === msg.video_id) {
+              setSelectedVideo((prev) => ({
+                ...prev,
+                processing_info: msg
+              }));
+            }
+          } else if (msg.event === 'PROCESSING_COMPLETE') {
+            setProcessingJobs((prev) => {
+              const copy = { ...prev };
+              delete copy[msg.video_id];
+              return copy;
+            });
+            setVideos((prev) =>
+              prev.map((v) => (v.video_id === msg.video_id ? { ...v, ...msg.metadata, status: 'LOCAL_READY', processing_info: null } : v))
             );
             const activeModal = selectedVideoRef.current;
             if (activeModal && activeModal.video_id === msg.video_id) {
               setSelectedVideo((prev) => ({
                 ...prev,
                 ...msg.metadata,
-                status: 'LOCAL_READY'
+                status: 'LOCAL_READY',
+                processing_info: null
               }));
             }
+            fetchVideos();
           }
         } catch (e) {
           console.error('WebSocket parse error:', e);
@@ -232,6 +255,44 @@ export default function App() {
   const confirmAndDelete = (videoId, title) => {
     if (window.confirm(`Are you sure you want to remove "${title || videoId}" and all cached assets from storage?`)) {
       handleDeleteVideo(videoId);
+    }
+  };
+
+  // 6. Transcode Video Renditions
+  const handleTranscode = async (videoId, quality = '720p', replaceOriginal = false) => {
+    try {
+      const res = await fetch(`/api/videos/${videoId}/transcode`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ quality, replace_original: replaceOriginal })
+      });
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      fetchVideos();
+    } catch (err) {
+      console.error('Failed to trigger transcode:', err);
+    }
+  };
+
+  // 7. Transcribe AI Subtitles
+  const handleTranscribe = async (videoId) => {
+    try {
+      const res = await fetch(`/api/videos/${videoId}/transcribe`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      fetchVideos();
+    } catch (err) {
+      console.error('Failed to trigger transcription:', err);
     }
   };
 
@@ -314,6 +375,7 @@ export default function App() {
           metrics={metrics}
           videos={videos}
           transfers={transfers}
+          processingJobs={processingJobs}
           activeFilter={activeFilter}
           onFilterChange={setActiveFilter}
         />
@@ -430,6 +492,9 @@ export default function App() {
                   onPlay={(v) => setSelectedVideo(v)}
                   onDelete={handleDeleteVideo}
                   onDownload={handleTriggerDownload}
+                  onTranscode={handleTranscode}
+                  onTranscribe={handleTranscribe}
+                  processingJob={processingJobs[video.video_id]}
                 />
               ))}
             </div>
@@ -538,8 +603,11 @@ export default function App() {
           video={selectedVideo}
           token={token}
           activeTransfer={transfers[selectedVideo.video_id]}
+          processingJob={selectedVideo ? processingJobs[selectedVideo.video_id] : null}
           onClose={() => setSelectedVideo(null)}
           onTriggerDownload={handleTriggerDownload}
+          onTranscode={handleTranscode}
+          onTranscribe={handleTranscribe}
         />
       )}
 
@@ -567,7 +635,7 @@ export default function App() {
       />
 
       {/* Real-time Transfer Telemetry HUD Drawer */}
-      <TransfersDrawer transfers={transfers} />
+      <TransfersDrawer transfers={transfers} processingJobs={processingJobs} />
     </div>
   );
 }

@@ -28,6 +28,7 @@ export default function StatsDashboard({
   metrics = null,
   videos = [],
   transfers = {},
+  processingJobs = {},
   activeFilter = 'ALL',
   onFilterChange = null
 }) {
@@ -40,7 +41,7 @@ export default function StatsDashboard({
   ).length;
   const inProcessingFallback = transferValues.filter(
     (t) => t.status === 'PROCESSING'
-  ).length;
+  ).length + Object.keys(processingJobs || {}).length;
 
   // Pipeline metrics
   const totalFiles = metrics?.pipeline?.total_files ?? (videos ? videos.length : 0);

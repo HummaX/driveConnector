@@ -1,15 +1,28 @@
 import React, { useState, useRef } from 'react';
-import { Play, Cloud, HardDrive, Download, Trash2, Clock, CheckCircle2, Film, Loader2 } from 'lucide-react';
+import {
+  Play, Cloud, Download, Trash2, Clock, CheckCircle2,
+  Film, Loader2, Sparkles, Sliders, Subtitles
+} from 'lucide-react';
 
-export default function VideoCard({ video, onPlay, onDelete, onDownload }) {
+export default function VideoCard({
+  video,
+  onPlay,
+  onDelete,
+  onDownload,
+  onTranscode,
+  onTranscribe,
+  processingJob
+}) {
   const [isHovered, setIsHovered] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const videoRef = useRef(null);
 
+  const activeProc = processingJob || video.processing_info;
   const isLocal = video.status === 'LOCAL_READY';
   const isCloud = video.status === 'REMOTE_ONLY';
   const isDownloading = video.status === 'DOWNLOADING';
-  const isProcessing = video.status === 'PROCESSING';
+  const isProcessing = video.status === 'PROCESSING' || Boolean(activeProc);
 
   const formatDuration = (seconds) => {
     if (!seconds || seconds <= 0) return null;
@@ -34,6 +47,7 @@ export default function VideoCard({ video, onPlay, onDelete, onDownload }) {
 
   const handleMouseLeave = () => {
     setIsHovered(false);
+    setShowMenu(false);
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
@@ -94,29 +108,47 @@ export default function VideoCard({ video, onPlay, onDelete, onDownload }) {
         )}
 
         {/* Status Badge */}
-        <div className="absolute top-2 left-2 z-10">
-          {isLocal && (
+        <div className="absolute top-2 left-2 z-10 max-w-[85%] truncate">
+          {isProcessing && activeProc ? (
+            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/30 text-purple-200 border border-purple-500/40 backdrop-blur-md shadow-sm animate-pulse truncate">
+              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+              <span className="truncate">
+                {activeProc.stage_name || 'Processing'}: {activeProc.percent}% {activeProc.eta_seconds > 0 ? `(${activeProc.eta_seconds}s left)` : ''}
+              </span>
+            </span>
+          ) : isProcessing ? (
+            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Generating Sprites</span>
+            </span>
+          ) : isLocal ? (
             <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#238636]/30 text-[#3fb950] border border-[#238636]/50 backdrop-blur-md shadow-sm">
               <CheckCircle2 className="w-3 h-3" />
               <span>Saved on Server</span>
             </span>
-          )}
-          {isCloud && (
+          ) : isCloud ? (
             <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 backdrop-blur-md shadow-sm">
               <Cloud className="w-3 h-3" />
               <span>Cloud Remote</span>
             </span>
-          )}
-          {isDownloading && (
+          ) : isDownloading ? (
             <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-sky-500/20 text-sky-300 border border-sky-500/30 backdrop-blur-md shadow-sm animate-pulse">
               <Download className="w-3 h-3 animate-bounce" />
               <span>Downloading...</span>
             </span>
+          ) : null}
+        </div>
+
+        {/* Feature Badges (Top Right: Subtitles, Renditions) */}
+        <div className="absolute top-2 right-2 z-10 flex items-center space-x-1">
+          {video.subtitles_url && (
+            <span className="px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="AI Subtitles Available">
+              CC
+            </span>
           )}
-          {isProcessing && (
-            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              <span>Generating Sprites</span>
+          {video.renditions && Object.keys(video.renditions).length > 0 && (
+            <span className="px-1.5 py-0.5 rounded bg-sky-500/30 text-sky-300 border border-sky-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="Multi-Resolution Renditions Available">
+              {Object.keys(video.renditions).length}Q
             </span>
           )}
         </div>
@@ -142,6 +174,16 @@ export default function VideoCard({ video, onPlay, onDelete, onDownload }) {
             <Play className="w-5 h-5 fill-white translate-x-0.5" />
           </div>
         </div>
+
+        {/* Processing Progress Bar on Card Media */}
+        {isProcessing && activeProc && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#21262d] overflow-hidden">
+            <div
+              className="bg-purple-500 h-full transition-all duration-300"
+              style={{ width: `${activeProc.percent || 0}%` }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Card Info */}
@@ -154,12 +196,18 @@ export default function VideoCard({ video, onPlay, onDelete, onDownload }) {
             <span>{formatBytes(video.file_size_bytes)}</span>
             <span>•</span>
             <span className="text-slate-500">{isLocal ? 'NVMe Cached' : 'On-Demand'}</span>
+            {activeProc && (
+              <>
+                <span>•</span>
+                <span className="text-purple-400 font-semibold">{activeProc.percent}%</span>
+              </>
+            )}
           </div>
         </div>
 
         {/* Action Toolbar */}
         <div className="flex items-center justify-between pt-2 border-t border-[#30363d]/60 text-xs">
-          <div>
+          <div className="flex items-center space-x-1.5">
             {isCloud ? (
               <button
                 type="button"
@@ -177,6 +225,64 @@ export default function VideoCard({ video, onPlay, onDelete, onDownload }) {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 <span>Instant Stream</span>
               </span>
+            )}
+
+            {/* Quick Actions (Transcode / Transcribe) */}
+            {isLocal && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMenu(!showMenu);
+                  }}
+                  title="Video Options (Quality & Subtitles)"
+                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-[#21262d] transition"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                </button>
+
+                {showMenu && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute bottom-full left-0 mb-2 w-48 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-2 z-30 space-y-1 text-xs font-mono animate-fade-in"
+                  >
+                    {!video.subtitles_url && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onTranscribe) onTranscribe(video.video_id);
+                          setShowMenu(false);
+                        }}
+                        className="w-full text-left px-2 py-1.5 rounded hover:bg-[#21262d] text-purple-300 flex items-center space-x-2 transition"
+                      >
+                        <Sparkles className="w-3 h-3 text-purple-400" />
+                        <span>AI Subtitles</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onTranscode) onTranscode(video.video_id, '720p', false);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-2 py-1.5 rounded hover:bg-[#21262d] text-slate-300 hover:text-white flex items-center space-x-2 transition"
+                    >
+                      <span>Transcode to 720p</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onTranscode) onTranscode(video.video_id, '480p', false);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-2 py-1.5 rounded hover:bg-[#21262d] text-slate-300 hover:text-white flex items-center space-x-2 transition"
+                    >
+                      <span>Transcode to 480p</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 

@@ -22,6 +22,9 @@ class VideoModel(BaseModel):
     poster_url: Optional[str] = None
     preview_url: Optional[str] = None
     vtt_url: Optional[str] = None
+    subtitles_url: Optional[str] = None
+    renditions: Dict[str, Any] = Field(default_factory=dict)
+    processing_info: Optional[Dict[str, Any]] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
