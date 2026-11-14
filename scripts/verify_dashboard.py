@@ -663,17 +663,23 @@ def test_transfer_completion_lifecycle_and_badge():
     assert "clearCompletedTransfers" in index_html, "index.html missing clearCompletedTransfers helper"
     assert "dismissTransfer" in index_html, "index.html missing dismissTransfer helper"
     assert "Done" in index_html, "index.html missing 'Done' label in completed transfer card"
+    assert "header-transfers-badge" in index_html, "index.html missing header-transfers-badge in desktop telemetry"
+    assert "mobile-transfers-badge" in index_html, "index.html missing mobile-transfers-badge in mobile micro-telemetry"
 
-    # 3. React Frontend verification (TransfersDrawer, Navbar, App.jsx)
+    # 3. React Frontend verification (TransfersDrawer, Navbar, App.jsx, VideoPlayerModal)
     drawer_jsx = (REPO_DIR / "frontend/src/components/TransfersDrawer.jsx").read_text(encoding="utf-8")
     navbar_jsx = (REPO_DIR / "frontend/src/components/Navbar.jsx").read_text(encoding="utf-8")
     app_jsx = (REPO_DIR / "frontend/src/App.jsx").read_text(encoding="utf-8")
+    modal_jsx = (REPO_DIR / "frontend/src/components/VideoPlayerModal.jsx").read_text(encoding="utf-8")
 
     assert "isTransferDone" in drawer_jsx or "isCompleted" in drawer_jsx, "TransfersDrawer.jsx missing completion check"
     assert "Done" in drawer_jsx, "TransfersDrawer.jsx missing 'Done' status display"
     assert "CheckCircle" in drawer_jsx, "TransfersDrawer.jsx missing CheckCircle icon for completed transfers"
     assert "activeTransfersCount" in navbar_jsx, "Navbar.jsx missing activeTransfersCount prop usage"
     assert "Active" in navbar_jsx, "Navbar.jsx missing 'Active' badge text"
+    assert "isReadyToPlay" in modal_jsx, "VideoPlayerModal.jsx missing isReadyToPlay condition"
+    assert "CheckCircle" in modal_jsx, "VideoPlayerModal.jsx missing CheckCircle icon for completed transfers"
+    assert "Download Complete" in modal_jsx, "VideoPlayerModal.jsx missing 'Download Complete' header state"
 
     # Test App.jsx counts.active calculation logic
     sim_transfers = {

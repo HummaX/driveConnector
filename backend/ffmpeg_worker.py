@@ -239,11 +239,15 @@ async def process_video_background(video_id: str):
     """Main background pipeline entrypoint executed once a video is stored locally."""
     video = await get_video(video_id)
     if not video or not video.get("local_path"):
+        active_downloads.pop(video_id, None)
+        active_processing.pop(video_id, None)
         return
 
     video_path = Path(video["local_path"])
     if not video_path.exists():
         print(f"[FFmpeg] Error: local file not found at {video_path}")
+        active_downloads.pop(video_id, None)
+        active_processing.pop(video_id, None)
         await update_video(video_id, {"status": "FAILED"})
         return
 
@@ -419,6 +423,7 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
             if code != 0 or not temp_rendition.exists():
                 print(f"[FFmpeg] Transcode failed: {err}")
                 active_processing.pop(video_id, None)
+                active_downloads.pop(video_id, None)
                 if temp_rendition.exists():
                     try:
                         os.remove(temp_rendition)
@@ -547,10 +552,14 @@ async def transcribe_video(video_id: str):
     """
     video = await get_video(video_id)
     if not video or not video.get("local_path"):
+        active_downloads.pop(video_id, None)
+        active_processing.pop(video_id, None)
         return
 
     video_path = Path(video["local_path"])
     if not video_path.exists():
+        active_downloads.pop(video_id, None)
+        active_processing.pop(video_id, None)
         return
 
     meta_dir = settings.get_video_metadata_dir(video_id)

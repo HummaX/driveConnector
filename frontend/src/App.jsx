@@ -377,10 +377,16 @@ export default function App() {
 
   const counts = useMemo(() => {
     const activeDownloads = Object.values(transfers).filter(
-      (t) => t.status === 'DOWNLOADING' && (t.percentage || 0) < 100
+      (t) =>
+        t.status !== 'FAILED' &&
+        t.status !== 'DOWNLOAD_COMPLETE' &&
+        t.status !== 'LOCAL_READY' &&
+        t.status !== 'DONE' &&
+        (t.percentage || 0) < 100 &&
+        (t.status === 'DOWNLOADING' || t.status === 'QUEUED' || t.status === 'WAITING')
     ).length;
     const activeProcessing = Object.values(processingJobs).filter(
-      (p) => (p.percent || 0) < 100
+      (p) => (p.percent || 0) < 100 && p.status !== 'COMPLETED' && p.status !== 'FAILED'
     ).length;
 
     return {
