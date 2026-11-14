@@ -145,13 +145,43 @@ export default function App() {
           const msg = JSON.parse(event.data);
 
           if (msg.event === 'TRANSFER_UPDATE') {
+            const isDone =
+              msg.status === 'DOWNLOAD_COMPLETE' ||
+              msg.status === 'LOCAL_READY' ||
+              msg.status === 'DONE' ||
+              (msg.percentage >= 100 && msg.status !== 'FAILED');
+            const updatedMsg = isDone
+              ? { ...msg, percentage: 100, speed_mbs: 0, eta_seconds: 0 }
+              : msg;
+
             setTransfers((prev) => ({
               ...prev,
-              [msg.video_id]: msg
+              [msg.video_id]: updatedMsg
             }));
 
+            // Auto-dismiss completed transfer after a short period
+            if (isDone) {
+              setTimeout(() => {
+                setTransfers((prev) => {
+                  const curr = prev[msg.video_id];
+                  if (
+                    curr &&
+                    (curr.status === 'DOWNLOAD_COMPLETE' ||
+                      curr.status === 'LOCAL_READY' ||
+                      curr.status === 'DONE' ||
+                      curr.percentage >= 100)
+                  ) {
+                    const copy = { ...prev };
+                    delete copy[msg.video_id];
+                    return copy;
+                  }
+                  return prev;
+                });
+              }, 8000);
+            }
+
             const activeModal = selectedVideoRef.current;
-            if (activeModal && activeModal.video_id === msg.video_id && msg.status === 'DOWNLOAD_COMPLETE') {
+            if (activeModal && activeModal.video_id === msg.video_id && isDone) {
               setSelectedVideo((prev) => ({
                 ...prev,
                 status: 'LOCAL_READY',
@@ -180,6 +210,28 @@ export default function App() {
               delete copy[msg.video_id];
               return copy;
             });
+            setTransfers((prev) => {
+              if (prev[msg.video_id]) {
+                return {
+                  ...prev,
+                  [msg.video_id]: {
+                    ...prev[msg.video_id],
+                    status: 'LOCAL_READY',
+                    percentage: 100,
+                    speed_mbs: 0,
+                    eta_seconds: 0
+                  }
+                };
+              }
+              return prev;
+            });
+            setTimeout(() => {
+              setTransfers((prev) => {
+                const copy = { ...prev };
+                delete copy[msg.video_id];
+                return copy;
+              });
+            }, 5000);
             setVideos((prev) =>
               prev.map((v) => (v.video_id === msg.video_id ? { ...v, ...msg.metadata, status: 'LOCAL_READY', processing_info: null } : v))
             );
@@ -324,13 +376,46 @@ export default function App() {
   }, [videos, searchQuery, activeFilter, sortBy]);
 
   const counts = useMemo(() => {
+    const activeDownloads = Object.values(transfers).filter(
+      (t) => t.status === 'DOWNLOADING' && (t.percentage || 0) < 100
+    ).length;
+    const activeProcessing = Object.values(processingJobs).filter(
+      (p) => (p.percent || 0) < 100
+    ).length;
+
     return {
       all: videos.length,
       local: videos.filter((v) => v.status === 'LOCAL_READY').length,
       cloud: videos.filter((v) => v.status === 'REMOTE_ONLY').length,
-      active: Object.values(transfers).filter((t) => t.status === 'DOWNLOADING').length
+      processing: videos.filter((v) => v.status === 'PROCESSING').length,
+      active: activeDownloads + activeProcessing
     };
-  }, [videos, transfers]);
+  }, [videos, transfers, processingJobs]);
+
+  const handleDismissTransfer = (videoId) => {
+    setTransfers((prev) => {
+      const copy = { ...prev };
+      delete copy[videoId];
+      return copy;
+    });
+  };
+
+  const handleClearCompletedTransfers = () => {
+    setTransfers((prev) => {
+      const copy = {};
+      Object.entries(prev).forEach(([id, t]) => {
+        const isDone =
+          t.percentage >= 100 ||
+          t.status === 'DOWNLOAD_COMPLETE' ||
+          t.status === 'LOCAL_READY' ||
+          t.status === 'DONE';
+        if (!isDone) {
+          copy[id] = t;
+        }
+      });
+      return copy;
+    });
+  };
 
   // STRICT AUTH WALL: If not authenticated, render ONLY the Login Page!
   if (!token || !user) {
@@ -635,7 +720,12 @@ export default function App() {
       />
 
       {/* Real-time Transfer Telemetry HUD Drawer */}
-      <TransfersDrawer transfers={transfers} processingJobs={processingJobs} />
+      <TransfersDrawer
+        transfers={transfers}
+        processingJobs={processingJobs}
+        onDismiss={handleDismissTransfer}
+        onClearCompleted={handleClearCompletedTransfers}
+      />
     </div>
   );
 }

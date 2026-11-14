@@ -34,7 +34,13 @@ export default function VideoPlayerModal({
   const [bufferedPercent, setBufferedPercent] = useState(0);
 
   const isLocal = video.status === 'LOCAL_READY';
-  const isDownloading = video.status === 'DOWNLOADING' || (activeTransfer && activeTransfer.status === 'DOWNLOADING');
+  const isTransferDone = activeTransfer && (
+    (activeTransfer.percentage || 0) >= 100 ||
+    activeTransfer.status === 'DOWNLOAD_COMPLETE' ||
+    activeTransfer.status === 'LOCAL_READY' ||
+    activeTransfer.status === 'DONE'
+  );
+  const isDownloading = !isTransferDone && (video.status === 'DOWNLOADING' || (activeTransfer && activeTransfer.status === 'DOWNLOADING'));
   const activeProc = processingJob || video.processing_info;
   const isProcessing = video.status === 'PROCESSING' || Boolean(activeProc);
 

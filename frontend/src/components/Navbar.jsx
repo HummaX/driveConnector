@@ -58,6 +58,15 @@ export default function Navbar({
 
         {/* Mobile Micro-Telemetry Strip (Visible on mobile/tablet < md) */}
         <div className="flex md:hidden items-center space-x-2 text-[10px] font-mono select-none bg-[#161b22] px-2.5 py-1 rounded-lg border border-[#30363d]">
+          {activeTransfersCount > 0 && (
+            <>
+              <div className="flex items-center space-x-1 text-sky-400" title={`${activeTransfersCount} active transfer(s)`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
+                <span className="font-semibold">{activeTransfersCount} dl</span>
+              </div>
+              <span className="text-slate-700">|</span>
+            </>
+          )}
           <div className="flex items-center space-x-1" title={`CPU: ${cpu.percent}%`}>
             <span className={`w-1.5 h-1.5 rounded-full ${getLoadStatusColor(cpu.percent)}`} />
             <span className="text-slate-400">CPU</span>
@@ -77,6 +86,16 @@ export default function Navbar({
 
         {/* Desktop Executive Hardware Telemetry Strip (Visible md and up) */}
         <div className="hidden md:flex items-center space-x-2 text-xs font-mono select-none">
+          {/* Active Transfers Badge */}
+          {activeTransfersCount > 0 && (
+            <div 
+              className="flex items-center space-x-1.5 bg-sky-500/10 border border-sky-500/30 px-2.5 py-1.5 rounded-lg text-sky-400 animate-pulse font-mono"
+              title={`${activeTransfersCount} Active In-Progress Transfer/Processing Operations`}
+            >
+              <ArrowDownRight className="w-3.5 h-3.5 animate-bounce" />
+              <span className="font-semibold">{activeTransfersCount} Active</span>
+            </div>
+          )}
           {/* CPU Pill */}
           <div 
             className="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition"

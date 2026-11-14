@@ -107,9 +107,18 @@ async def broadcast_progress(
 ):
     """Calculates telemetry metrics and broadcasts JSON payload to all connected WebSockets."""
     pct = round((downloaded_bytes / total_bytes * 100), 1) if total_bytes > 0 else 0.0
+    if pct >= 100.0 or (total_bytes > 0 and downloaded_bytes >= total_bytes):
+        pct = 100.0
+        if status == "DOWNLOADING":
+            status = "DOWNLOAD_COMPLETE"
+
+    if status in ("DOWNLOAD_COMPLETE", "DONE", "LOCAL_READY"):
+        pct = 100.0
+        speed_bytes_sec = 0.0
+
     speed_mbs = round(speed_bytes_sec / (1024 * 1024), 2)
-    remaining_bytes = max(0, total_bytes - downloaded_bytes)
-    eta_sec = int(remaining_bytes / speed_bytes_sec) if speed_bytes_sec > 0 else 0
+    remaining_bytes = max(0, total_bytes - downloaded_bytes) if status not in ("DOWNLOAD_COMPLETE", "DONE", "LOCAL_READY") else 0
+    eta_sec = int(remaining_bytes / speed_bytes_sec) if speed_bytes_sec > 0 and status not in ("DOWNLOAD_COMPLETE", "DONE", "LOCAL_READY") else 0
 
     payload = {
         "event": "TRANSFER_UPDATE",
@@ -253,7 +262,6 @@ async def download_drive_video(video_id: str):
             status="FAILED",
             error_message=str(e)
         )
-    finally:
         active_downloads.pop(video_id, None)
 
 async def download_external_url(video_id: str, url: str):
@@ -363,5 +371,4 @@ async def download_external_url(video_id: str, url: str):
             status="FAILED",
             error_message=str(e)
         )
-    finally:
         active_downloads.pop(video_id, None)
