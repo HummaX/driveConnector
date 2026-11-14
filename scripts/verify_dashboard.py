@@ -3,8 +3,10 @@ import sys
 import subprocess
 from pathlib import Path
 
+REPO_DIR = Path(__file__).resolve().parent.parent
+
 def test_python_syntax():
-    backend_dir = Path("driveConnector/backend")
+    backend_dir = REPO_DIR / "backend"
     py_files = list(backend_dir.glob("*.py"))
     for py in py_files:
         res = subprocess.run([sys.executable, "-m", "py_compile", str(py)], capture_output=True, text=True)
@@ -15,7 +17,7 @@ def test_python_syntax():
     return True
 
 def test_dom_ids():
-    html_file = Path("driveConnector/backend/static/index.html")
+    html_file = REPO_DIR / "backend/static/index.html"
     content = html_file.read_text(encoding="utf-8")
     js_ids = set(re.findall(r"getElementById\(['\"]([^'\"]+)['\"]\)", content))
     html_ids = set(re.findall(r"id=['\"]([^'\"]+)['\"]", content))
@@ -29,7 +31,7 @@ def test_dom_ids():
 
 def test_jsx_delimiters():
     all_ok = True
-    repo = Path("driveConnector/frontend/src")
+    repo = REPO_DIR / "frontend/src"
     count = 0
     for f in repo.glob("**/*.jsx"):
         text = f.read_text(encoding="utf-8")
@@ -45,7 +47,7 @@ def test_jsx_delimiters():
     return all_ok
 
 def test_tailwind_classes():
-    files = list(Path("driveConnector/frontend/src").glob("**/*.jsx")) + [Path("driveConnector/backend/static/index.html")]
+    files = list((REPO_DIR / "frontend/src").glob("**/*.jsx")) + [REPO_DIR / "backend/static/index.html"]
     invalid_patterns = [r"py-0\.2\b", r"px-0\.2\b"]
     found_errors = []
     for f in files:
@@ -63,8 +65,8 @@ def test_tailwind_classes():
     return True
 
 def test_keyboard_shortcut_focus():
-    app_jsx = Path("driveConnector/frontend/src/App.jsx").read_text(encoding="utf-8")
-    index_html = Path("driveConnector/backend/static/index.html").read_text(encoding="utf-8")
+    app_jsx = (REPO_DIR / "frontend/src/App.jsx").read_text(encoding="utf-8")
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
     if "isInput" not in app_jsx or "tagName" not in app_jsx:
         print("❌ App.jsx keyboard shortcut '/' steals focus from input/textarea elements!")
         return False
@@ -75,7 +77,7 @@ def test_keyboard_shortcut_focus():
     return True
 
 def test_index_video_hover():
-    index_html = Path("driveConnector/backend/static/index.html").read_text(encoding="utf-8")
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
     if "onmouseenter=\"this.play()\"" in index_html and "pointer-events-none" in index_html:
         print("❌ index.html has onmouseenter on a pointer-events-none video element, video will never play on hover!")
         return False
@@ -86,7 +88,7 @@ def test_index_video_hover():
     return True
 
 def test_list_view_delete_confirmation():
-    app_jsx = Path("driveConnector/frontend/src/App.jsx").read_text(encoding="utf-8")
+    app_jsx = (REPO_DIR / "frontend/src/App.jsx").read_text(encoding="utf-8")
     match = re.search(r"onClick=\{\(\)\s*=>\s*handleDeleteVideo\(v\.video_id\)\}", app_jsx)
     if match:
         print("❌ App.jsx list view deletes video without confirmation!")
@@ -98,8 +100,8 @@ def test_list_view_delete_confirmation():
     return True
 
 def test_uptime_formatting():
-    stats_jsx = Path("driveConnector/frontend/src/components/StatsDashboard.jsx").read_text(encoding="utf-8")
-    index_html = Path("driveConnector/backend/static/index.html").read_text(encoding="utf-8")
+    stats_jsx = (REPO_DIR / "frontend/src/components/StatsDashboard.jsx").read_text(encoding="utf-8")
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
     for name, content in [("StatsDashboard.jsx", stats_jsx), ("index.html", index_html)]:
         if "seconds < 60" not in content:
             print(f"❌ {name} formatUptime does not handle seconds < 60 properly (displays '0m')!")
@@ -108,8 +110,8 @@ def test_uptime_formatting():
     return True
 
 def test_mobile_telemetry():
-    navbar_jsx = Path("driveConnector/frontend/src/components/Navbar.jsx").read_text(encoding="utf-8")
-    index_html = Path("driveConnector/backend/static/index.html").read_text(encoding="utf-8")
+    navbar_jsx = (REPO_DIR / "frontend/src/components/Navbar.jsx").read_text(encoding="utf-8")
+    index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
     if "md:hidden" not in navbar_jsx or "mobile" not in navbar_jsx.lower():
         print("❌ Navbar.jsx missing mobile micro-telemetry strip!")
         return False
@@ -120,9 +122,9 @@ def test_mobile_telemetry():
     return True
 
 def test_fastapi_serving():
-    old_cwd = Path.cwd()
     try:
-        sys.path.insert(0, str((Path("driveConnector/backend")).resolve()))
+        backend_path = (REPO_DIR / "backend").resolve()
+        sys.path.insert(0, str(backend_path))
         import main as backend_main
         from starlette.testclient import TestClient
         client = TestClient(backend_main.app)
