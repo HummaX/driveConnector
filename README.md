@@ -137,21 +137,40 @@ When the system boots for the first time, an administrator account is automatica
 
 ## Quick Start on OVHcloud Linux Server
 
-### 1. Mount & Prepare 1TB Block Storage
+### Option A: One-Command Automated Setup (Recommended)
+
+Run this single command inside the cloned `driveConnector` directory. It automatically installs Docker, configures storage permissions, sets up `.env`, pulls the latest code, and boots the entire platform:
+
 ```bash
+sudo bash setup.sh
+```
+
+*(Or without cloning first)*:
+```bash
+curl -fsSL https://raw.githubusercontent.com/HummaX/driveConnector/main/setup.sh | sudo bash
+```
+
+### Option B: Manual Setup
+
+```bash
+# 1. Mount & prepare 1TB block storage
 sudo mkdir -p /mnt/storage/mongodb /mnt/storage/videos /mnt/storage/metadata
-sudo chown -R 1000:1000 /mnt/storage
-```
+sudo chown -R 999:999 /mnt/storage/mongodb
+sudo chown -R 1000:1000 /mnt/storage/videos /mnt/storage/metadata
 
-### 2. Configure Environment & Credentials
-```bash
-cd driveConnector
+# 2. Configure environment
 cp .env.example .env
+
+# 3. Launch stack
+docker compose up -d --build
 ```
 
-### 3. Launch Services via Docker Compose
+### Updating the Server
+
+Whenever a new release or update is approved, update your live server with:
+
 ```bash
-docker compose up -d --build
+sudo bash update.sh
 ```
 
 ### 4. Access the Application
