@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Search, Film, RefreshCw, AlertCircle } from 'lucide-react';
+import { 
+  Search, Film, RefreshCw, AlertCircle, LayoutGrid, List, 
+  ArrowUpDown, X, Cloud, HardDrive, Plus, Sparkles, Database 
+} from 'lucide-react';
 import Navbar from './components/Navbar';
 import VideoCard from './components/VideoCard';
 import VideoPlayerModal from './components/VideoPlayerModal';
@@ -15,12 +18,16 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState('newest');
+  const [viewMode, setViewMode] = useState('grid');
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
   const [isMongoModalOpen, setIsMongoModalOpen] = useState(false);
   const [transfers, setTransfers] = useState({});
   const [metrics, setMetrics] = useState(null);
+
+  const searchInputRef = useRef(null);
 
   // Authentication State
   const [token, setToken] = useState(() => localStorage.getItem('drive_auth_token'));
@@ -99,6 +106,18 @@ export default function App() {
       return () => clearInterval(interval);
     }
   }, [token, fetchVideos, fetchMetrics]);
+
+  // Keyboard shortcut listener ('/' to search)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === '/' && document.activeElement !== searchInputRef.current) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // 3. Stable Authenticated WebSocket Connection
   useEffect(() => {
@@ -202,15 +221,32 @@ export default function App() {
     }
   };
 
+  // Filtered and Sorted Videos
   const filteredVideos = useMemo(() => {
-    return videos.filter((video) => {
+    let result = videos.filter((video) => {
       const matchesSearch = (video.title || '').toLowerCase().includes(searchQuery.toLowerCase());
       if (!matchesSearch) return false;
       if (activeFilter === 'LOCAL') return video.status === 'LOCAL_READY';
       if (activeFilter === 'CLOUD') return video.status === 'REMOTE_ONLY';
       return true;
     });
-  }, [videos, searchQuery, activeFilter]);
+
+    result.sort((a, b) => {
+      if (sortBy === 'title') {
+        return (a.title || '').localeCompare(b.title || '');
+      }
+      if (sortBy === 'size') {
+        return (b.file_size_bytes || 0) - (a.file_size_bytes || 0);
+      }
+      if (sortBy === 'duration') {
+        return (b.duration_seconds || 0) - (a.duration_seconds || 0);
+      }
+      // 'newest' default (by video_id or natural reverse index)
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    });
+
+    return result;
+  }, [videos, searchQuery, activeFilter, sortBy]);
 
   const counts = useMemo(() => {
     return {
@@ -226,9 +262,16 @@ export default function App() {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // Once authenticated, unlock the full platform
+  // Format bytes helper for list view
+  const formatBytes = (bytes) => {
+    if (!bytes || bytes <= 0) return '0 MB';
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col selection:bg-sky-500 selection:text-white">
+    <div className="min-h-screen bg-[#0a0c14] text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
       {/* Top Hardware Telemetry Header */}
       <Navbar
         user={user}
@@ -248,90 +291,215 @@ export default function App() {
         {/* Executive Real-Time Operations Stats Dashboard */}
         <StatsDashboard
           metrics={metrics}
-          videosCount={counts}
-          activeTransfers={transfers}
+          videos={videos}
+          transfers={transfers}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
         />
 
-        {/* Search & Filter Toolbar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-2">
+        {/* Search, Filter & View Controls Toolbar */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pt-1">
+          {/* Search Box */}
           <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search library by title..."
-              className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition"
+              placeholder="Search catalog... (Press '/' to focus)"
+              className="w-full pl-9 pr-8 py-2 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition shadow-inner font-sans"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-0.5 rounded"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center space-x-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-800 text-xs font-medium">
-            <button
-              onClick={() => setActiveFilter('ALL')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                activeFilter === 'ALL' ? 'bg-sky-500 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              All ({counts.all})
-            </button>
-            <button
-              onClick={() => setActiveFilter('LOCAL')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                activeFilter === 'LOCAL' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Saved Local ({counts.local})
-            </button>
-            <button
-              onClick={() => setActiveFilter('CLOUD')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                activeFilter === 'CLOUD' ? 'bg-amber-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              On Cloud ({counts.cloud})
-            </button>
+          {/* Filter Tabs, Sort, and View Controls */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Filter Tabs (GitHub-style Segmented Pills) */}
+            <div className="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-xs font-medium">
+              <button
+                onClick={() => setActiveFilter('ALL')}
+                className={`px-3 py-1 rounded-md transition font-mono ${
+                  activeFilter === 'ALL'
+                    ? 'bg-[#21262d] text-white shadow-sm border border-[#30363d]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All ({counts.all})
+              </button>
+              <button
+                onClick={() => setActiveFilter('LOCAL')}
+                className={`px-3 py-1 rounded-md transition font-mono ${
+                  activeFilter === 'LOCAL'
+                    ? 'bg-emerald-500/20 text-emerald-300 shadow-sm border border-emerald-500/30'
+                    : 'text-slate-400 hover:text-emerald-400'
+                }`}
+              >
+                Saved Local ({counts.local})
+              </button>
+              <button
+                onClick={() => setActiveFilter('CLOUD')}
+                className={`px-3 py-1 rounded-md transition font-mono ${
+                  activeFilter === 'CLOUD'
+                    ? 'bg-amber-500/20 text-amber-300 shadow-sm border border-amber-500/30'
+                    : 'text-slate-400 hover:text-amber-400'
+                }`}
+              >
+                On Cloud ({counts.cloud})
+              </button>
+            </div>
+
+            {/* Sort Selector */}
+            <div className="flex items-center space-x-1.5 bg-[#161b22] px-2.5 py-1.5 rounded-lg border border-[#30363d] text-xs text-slate-300">
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer font-sans"
+              >
+                <option value="newest" className="bg-[#161b22] text-white">Recently Added</option>
+                <option value="title" className="bg-[#161b22] text-white">Title (A-Z)</option>
+                <option value="size" className="bg-[#161b22] text-white">File Size</option>
+                <option value="duration" className="bg-[#161b22] text-white">Duration</option>
+              </select>
+            </div>
+
+            {/* Grid vs List View Mode Toggle */}
+            <div className="flex items-center bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-slate-400">
+              <button
+                onClick={() => setViewMode('grid')}
+                title="Grid View"
+                className={`p-1 rounded-md transition ${viewMode === 'grid' ? 'bg-[#21262d] text-white' : 'hover:text-white'}`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                title="List View"
+                className={`p-1 rounded-md transition ${viewMode === 'list' ? 'bg-[#21262d] text-white' : 'hover:text-white'}`}
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Video Grid */}
+        {/* Video Catalog Display */}
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-500 space-y-3">
-            <RefreshCw className="w-8 h-8 animate-spin text-sky-400" />
-            <p className="text-sm">Loading media catalog...</p>
+          <div className="flex flex-col items-center justify-center py-24 text-slate-500 space-y-3">
+            <RefreshCw className="w-7 h-7 animate-spin text-sky-400" />
+            <p className="text-xs font-mono">Querying media catalog & MongoDB records...</p>
           </div>
         ) : filteredVideos.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredVideos.map((video) => (
-              <VideoCard
-                key={video.video_id}
-                video={video}
-                onPlay={(v) => setSelectedVideo(v)}
-                onDelete={handleDeleteVideo}
-                onDownload={handleTriggerDownload}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-slate-900/30 border border-dashed border-slate-800 rounded-2xl">
-            <div className="p-4 rounded-2xl bg-slate-900 text-slate-500 mb-4">
-              <Film className="w-10 h-10" />
+          viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredVideos.map((video) => (
+                <VideoCard
+                  key={video.video_id}
+                  video={video}
+                  onPlay={(v) => setSelectedVideo(v)}
+                  onDelete={handleDeleteVideo}
+                  onDownload={handleTriggerDownload}
+                />
+              ))}
             </div>
-            <h3 className="text-base font-semibold text-white mb-1">No videos found</h3>
-            <p className="text-xs text-slate-400 max-w-sm mb-6">
-              Connect your Google Drive to instantly sync catalog metadata with zero disk footprint, or paste external video links.
+          ) : (
+            /* Sleek Table / List View */
+            <div className="bg-[#0d1117]/80 border border-[#30363d] rounded-xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#161b22] text-slate-400 font-mono uppercase text-[10px] border-b border-[#30363d]">
+                    <tr>
+                      <th className="px-4 py-3">Title</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Source</th>
+                      <th className="px-4 py-3">Size</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#30363d]/60 font-sans">
+                    {filteredVideos.map((v) => {
+                      const isLocal = v.status === 'LOCAL_READY';
+                      return (
+                        <tr
+                          key={v.video_id}
+                          onClick={() => setSelectedVideo(v)}
+                          className="hover:bg-[#161b22]/70 cursor-pointer transition"
+                        >
+                          <td className="px-4 py-3 font-medium text-white max-w-xs truncate">
+                            <span title={v.title}>{v.title}</span>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-[11px]">
+                            {isLocal ? (
+                              <span className="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                Saved on Server
+                              </span>
+                            ) : (
+                              <span className="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                Cloud Remote
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">
+                            {v.source === 'GDRIVE' ? 'Google Drive' : 'Direct Link'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">
+                            {formatBytes(v.file_size_bytes)}
+                          </td>
+                          <td className="px-4 py-3 text-right space-x-2" onClick={(e) => e.stopPropagation()}>
+                            {!isLocal && (
+                              <button
+                                onClick={() => handleTriggerDownload(v.video_id)}
+                                className="px-2 py-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 hover:bg-sky-500/20 transition text-[11px]"
+                              >
+                                Fetch
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteVideo(v.video_id)}
+                              className="px-2 py-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition text-[11px]"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        ) : (
+          /* Empty State */
+          <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-[#0d1117]/60 border border-dashed border-[#30363d] rounded-2xl">
+            <div className="p-3.5 rounded-2xl bg-[#161b22] text-slate-500 mb-3 border border-[#30363d]">
+              <Film className="w-8 h-8 text-sky-400" />
+            </div>
+            <h3 className="text-sm font-semibold text-white mb-1">No media files in catalog</h3>
+            <p className="text-xs text-slate-400 max-w-sm mb-5">
+              Sync your Google Drive library with zero disk storage footprint, or ingest high-resolution web streams.
             </p>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2.5">
               <button
                 onClick={() => setIsSyncModalOpen(true)}
-                className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-xs font-semibold shadow-lg shadow-sky-500/20 transition"
+                className="px-3.5 py-2 rounded-lg bg-[#161b22] hover:bg-[#21262d] text-white text-xs font-semibold border border-[#30363d] shadow-sm transition"
               >
                 Sync Google Drive
               </button>
               <button
                 onClick={() => setIsUrlModalOpen(true)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
+                className="px-3.5 py-2 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold border border-[#2ea043]/50 shadow-sm transition"
               >
-                Add External Link
+                Add External URL
               </button>
             </div>
           </div>

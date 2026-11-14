@@ -12,11 +12,12 @@
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
   <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
   <style>
-    body { background-color: #030712; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: #030712; }
-    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
-    .plyr--video { border-radius: 0.75rem; overflow: hidden; }
+    body { background-color: #0a0c14; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #010409; }
+    ::-webkit-scrollbar-thumb { background: #21262d; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #30363d; }
+    .plyr--video { border-radius: 0.75rem; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
     .plyr--full-ui input[type=range] { color: #0ea5e9; }
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
@@ -149,80 +150,75 @@
 
   <!-- ==================== 2. MAIN AUTHENTICATED PLATFORM VIEW ==================== -->
   <div id="main-platform-view" class="hidden flex-1 flex-col">
-    <!-- Header with Hardware Telemetry Bar -->
-    <header class="sticky top-0 z-30 w-full bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 shadow-md">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+    <!-- Header with Hardware Telemetry Ribbon -->
+    <header class="sticky top-0 z-30 w-full bg-[#0d1117]/95 backdrop-blur-xl border-b border-[#30363d]/80 shadow-lg">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
         <!-- Brand -->
         <div class="flex items-center space-x-3 shrink-0">
-          <div class="p-2 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-lg shadow-sky-500/20">
-            <i data-lucide="play-square" class="w-5 h-5"></i>
+          <div class="p-2 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white shadow-md shadow-sky-500/20 border border-sky-400/20">
+            <i data-lucide="play-square" class="w-5 h-5 fill-white"></i>
           </div>
-          <div>
-            <h1 class="text-base font-bold text-white flex items-center space-x-2">
-              <span>DriveConnector</span>
-              <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">1TB NVMe</span>
-            </h1>
-            <p class="text-[10px] text-slate-400 hidden xl:block">Dedicated Ingestion & High-Speed Range Streaming</p>
+          <div class="flex flex-col">
+            <div class="flex items-center space-x-2">
+              <span class="text-base font-bold text-white tracking-tight">DriveConnector</span>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/25 uppercase font-medium">1TB NVMe</span>
+            </div>
+            <span class="text-[10px] text-slate-400 hidden xl:inline font-mono">Self-Hosted Media Engine • Node 01</span>
           </div>
         </div>
 
-        <!-- Center: Real-Time Hardware Telemetry -->
-        <div class="hidden md:flex items-center space-x-2 text-xs font-mono">
+        <!-- Center: Hardware Telemetry Strip -->
+        <div class="hidden md:flex items-center space-x-2 text-xs font-mono select-none">
           <!-- CPU -->
-          <div class="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg">
-            <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400"></i>
-            <div class="flex flex-col">
-              <div class="flex items-center space-x-1 text-[10px]">
-                <span class="text-slate-400">CPU</span>
-                <span id="header-cpu-pct" class="text-white font-semibold">0%</span>
-              </div>
-              <div class="w-12 bg-slate-800 h-1 rounded-full overflow-hidden mt-0.5">
-                <div id="header-cpu-bar" class="h-full bg-sky-500 transition-all duration-500" style="width: 0%"></div>
-              </div>
+          <div class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition">
+            <div class="flex items-center space-x-1.5">
+              <span id="header-cpu-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400"></i>
+            </div>
+            <div class="flex items-baseline space-x-1">
+              <span class="text-slate-400 text-[10px]">CPU</span>
+              <span id="header-cpu-pct" class="text-white font-semibold">0%</span>
+            </div>
+            <div class="w-10 bg-slate-800 h-1 rounded-full overflow-hidden">
+              <div id="header-cpu-bar" class="h-full bg-sky-400 transition-all duration-500" style="width: 0%"></div>
             </div>
           </div>
 
           <!-- RAM -->
-          <div class="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg">
+          <div class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition">
             <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
-            <div class="flex flex-col">
-              <div class="flex items-center space-x-1 text-[10px]">
-                <span class="text-slate-400">RAM</span>
-                <span id="header-ram-used" class="text-white font-semibold">0G</span>
-                <span id="header-ram-pct" class="text-slate-500">[0%]</span>
-              </div>
-              <div class="w-14 bg-slate-800 h-1 rounded-full overflow-hidden mt-0.5">
-                <div id="header-ram-bar" class="h-full bg-indigo-500 transition-all duration-500" style="width: 0%"></div>
-              </div>
+            <div class="flex items-baseline space-x-1">
+              <span class="text-slate-400 text-[10px]">RAM</span>
+              <span id="header-ram-used" class="text-white font-semibold">0G</span>
+              <span id="header-ram-pct" class="text-slate-500 text-[10px]">[0%]</span>
+            </div>
+            <div class="w-10 bg-slate-800 h-1 rounded-full overflow-hidden">
+              <div id="header-ram-bar" class="h-full bg-indigo-500 transition-all duration-500" style="width: 0%"></div>
             </div>
           </div>
 
-          <!-- Storage -->
-          <div class="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg">
+          <!-- NVMe Storage -->
+          <div class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition">
             <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-emerald-400"></i>
-            <div class="flex flex-col">
-              <div class="flex items-center space-x-1 text-[10px]">
-                <span class="text-slate-400">Disk</span>
-                <span id="header-disk-used" class="text-white font-semibold">0G</span>
-                <span id="header-disk-total" class="text-slate-500">/1000G</span>
-              </div>
-              <div class="w-14 bg-slate-800 h-1 rounded-full overflow-hidden mt-0.5">
-                <div id="header-disk-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width: 0%"></div>
-              </div>
+            <div class="flex items-baseline space-x-1">
+              <span class="text-slate-400 text-[10px]">Disk</span>
+              <span id="header-disk-used" class="text-white font-semibold">0G</span>
+              <span id="header-disk-total" class="text-slate-500 text-[10px]">/ 1000G</span>
+            </div>
+            <div class="w-10 bg-slate-800 h-1 rounded-full overflow-hidden">
+              <div id="header-disk-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width: 0%"></div>
             </div>
           </div>
 
           <!-- Network Throughput -->
-          <div class="hidden lg:flex items-center space-x-2.5 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-[10px]">
+          <div class="hidden lg:flex items-center space-x-2.5 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg text-[10px] hover:border-slate-600 transition">
             <div class="flex items-center space-x-1 text-sky-400">
               <i data-lucide="arrow-down-right" class="w-3 h-3"></i>
-              <span class="text-slate-400">In:</span>
               <span id="header-net-in" class="font-semibold">0 MB/s</span>
             </div>
             <span class="text-slate-700">|</span>
             <div class="flex items-center space-x-1 text-emerald-400">
               <i data-lucide="arrow-up-right" class="w-3 h-3"></i>
-              <span class="text-slate-400">Out:</span>
               <span id="header-net-out" class="font-semibold">0 MB/s</span>
             </div>
           </div>
@@ -230,27 +226,30 @@
 
         <!-- Action Buttons -->
         <div class="flex items-center space-x-2 shrink-0">
-          <button onclick="fetchAllData()" title="Refresh" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">
-            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          <button id="refresh-all-btn" onclick="fetchAllData()" title="Refresh Telemetry & Catalog" class="p-2 rounded-lg bg-[#161b22] border border-[#30363d] text-slate-300 hover:text-white hover:border-slate-600 transition active:scale-95">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
           </button>
-          <button onclick="openMongoModal()" title="MongoDB Explorer" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-800/60 hover:border-emerald-600 text-emerald-400 text-xs font-semibold hover:bg-emerald-900/40 transition">
-            <i data-lucide="database" class="w-4 h-4"></i>
-            <span class="hidden sm:inline">MongoDB UI</span>
+          <button onclick="openMongoModal()" title="MongoDB Live Explorer" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 text-xs font-medium hover:bg-emerald-950/30 transition shadow-sm">
+            <i data-lucide="database" class="w-3.5 h-3.5"></i>
+            <span class="hidden sm:inline">MongoDB</span>
           </button>
-          <button onclick="openSyncModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-800 transition">
-            <i data-lucide="cloud" class="w-4 h-4 text-sky-400"></i>
+          <button onclick="openSyncModal()" title="Sync Google Drive" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-600 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm">
+            <i data-lucide="cloud" class="w-3.5 h-3.5 text-sky-400"></i>
             <span class="hidden sm:inline">Sync Drive</span>
           </button>
-          <button onclick="openUrlModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow-md shadow-indigo-600/20 transition">
-            <i data-lucide="plus" class="w-4 h-4"></i>
+          <button onclick="openUrlModal()" title="Ingest from External URL" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold border border-[#2ea043]/50 shadow-sm transition active:scale-95">
+            <i data-lucide="plus" class="w-3.5 h-3.5 stroke-[2.5]"></i>
             <span>Add URL</span>
           </button>
 
-          <!-- Logout -->
-          <div class="flex items-center space-x-1.5 pl-2 border-l border-slate-800">
-            <span class="hidden sm:inline text-xs text-slate-300 font-mono bg-slate-900 px-2 py-1 rounded-lg border border-slate-800">admin</span>
-            <button onclick="handleLogout()" title="Log Out" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 transition">
-              <i data-lucide="log-out" class="w-4 h-4"></i>
+          <!-- User status / Logout -->
+          <div class="flex items-center space-x-1.5 pl-2 border-l border-[#30363d]">
+            <div class="hidden sm:flex items-center space-x-1.5 text-xs text-slate-300 bg-[#161b22] px-2.5 py-1.5 rounded-lg border border-[#30363d] font-mono">
+              <i data-lucide="shield" class="w-3 h-3 text-emerald-400"></i>
+              <span id="nav-user-label" class="font-semibold text-slate-200">admin</span>
+            </div>
+            <button onclick="handleLogout()" title="Log Out" class="p-2 rounded-lg bg-[#161b22] border border-[#30363d] text-slate-400 hover:text-red-400 hover:border-red-500/30 transition">
+              <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
             </button>
           </div>
         </div>
@@ -258,214 +257,336 @@
     </header>
 
     <!-- Main Content Area -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-      <!-- Executive Operational Metrics Dashboard -->
-      <section class="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm space-y-4 shadow-xl">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/60 pb-3">
-          <div class="flex items-center space-x-2">
-            <div class="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
-              <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <!-- Executive Operations Stats Dashboard -->
+      <section class="space-y-3.5" aria-label="Executive Operations Dashboard">
+        <!-- Mission Control Status Bar -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-1 pb-1">
+          <div class="flex items-center space-x-2.5">
+            <div class="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400">
+              <i data-lucide="activity" class="w-4 h-4 animate-pulse"></i>
             </div>
             <div>
-              <h2 class="text-sm font-bold text-white">System Operations & Ingestion Metrics</h2>
-              <p class="text-[11px] text-slate-400">Live operational telemetry across storage, queue, and streaming pipeline</p>
+              <div class="flex items-center space-x-2">
+                <h2 class="text-sm font-semibold tracking-tight text-white">Operations & Streaming Telemetry</h2>
+                <span id="dashboard-server-status" class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block"></span>
+                  <span>optimal</span>
+                </span>
+              </div>
+              <p id="dashboard-server-info" class="text-[11px] text-slate-400 font-mono">Dedicated Host • Linux • Uptime Live</p>
             </div>
           </div>
-          <div class="flex items-center space-x-2">
-            <span class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>LIVE TELEMETRY</span>
-            </span>
+
+          <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-400 self-start sm:self-auto">
+            <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-[#161b22] border border-[#30363d]">
+              <i data-lucide="radio" class="w-3 h-3 text-emerald-400 animate-pulse"></i>
+              <span>WebSocket Live</span>
+            </div>
           </div>
         </div>
 
-        <!-- 6 KPI Cards Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
-          <!-- 1. Total Media Library -->
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
-            <div class="flex items-center justify-between text-slate-400 mb-1">
-              <span class="text-[11px] font-medium">Total Catalog</span>
-              <i data-lucide="film" class="w-4 h-4 text-sky-400"></i>
+        <!-- 5-Card Executive Operations Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
+          <!-- Card 1: Media Catalog -->
+          <div onclick="setFilter('ALL')" class="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-md">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">Media Catalog</span>
+              <div class="p-1.5 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 group-hover:scale-105 transition-transform">
+                <i data-lucide="database" class="w-3.5 h-3.5"></i>
+              </div>
             </div>
-            <div class="text-xl font-bold text-white font-mono" id="kpi-total-files">0</div>
-            <div class="text-[10px] text-slate-400 mt-1 flex justify-between font-mono">
-              <span id="kpi-local-count" class="text-emerald-400">0 Local</span>
-              <span>•</span>
-              <span id="kpi-cloud-count" class="text-amber-400">0 Cloud</span>
+            <div>
+              <div class="flex items-baseline space-x-1.5 font-mono">
+                <span id="kpi-total-files" class="text-2xl font-bold text-white tracking-tight">0</span>
+                <span class="text-xs text-slate-500">items</span>
+              </div>
+              <div class="mt-2.5 flex items-center space-x-1.5 text-[10px] font-mono">
+                <button type="button" onclick="event.stopPropagation(); setFilter('LOCAL')" class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition flex items-center space-x-1">
+                  <i data-lucide="hard-drive" class="w-3 h-3"></i>
+                  <span id="kpi-local-count">0 Local</span>
+                </button>
+                <button type="button" onclick="event.stopPropagation(); setFilter('CLOUD')" class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition flex items-center space-x-1">
+                  <i data-lucide="cloud" class="w-3 h-3"></i>
+                  <span id="kpi-cloud-count">0 Cloud</span>
+                </button>
+              </div>
+              <div class="mt-3 w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden flex">
+                <div id="kpi-ratio-local" class="bg-emerald-400 transition-all duration-500" style="width: 50%"></div>
+                <div id="kpi-ratio-cloud" class="bg-amber-400 transition-all duration-500" style="width: 50%"></div>
+              </div>
             </div>
           </div>
 
-          <!-- 2. Ingestion Queue -->
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
-            <div class="flex items-center justify-between text-slate-400 mb-1">
-              <span class="text-[11px] font-medium">Ingestion Queue</span>
-              <i data-lucide="arrow-down-circle" class="w-4 h-4 text-sky-400"></i>
+          <!-- Card 2: Ingest Pipeline -->
+          <div class="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-md">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">Ingest Pipeline</span>
+              <div id="kpi-pipeline-icon-wrap" class="p-1.5 rounded-lg bg-[#161b22] border border-[#30363d] text-slate-400">
+                <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+              </div>
             </div>
-            <div class="text-xl font-bold text-white font-mono" id="kpi-queue-count">0</div>
-            <div class="text-[10px] text-sky-400 font-mono mt-1" id="kpi-queue-status">0 In Transfer</div>
+            <div>
+              <div class="flex items-baseline space-x-1.5 font-mono">
+                <span id="kpi-pipeline-active" class="text-2xl font-bold text-white tracking-tight">0</span>
+                <span class="text-xs text-slate-500">active tasks</span>
+              </div>
+              <div class="mt-2.5 flex items-center space-x-1.5 text-[10px] font-mono">
+                <span class="px-2 py-0.5 rounded bg-[#161b22] text-slate-300 border border-[#30363d] flex items-center space-x-1">
+                  <i data-lucide="clock" class="w-3 h-3 text-sky-400"></i>
+                  <span id="kpi-queue-count">0 Queue</span>
+                </span>
+                <span class="px-2 py-0.5 rounded bg-[#161b22] text-slate-300 border border-[#30363d] flex items-center space-x-1">
+                  <i data-lucide="sparkles" class="w-3 h-3 text-purple-400"></i>
+                  <span id="kpi-proc-count">0 Sprites</span>
+                </span>
+              </div>
+              <p id="kpi-pipeline-desc" class="mt-3 text-[11px] text-slate-500 truncate font-mono">Ingestion Workers Idle</p>
+            </div>
           </div>
 
-          <!-- 3. Active Processing -->
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
-            <div class="flex items-center justify-between text-slate-400 mb-1">
-              <span class="text-[11px] font-medium">Active Processing</span>
-              <i data-lucide="cpu" class="w-4 h-4 text-purple-400"></i>
+          <!-- Card 3: 1TB NVMe Storage -->
+          <div class="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-md">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">1TB NVMe Disk</span>
+              <div class="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 group-hover:scale-105 transition-transform">
+                <i data-lucide="hard-drive" class="w-3.5 h-3.5"></i>
+              </div>
             </div>
-            <div class="text-xl font-bold text-white font-mono" id="kpi-proc-count">0</div>
-            <div class="text-[10px] text-purple-400 font-mono mt-1">FFmpeg VTT Sprites</div>
+            <div>
+              <div class="flex items-baseline space-x-1.5 font-mono">
+                <span id="kpi-disk-used" class="text-xl font-bold text-white tracking-tight">0 GB</span>
+                <span class="text-xs text-slate-500">/ 1000 GB</span>
+                <span id="kpi-disk-pct" class="ml-auto text-xs font-semibold text-emerald-400">0%</span>
+              </div>
+              <div class="mt-2.5 w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
+                <div id="kpi-disk-bar" class="h-full bg-emerald-400 transition-all duration-500" style="width: 0%"></div>
+              </div>
+              <div class="mt-2.5 flex items-center justify-between text-[10px] font-mono text-slate-500">
+                <span id="kpi-disk-free">1000 GB free</span>
+                <span class="text-emerald-400/80">/mnt/storage</span>
+              </div>
+            </div>
           </div>
 
-          <!-- 4. Download Fetch Speed -->
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
-            <div class="flex items-center justify-between text-slate-400 mb-1">
-              <span class="text-[11px] font-medium">Download Fetch</span>
-              <i data-lucide="arrow-down-right" class="w-4 h-4 text-sky-400"></i>
+          <!-- Card 4: Throughput I/O -->
+          <div class="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-md">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">Throughput I/O</span>
+              <div class="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 group-hover:scale-105 transition-transform">
+                <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+              </div>
             </div>
-            <div class="text-xl font-bold text-sky-400 font-mono" id="kpi-in-speed">0 MB/s</div>
-            <div class="text-[10px] text-slate-500 font-mono mt-1" id="kpi-rx-total">Total: 0 MB</div>
+            <div>
+              <div class="space-y-1 font-mono text-xs">
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-400 flex items-center space-x-1">
+                    <i data-lucide="arrow-down-to-line" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span>Fetch:</span>
+                  </span>
+                  <span id="kpi-in-speed" class="font-bold text-cyan-300">0 MB/s</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-400 flex items-center space-x-1">
+                    <i data-lucide="arrow-up-from-line" class="w-3.5 h-3.5 text-emerald-400"></i>
+                    <span>Stream:</span>
+                  </span>
+                  <span id="kpi-out-speed" class="font-bold text-emerald-300">0 MB/s</span>
+                </div>
+              </div>
+              <div class="mt-2.5 flex items-center justify-between text-[10px] font-mono text-slate-500 truncate">
+                <span id="kpi-rx-total">Rx: 0 MB</span>
+                <span id="kpi-tx-total">Tx: 0 MB</span>
+              </div>
+            </div>
           </div>
 
-          <!-- 5. Streaming Upload Speed -->
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
-            <div class="flex items-center justify-between text-slate-400 mb-1">
-              <span class="text-[11px] font-medium">Stream Outbound</span>
-              <i data-lucide="arrow-up-right" class="w-4 h-4 text-emerald-400"></i>
+          <!-- Card 5: Stream Ready -->
+          <div onclick="setFilter('LOCAL')" class="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-md">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">Stream Ready</span>
+              <div class="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 group-hover:scale-105 transition-transform">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+              </div>
             </div>
-            <div class="text-xl font-bold text-emerald-400 font-mono" id="kpi-out-speed">0 MB/s</div>
-            <div class="text-[10px] text-slate-500 font-mono mt-1" id="kpi-tx-total">Total: 0 MB</div>
-          </div>
-
-          <!-- 6. 1TB Storage Volume -->
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
-            <div class="flex items-center justify-between text-slate-400 mb-1">
-              <span class="text-[11px] font-medium">1TB Storage</span>
-              <i data-lucide="hard-drive" class="w-4 h-4 text-amber-400"></i>
+            <div>
+              <div class="flex items-baseline space-x-1.5 font-mono">
+                <span id="kpi-stream-ready" class="text-2xl font-bold text-emerald-400 tracking-tight">0</span>
+                <span class="text-xs text-slate-500">ready</span>
+              </div>
+              <div class="mt-2.5">
+                <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-mono">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span>Zero-Latency Byte Range</span>
+                </span>
+              </div>
+              <p class="mt-3 text-[11px] text-slate-500 truncate font-mono">Instant Plyr Scrubbing</p>
             </div>
-            <div class="text-xl font-bold text-white font-mono" id="kpi-disk-used">0 GB</div>
-            <div class="text-[10px] text-slate-400 font-mono mt-1" id="kpi-disk-pct">0% Used</div>
           </div>
         </div>
       </section>
 
-      <!-- Toolbar: Search & Filters -->
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-2">
+      <!-- Toolbar: Search, Filters & View Options -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pt-1">
+        <!-- Search Box -->
         <div class="relative flex-1 max-w-md">
-          <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
-          <input id="search-input" type="text" oninput="renderVideos()" placeholder="Search library by title..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition" />
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"></i>
+          <input id="search-input" type="text" oninput="renderVideos()" placeholder="Search catalog... (Press '/' to focus)" class="w-full pl-9 pr-8 py-2 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition shadow-inner font-sans" />
+          <button id="search-clear-btn" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-0.5 rounded">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
         </div>
-        <div class="flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-medium">
-          <button onclick="setFilter('ALL')" id="filter-all" class="px-3 py-1.5 rounded-lg bg-sky-500 text-white">All (<span id="count-all">0</span>)</button>
-          <button onclick="setFilter('LOCAL')" id="filter-local" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">Saved Local (<span id="count-local">0</span>)</button>
-          <button onclick="setFilter('CLOUD')" id="filter-cloud" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">On Cloud (<span id="count-cloud">0</span>)</button>
+
+        <!-- Controls -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Filter Tabs -->
+          <div class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-xs font-medium font-mono">
+            <button onclick="setFilter('ALL')" id="filter-all" class="px-3 py-1 rounded-md transition bg-[#21262d] text-white border border-[#30363d]">
+              All (<span id="count-all">0</span>)
+            </button>
+            <button onclick="setFilter('LOCAL')" id="filter-local" class="px-3 py-1 rounded-md transition text-slate-400 hover:text-emerald-400">
+              Saved Local (<span id="count-local">0</span>)
+            </button>
+            <button onclick="setFilter('CLOUD')" id="filter-cloud" class="px-3 py-1 rounded-md transition text-slate-400 hover:text-amber-400">
+              On Cloud (<span id="count-cloud">0</span>)
+            </button>
+          </div>
+
+          <!-- Sort Selector -->
+          <div class="flex items-center space-x-1.5 bg-[#161b22] px-2.5 py-1.5 rounded-lg border border-[#30363d] text-xs text-slate-300 font-sans">
+            <i data-lucide="arrow-up-down" class="w-3.5 h-3.5 text-slate-400"></i>
+            <select id="sort-select" onchange="setSort(this.value)" class="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer">
+              <option value="newest" class="bg-[#161b22] text-white">Recently Added</option>
+              <option value="title" class="bg-[#161b22] text-white">Title (A-Z)</option>
+              <option value="size" class="bg-[#161b22] text-white">File Size</option>
+              <option value="duration" class="bg-[#161b22] text-white">Duration</option>
+            </select>
+          </div>
+
+          <!-- View Mode Toggle -->
+          <div class="flex items-center bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-slate-400">
+            <button onclick="setViewMode('grid')" id="view-grid-btn" title="Grid View" class="p-1 rounded-md transition bg-[#21262d] text-white">
+              <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="setViewMode('list')" id="view-list-btn" title="List View" class="p-1 rounded-md transition hover:text-white">
+              <i data-lucide="list" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
         </div>
       </div>
 
-      <!-- Video Grid -->
-      <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+      <!-- Video Catalog Container -->
+      <div id="video-catalog-container">
+        <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+      </div>
     </main>
   </div>
 
   <!-- ==================== 3. MODALS ==================== -->
   <!-- Player Modal -->
   <div id="player-modal" onclick="closePlayerModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-      <div class="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800">
-        <h3 id="player-title" class="text-base font-semibold text-white truncate mr-4"></h3>
-        <button onclick="closePlayerModal()" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-5 h-5"></i>
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between px-6 py-3.5 bg-[#161b22] border-b border-[#30363d]">
+        <h3 id="player-title" class="text-sm font-semibold text-white truncate mr-4"></h3>
+        <button onclick="closePlayerModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#21262d] transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
       <div id="player-container" class="relative aspect-video w-full bg-black flex items-center justify-center"></div>
 
-      <div class="px-6 py-3 bg-slate-950 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800">
-        <span id="player-footer-path"></span>
-        <span id="player-footer-status" class="uppercase font-mono text-white"></span>
+      <div class="px-6 py-2.5 bg-[#161b22] flex items-center justify-between text-xs text-slate-400 border-t border-[#30363d]">
+        <span id="player-footer-path" class="font-mono text-[11px]"></span>
+        <span id="player-footer-status" class="uppercase font-mono text-[11px] text-white"></span>
       </div>
     </div>
   </div>
 
   <!-- MongoDB Explorer Modal -->
   <div id="mongo-modal" onclick="closeMongoModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-      <div class="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between px-6 py-4 bg-[#161b22] border-b border-[#30363d]">
         <div class="flex items-center space-x-3">
-          <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+          <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
             <i data-lucide="database" class="w-5 h-5"></i>
           </div>
           <div>
             <h3 class="text-base font-bold text-white flex items-center space-x-2">
               <span>MongoDB Live Explorer</span>
-              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">media_db</span>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">media_db</span>
             </h3>
-            <p class="text-[11px] text-slate-400">Direct collection inspection & live document state</p>
+            <p class="text-[11px] text-slate-400 font-mono">Live document state & collection inspection</p>
           </div>
         </div>
         <div class="flex items-center space-x-2">
-          <button onclick="fetchMongoDocs(activeMongoCol)" title="Refresh" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
-          <button onclick="closeMongoModal()" class="p-2 rounded-lg text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+          <button onclick="fetchMongoDocs(activeMongoCol)" title="Refresh Collection" class="p-2 rounded-lg bg-[#0d1117] border border-[#30363d] text-slate-400 hover:text-white transition">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          </button>
+          <button onclick="closeMongoModal()" class="p-2 rounded-lg text-slate-400 hover:text-white transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
         </div>
       </div>
 
-      <div class="px-6 py-3 bg-slate-950/40 border-b border-slate-800 flex items-center justify-between gap-3">
+      <div class="px-6 py-3 bg-[#161b22]/50 border-b border-[#30363d] flex items-center justify-between gap-3">
         <div class="flex items-center space-x-2" id="mongo-cols-bar"></div>
-        <input id="mongo-search-input" type="text" oninput="renderMongoDocs()" placeholder="Filter current collection..." class="w-64 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white" />
+        <input id="mongo-search-input" type="text" oninput="renderMongoDocs()" placeholder="Filter current collection..." class="w-64 px-3 py-1.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
       </div>
 
       <div id="mongo-docs-container" class="flex-1 overflow-y-auto p-6 space-y-3 font-mono text-xs"></div>
 
-      <div class="px-6 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+      <div class="px-6 py-3 bg-[#161b22] border-t border-[#30363d] flex items-center justify-between text-xs text-slate-400 font-mono">
         <span id="mongo-total-info"></span>
-        <span class="text-[11px] text-slate-500 font-mono">Mongo Express: ssh -L 8081:localhost:8081 user@server</span>
+        <span class="text-[11px] text-slate-500">Direct replica / Mongo Express connection ready</span>
       </div>
     </div>
   </div>
 
   <!-- Drive Sync Modal -->
   <div id="sync-modal" onclick="closeSyncModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-[#0d1117] border border-[#30363d] rounded-xl p-6 shadow-2xl">
       <button onclick="closeSyncModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
-      <h3 class="text-lg font-semibold text-white mb-1">Sync Google Drive Catalog</h3>
+      <h3 class="text-base font-semibold text-white mb-1">Sync Google Drive Catalog</h3>
       <p class="text-xs text-slate-400 mb-4">Fetches metadata and poster thumbnails (0 disk space used)</p>
-      <input id="sync-folder-input" type="text" placeholder="Folder ID (optional; blank for root)" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white mb-4 focus:outline-none focus:border-sky-500" />
+      <input id="sync-folder-input" type="text" placeholder="Folder ID (optional; blank for root)" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-4 focus:outline-none focus:border-sky-500" />
       <div id="sync-status" class="text-xs mb-4 hidden"></div>
       <div class="flex justify-end space-x-2">
-        <button onclick="closeSyncModal()" class="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
-        <button id="sync-btn" onclick="triggerSync()" class="px-4 py-2 rounded-lg text-xs font-medium bg-sky-500 hover:bg-sky-400 text-white shadow-lg">Start Sync</button>
+        <button onclick="closeSyncModal()" class="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22]">Cancel</button>
+        <button id="sync-btn" onclick="triggerSync()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50">Start Sync</button>
       </div>
     </div>
   </div>
 
   <!-- URL Modal -->
   <div id="url-modal" onclick="closeUrlModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-[#0d1117] border border-[#30363d] rounded-xl p-6 shadow-2xl">
       <button onclick="closeUrlModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
-      <h3 class="text-lg font-semibold text-white mb-1">External Link Ingestion</h3>
+      <h3 class="text-base font-semibold text-white mb-1">External Link Ingestion</h3>
       <p class="text-xs text-slate-400 mb-4">Direct MP4 URL, YouTube, Vimeo, or generic video stream</p>
-      <input id="url-input" type="url" placeholder="https://example.com/video.mp4" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white mb-3 focus:outline-none focus:border-indigo-500" />
-      <input id="url-title-input" type="text" placeholder="Custom Title (optional)" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white mb-4 focus:outline-none focus:border-indigo-500" />
+      <input id="url-input" type="url" placeholder="https://example.com/video.mp4" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-3 focus:outline-none focus:border-sky-500" />
+      <input id="url-title-input" type="text" placeholder="Custom Title (optional)" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-4 focus:outline-none focus:border-sky-500" />
       <div class="flex justify-end space-x-2">
-        <button onclick="closeUrlModal()" class="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800">Cancel</button>
-        <button onclick="triggerUrlDownload()" class="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg">Start Download</button>
+        <button onclick="closeUrlModal()" class="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22]">Cancel</button>
+        <button onclick="triggerUrlDownload()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50">Start Download</button>
       </div>
     </div>
   </div>
 
-  <!-- Real-Time Transfers Floating Drawer -->
-  <div id="transfers-drawer" class="fixed bottom-4 right-4 z-40 w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl hidden overflow-hidden">
-    <div class="px-4 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs font-semibold text-white">
+  <!-- Real-Time Transfers Floating Drawer HUD -->
+  <div id="transfers-drawer" class="fixed bottom-4 right-4 z-40 w-96 max-w-[calc(100vw-2rem)] bg-[#0d1117]/95 border border-[#30363d] rounded-xl shadow-2xl hidden overflow-hidden backdrop-blur-xl">
+    <div onclick="toggleTransfersDrawer()" class="px-4 py-2.5 bg-[#161b22]/90 border-b border-[#30363d]/80 flex items-center justify-between text-xs font-semibold text-white cursor-pointer select-none">
       <span class="flex items-center space-x-2">
         <span class="relative flex h-2 w-2">
           <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
           <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
         </span>
-        <span>Live Transfers</span>
+        <span>Active Transfers</span>
       </span>
-      <span id="transfers-count" class="text-[11px] text-slate-400"></span>
+      <span id="transfers-count" class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20"></span>
     </div>
     <div id="transfers-list" class="p-3 max-h-64 overflow-y-auto space-y-2.5 text-xs"></div>
   </div>
@@ -594,12 +715,19 @@
       requestAnimationFrame(draw);
     })();
 
+    // ─── Application State ───
     let videos = [];
     let currentFilter = 'ALL';
+    let currentSort = 'newest';
+    let currentViewMode = 'grid';
     let transfers = {};
     let activePlayer = null;
     let activeVideoModal = null;
     let authToken = localStorage.getItem('drive_auth_token') || null;
+    let authUser = null;
+    try {
+      authUser = JSON.parse(localStorage.getItem('drive_auth_user'));
+    } catch (e) {}
     let activeMongoCol = 'videos';
     let mongoDocs = [];
 
@@ -611,6 +739,23 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 MB';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
+    function formatUptime(seconds) {
+      if (!seconds || seconds <= 0) return 'Just started';
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (d > 0) return `${d}d ${h}h`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
     }
 
     function getAuthHeaders() {
@@ -634,6 +779,10 @@
         loginWall.classList.add('hidden');
         mainView.classList.remove('hidden');
         mainView.classList.add('flex');
+        if (authUser && authUser.username) {
+          const userLbl = document.getElementById('nav-user-label');
+          if (userLbl) userLbl.innerText = authUser.username;
+        }
         fetchAllData();
         initWebSocket();
       }
@@ -660,13 +809,14 @@
         }
         const data = await res.json();
         authToken = data.access_token;
+        authUser = { username: data.username, role: data.role };
         localStorage.setItem('drive_auth_token', authToken);
+        localStorage.setItem('drive_auth_user', JSON.stringify(authUser));
         checkAuthWall();
       } catch (err) {
         if (errText) errText.innerText = err.message;
         else errBox.innerText = err.message;
         errBox.classList.remove('hidden');
-        // Shake animation on card
         const card = document.getElementById('login-card');
         if (card) { card.style.animation = 'shake 0.5s ease-in-out'; setTimeout(() => card.style.animation = '', 600); }
       }
@@ -674,7 +824,9 @@
 
     function handleLogout() {
       authToken = null;
+      authUser = null;
       localStorage.removeItem('drive_auth_token');
+      localStorage.removeItem('drive_auth_user');
       checkAuthWall();
     }
 
@@ -687,29 +839,88 @@
         if (res.ok) {
           const data = await res.json();
 
-          // Header
-          document.getElementById('header-cpu-pct').innerText = `${data.cpu.percent}%`;
-          document.getElementById('header-cpu-bar').style.width = `${Math.min(100, data.cpu.percent)}%`;
+          // Header CPU
+          const cpuPct = data.cpu.percent || 0;
+          document.getElementById('header-cpu-pct').innerText = `${cpuPct}%`;
+          const cpuBar = document.getElementById('header-cpu-bar');
+          cpuBar.style.width = `${Math.min(100, cpuPct)}%`;
+          cpuBar.className = `h-full transition-all duration-500 ${cpuPct >= 85 ? 'bg-red-500' : cpuPct >= 65 ? 'bg-amber-400' : 'bg-sky-400'}`;
+          const cpuDot = document.getElementById('header-cpu-dot');
+          if (cpuDot) {
+            cpuDot.className = `w-1.5 h-1.5 rounded-full ${cpuPct >= 85 ? 'bg-red-500' : cpuPct >= 65 ? 'bg-amber-400' : 'bg-emerald-400'}`;
+          }
+
+          // Header RAM
           document.getElementById('header-ram-used').innerText = `${data.ram.used_gb}G`;
           document.getElementById('header-ram-pct').innerText = `[${data.ram.percent}%]`;
           document.getElementById('header-ram-bar').style.width = `${Math.min(100, data.ram.percent)}%`;
+
+          // Header Disk
           document.getElementById('header-disk-used').innerText = `${data.disk.used_gb}G`;
           document.getElementById('header-disk-bar').style.width = `${Math.min(100, data.disk.percent)}%`;
+
+          // Header Network
           document.getElementById('header-net-in').innerText = `${data.network.input_mb_s} MB/s`;
           document.getElementById('header-net-out').innerText = `${data.network.output_mb_s} MB/s`;
 
-          // KPI Dashboard
+          // Executive Mission Control Ribbon
+          const srvStatus = data.server.status || 'optimal';
+          const srvStatusEl = document.getElementById('dashboard-server-status');
+          if (srvStatusEl) {
+            srvStatusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block"></span><span>${srvStatus}</span>`;
+          }
+          const srvInfo = document.getElementById('dashboard-server-info');
+          if (srvInfo) {
+            srvInfo.innerText = `Dedicated Host • ${data.server.os || 'Linux'} • Uptime ${formatUptime(data.server.uptime_seconds)}`;
+          }
+
+          // KPI Card 1: Media Catalog
           document.getElementById('kpi-total-files').innerText = data.pipeline.total_files;
           document.getElementById('kpi-local-count').innerText = `${data.pipeline.local_files} Local`;
           document.getElementById('kpi-cloud-count').innerText = `${data.pipeline.cloud_files} Cloud`;
-          document.getElementById('kpi-queue-count').innerText = data.pipeline.in_queue;
-          document.getElementById('kpi-proc-count').innerText = data.pipeline.in_processing;
-          document.getElementById('kpi-in-speed').innerText = `${data.throughput.live_download_speed_mb_s} MB/s`;
-          document.getElementById('kpi-rx-total').innerText = `Total: ${data.network.total_received_mb} MB`;
-          document.getElementById('kpi-out-speed').innerText = `${data.throughput.live_stream_speed_mb_s} MB/s`;
-          document.getElementById('kpi-tx-total').innerText = `Total: ${data.network.total_sent_mb} MB`;
+          const totalF = data.pipeline.total_files || 1;
+          const localRatio = Math.round((data.pipeline.local_files / totalF) * 100);
+          const cloudRatio = 100 - localRatio;
+          const ratioLocal = document.getElementById('kpi-ratio-local');
+          const ratioCloud = document.getElementById('kpi-ratio-cloud');
+          if (ratioLocal) ratioLocal.style.width = `${localRatio}%`;
+          if (ratioCloud) ratioCloud.style.width = `${cloudRatio}%`;
+
+          // KPI Card 2: Ingest Pipeline
+          const inQueue = data.pipeline.in_queue || 0;
+          const inProc = data.pipeline.in_processing || 0;
+          document.getElementById('kpi-pipeline-active').innerText = inQueue + inProc;
+          document.getElementById('kpi-queue-count').innerText = `${inQueue} Queue`;
+          document.getElementById('kpi-proc-count').innerText = `${inProc} Sprites`;
+          const pipelineDesc = document.getElementById('kpi-pipeline-desc');
+          if (pipelineDesc) {
+            pipelineDesc.innerText = inQueue > 0 ? 'Parallel Stream Download Active' : 'Ingestion Workers Idle';
+          }
+          const pIconWrap = document.getElementById('kpi-pipeline-icon-wrap');
+          if (pIconWrap) {
+            if (inQueue > 0 || inProc > 0) {
+              pIconWrap.className = 'p-1.5 rounded-lg border bg-purple-500/20 border-purple-500/30 text-purple-300 animate-pulse';
+            } else {
+              pIconWrap.className = 'p-1.5 rounded-lg border bg-[#161b22] border-[#30363d] text-slate-400';
+            }
+          }
+
+          // KPI Card 3: Storage
           document.getElementById('kpi-disk-used').innerText = `${data.disk.used_gb} GB`;
-          document.getElementById('kpi-disk-pct').innerText = `${data.disk.percent}% Used`;
+          document.getElementById('kpi-disk-pct').innerText = `${data.disk.percent}%`;
+          document.getElementById('kpi-disk-bar').style.width = `${Math.min(100, data.disk.percent)}%`;
+          const diskFreeEl = document.getElementById('kpi-disk-free');
+          if (diskFreeEl) diskFreeEl.innerText = `${data.disk.free_gb} GB free`;
+
+          // KPI Card 4: Throughput I/O
+          document.getElementById('kpi-in-speed').innerText = `${data.throughput.live_download_speed_mb_s} MB/s`;
+          document.getElementById('kpi-out-speed').innerText = `${data.throughput.live_stream_speed_mb_s} MB/s`;
+          document.getElementById('kpi-rx-total').innerText = `Rx: ${data.network.total_received_mb} MB`;
+          document.getElementById('kpi-tx-total').innerText = `Tx: ${data.network.total_sent_mb} MB`;
+
+          // KPI Card 5: Stream Ready
+          const streamReadyEl = document.getElementById('kpi-stream-ready');
+          if (streamReadyEl) streamReadyEl.innerText = data.pipeline.local_files;
         }
       } catch (e) {}
     }
@@ -728,15 +939,57 @@
       }
     }
 
-    function fetchAllData() {
-      fetchVideos();
-      fetchMetrics();
+    async function fetchAllData() {
+      const btn = document.getElementById('refresh-all-btn');
+      if (btn) {
+        const icon = btn.querySelector('i');
+        if (icon) icon.classList.add('animate-spin', 'text-sky-400');
+        setTimeout(() => {
+          if (icon) icon.classList.remove('animate-spin', 'text-sky-400');
+        }, 600);
+      }
+      await Promise.all([fetchVideos(), fetchMetrics()]);
     }
 
-    // Video Grid Rendering
+    function clearSearch() {
+      const input = document.getElementById('search-input');
+      if (input) {
+        input.value = '';
+        renderVideos();
+      }
+    }
+
+    function setSort(sortBy) {
+      currentSort = sortBy;
+      renderVideos();
+    }
+
+    function setViewMode(mode) {
+      currentViewMode = mode;
+      const gridBtn = document.getElementById('view-grid-btn');
+      const listBtn = document.getElementById('view-list-btn');
+      if (gridBtn && listBtn) {
+        if (mode === 'grid') {
+          gridBtn.className = 'p-1 rounded-md transition bg-[#21262d] text-white';
+          listBtn.className = 'p-1 rounded-md transition hover:text-white';
+        } else {
+          listBtn.className = 'p-1 rounded-md transition bg-[#21262d] text-white';
+          gridBtn.className = 'p-1 rounded-md transition hover:text-white';
+        }
+      }
+      renderVideos();
+    }
+
+    // Video Grid & List Rendering
     function renderVideos() {
-      const query = (document.getElementById('search-input').value || '').toLowerCase();
-      const filtered = videos.filter(v => {
+      const query = (document.getElementById('search-input').value || '').trim().toLowerCase();
+      const clearBtn = document.getElementById('search-clear-btn');
+      if (clearBtn) {
+        if (query) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+      }
+
+      let filtered = videos.filter(v => {
         const matchTitle = (v.title || '').toLowerCase().includes(query);
         if (!matchTitle) return false;
         if (currentFilter === 'LOCAL') return v.status === 'LOCAL_READY';
@@ -744,83 +997,221 @@
         return true;
       });
 
+      // Sort
+      filtered.sort((a, b) => {
+        if (currentSort === 'title') {
+          return (a.title || '').localeCompare(b.title || '');
+        }
+        if (currentSort === 'size') {
+          return (b.file_size_bytes || 0) - (a.file_size_bytes || 0);
+        }
+        if (currentSort === 'duration') {
+          return (b.duration_seconds || 0) - (a.duration_seconds || 0);
+        }
+        return (b.created_at || '').localeCompare(a.created_at || '');
+      });
+
+      // Update counters
       document.getElementById('count-all').innerText = videos.length;
       document.getElementById('count-local').innerText = videos.filter(v => v.status === 'LOCAL_READY').length;
       document.getElementById('count-cloud').innerText = videos.filter(v => v.status === 'REMOTE_ONLY').length;
 
-      const container = document.getElementById('video-grid');
+      const container = document.getElementById('video-catalog-container');
       container.innerHTML = '';
 
       if (filtered.length === 0) {
         container.innerHTML = `
-          <div class="col-span-full py-16 text-center text-slate-500">
-            <i data-lucide="film" class="w-10 h-10 mx-auto mb-2 opacity-50"></i>
-            <p>No videos found</p>
+          <div class="flex flex-col items-center justify-center py-20 px-4 text-center bg-[#0d1117]/60 border border-dashed border-[#30363d] rounded-2xl">
+            <div class="p-3.5 rounded-2xl bg-[#161b22] text-slate-500 mb-3 border border-[#30363d]">
+              <i data-lucide="film" class="w-8 h-8 text-sky-400"></i>
+            </div>
+            <h3 class="text-sm font-semibold text-white mb-1">No media files in catalog</h3>
+            <p class="text-xs text-slate-400 max-w-sm mb-5">
+              Sync your Google Drive library with zero disk storage footprint, or ingest high-resolution web streams.
+            </p>
+            <div class="flex items-center space-x-2.5">
+              <button onclick="openSyncModal()" class="px-3.5 py-2 rounded-lg bg-[#161b22] hover:bg-[#21262d] text-white text-xs font-semibold border border-[#30363d] shadow-sm transition">
+                Sync Google Drive
+              </button>
+              <button onclick="openUrlModal()" class="px-3.5 py-2 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold border border-[#2ea043]/50 shadow-sm transition">
+                Add External URL
+              </button>
+            </div>
           </div>
         `;
         updateIcons();
         return;
       }
 
-      filtered.forEach(v => {
-        const isLocal = v.status === 'LOCAL_READY';
-        const card = document.createElement('div');
-        card.className = "group relative flex flex-col bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden shadow-lg hover:shadow-2xl hover:border-slate-700 transition cursor-pointer";
-        card.onclick = () => openPlayerModal(v);
+      if (currentViewMode === 'grid') {
+        const grid = document.createElement('div');
+        grid.id = 'video-grid';
+        grid.className = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4";
 
-        const safeTitle = escapeHtml(v.title);
-        const safePoster = escapeHtml(v.poster_url || '');
-        const safePreview = escapeHtml(v.preview_url || '');
-        const safeSource = v.source === 'GDRIVE' ? 'Google Drive' : 'External Link';
+        filtered.forEach(v => {
+          const isLocal = v.status === 'LOCAL_READY';
+          const isCloud = v.status === 'REMOTE_ONLY';
+          const isDownloading = v.status === 'DOWNLOADING';
+          const isProcessing = v.status === 'PROCESSING';
 
-        card.innerHTML = `
-          <div class="relative aspect-video w-full bg-slate-950 overflow-hidden">
-            <img src="${safePoster}" class="w-full h-full object-cover transition-opacity duration-300 ${isLocal && safePreview ? 'group-hover:opacity-0' : ''}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 60%22 fill=%22%230f172a%22><text x=%2250%%22 y=%2250%%22 fill=%22%23475569%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>No Preview</text></svg>'" />
-            ${isLocal && safePreview ? `<video src="${safePreview}" loop muted playsinline class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>` : ''}
-            
-            <div class="absolute top-2.5 left-2.5 z-10">
-              ${isLocal ? `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/90 text-white backdrop-blur shadow">Saved on Server</span>` : `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/90 text-white backdrop-blur shadow">On Cloud (Click to Fetch)</span>`}
-            </div>
+          const card = document.createElement('div');
+          card.className = "group relative flex flex-col bg-[#0d1117]/80 hover:bg-[#161b22] border border-[#30363d]/80 hover:border-slate-600 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-200 cursor-pointer";
+          card.onclick = () => openPlayerModal(v);
 
-            ${v.duration_seconds > 0 ? `<div class="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/80 font-mono text-[10px] text-white">${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}</div>` : ''}
+          const safeTitle = escapeHtml(v.title);
+          const safePoster = escapeHtml(v.poster_url || '');
+          const safePreview = escapeHtml(v.preview_url || '');
+          const safeSource = v.source === 'GDRIVE' ? 'Google Drive' : 'Direct Link';
+          const durationStr = v.duration_seconds > 0 
+            ? `${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}` 
+            : null;
 
-            <div class="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition">
-              <div class="p-3.5 rounded-full bg-sky-500 text-white shadow-xl"><i data-lucide="play" class="w-5 h-5 fill-white translate-x-0.5"></i></div>
-            </div>
-          </div>
-          <div class="p-3.5 flex flex-col flex-1 justify-between">
-            <div>
-              <h4 class="text-sm font-semibold text-white line-clamp-2 leading-snug mb-1" title="${safeTitle}">${safeTitle}</h4>
-              <div class="flex items-center space-x-2 text-[11px] text-slate-400">
+          card.innerHTML = `
+            <div class="relative aspect-video w-full bg-[#010409] overflow-hidden border-b border-[#30363d]/60">
+              <img src="${safePoster}" alt="${safeTitle}" class="w-full h-full object-cover transition-opacity duration-300 ${isLocal && safePreview ? 'group-hover:opacity-0' : ''}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 60%22 fill=%22%23010409%22><text x=%2250%%22 y=%2250%%22 fill=%22%23334155%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>No Preview</text></svg>'" />
+              ${isLocal && safePreview ? `<video src="${safePreview}" loop muted playsinline class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>` : ''}
+              
+              <div class="absolute top-2 left-2 z-10">
+                ${isLocal ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#238636]/30 text-[#3fb950] border border-[#238636]/50 backdrop-blur-md shadow-sm"><i data-lucide="check-circle-2" class="w-3 h-3"></i><span>Saved on Server</span></span>` : ''}
+                ${isCloud ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 backdrop-blur-md shadow-sm"><i data-lucide="cloud" class="w-3 h-3"></i><span>Cloud Remote</span></span>` : ''}
+                ${isDownloading ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-sky-500/20 text-sky-300 border border-sky-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="download" class="w-3 h-3 animate-bounce"></i><span>Downloading...</span></span>` : ''}
+                ${isProcessing ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Generating Sprites</span></span>` : ''}
+              </div>
+
+              <div class="absolute bottom-2 left-2 z-10 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm text-[10px] font-mono text-slate-300 flex items-center space-x-1 border border-white/5">
                 <span>${safeSource}</span>
-                <span>•</span>
-                <span>${(v.file_size_bytes / (1024*1024)).toFixed(1)} MB</span>
+              </div>
+
+              ${durationStr ? `<div class="absolute bottom-2 right-2 z-10 px-2 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[10px] font-mono text-white flex items-center space-x-1 border border-white/10"><i data-lucide="clock" class="w-2.5 h-2.5 text-slate-400"></i><span>${durationStr}</span></div>` : ''}
+
+              <div class="absolute inset-0 flex items-center justify-center bg-black/35 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <div class="p-3.5 rounded-full bg-sky-500 text-white shadow-xl shadow-sky-500/30 transform transition-transform group-hover:scale-110">
+                  <i data-lucide="play" class="w-5 h-5 fill-white translate-x-0.5"></i>
+                </div>
               </div>
             </div>
-            <div class="flex items-center justify-between pt-3 mt-2 border-t border-slate-800/80 text-xs">
-              <span class="text-[11px] text-slate-500">${isLocal ? '/mnt/storage' : 'Click to Download'}</span>
-              <button data-video-id="${escapeHtml(v.video_id)}" class="delete-btn text-slate-500 hover:text-red-400 p-1 rounded"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            <div class="p-3 flex flex-col flex-1 justify-between gap-3">
+              <div>
+                <h4 class="text-xs font-semibold text-white line-clamp-2 leading-snug mb-1 group-hover:text-sky-300 transition-colors" title="${safeTitle}">${safeTitle}</h4>
+                <div class="flex items-center space-x-2 text-[10px] font-mono text-slate-400">
+                  <span>${formatBytes(v.file_size_bytes)}</span>
+                  <span>•</span>
+                  <span class="text-slate-500">${isLocal ? 'NVMe Cached' : 'On-Demand'}</span>
+                </div>
+              </div>
+              <div class="flex items-center justify-between pt-2 border-t border-[#30363d]/60 text-xs">
+                <div>
+                  ${isCloud ? `<button type="button" class="fetch-btn flex items-center space-x-1 text-sky-400 hover:text-white font-medium py-1 px-2 rounded-md bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/25 text-[11px] transition"><i data-lucide="download" class="w-3 h-3"></i><span>Fetch to Server</span></button>` : `<span class="text-[10px] font-mono text-emerald-400/90 flex items-center space-x-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Instant Stream</span></span>`}
+                </div>
+                <button type="button" class="delete-btn text-slate-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-500/10 transition" title="Delete Video">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
             </div>
+          `;
+
+          const fetchBtn = card.querySelector('.fetch-btn');
+          if (fetchBtn) {
+            fetchBtn.onclick = (e) => {
+              e.stopPropagation();
+              triggerDownload(v.video_id);
+            };
+          }
+
+          card.querySelector('.delete-btn').onclick = (e) => {
+            e.stopPropagation();
+            deleteVideo(v.video_id, v.title);
+          };
+
+          grid.appendChild(card);
+        });
+
+        container.appendChild(grid);
+      } else {
+        // Table / List View
+        const tableCard = document.createElement('div');
+        tableCard.className = "bg-[#0d1117]/80 border border-[#30363d] rounded-xl overflow-hidden shadow-sm";
+        tableCard.innerHTML = `
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-[#161b22] text-slate-400 font-mono uppercase text-[10px] border-b border-[#30363d]">
+                <tr>
+                  <th class="px-4 py-3">Title</th>
+                  <th class="px-4 py-3">Status</th>
+                  <th class="px-4 py-3">Source</th>
+                  <th class="px-4 py-3">Size</th>
+                  <th class="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="video-table-body" class="divide-y divide-[#30363d]/60 font-sans"></tbody>
+            </table>
           </div>
         `;
+        const tbody = tableCard.querySelector('#video-table-body');
+        filtered.forEach(v => {
+          const isLocal = v.status === 'LOCAL_READY';
+          const row = document.createElement('tr');
+          row.className = "hover:bg-[#161b22]/70 cursor-pointer transition";
+          row.onclick = () => openPlayerModal(v);
+          row.innerHTML = `
+            <td class="px-4 py-3 font-medium text-white max-w-xs truncate" title="${escapeHtml(v.title)}">
+              ${escapeHtml(v.title)}
+            </td>
+            <td class="px-4 py-3 font-mono text-[11px]">
+              ${isLocal ? `<span class="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Saved on Server</span>` : `<span class="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">Cloud Remote</span>`}
+            </td>
+            <td class="px-4 py-3 text-slate-400 font-mono text-[11px]">
+              ${v.source === 'GDRIVE' ? 'Google Drive' : 'Direct Link'}
+            </td>
+            <td class="px-4 py-3 text-slate-400 font-mono text-[11px]">
+              ${formatBytes(v.file_size_bytes)}
+            </td>
+            <td class="px-4 py-3 text-right space-x-2">
+              ${!isLocal ? `<button class="fetch-row-btn px-2 py-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 hover:bg-sky-500/20 transition text-[11px]">Fetch</button>` : ''}
+              <button class="del-row-btn px-2 py-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition text-[11px]">Delete</button>
+            </td>
+          `;
 
-        card.querySelector('.delete-btn').onclick = (e) => {
-          e.stopPropagation();
-          deleteVideo(v.video_id);
-        };
+          const fetchRowBtn = row.querySelector('.fetch-row-btn');
+          if (fetchRowBtn) {
+            fetchRowBtn.onclick = (e) => {
+              e.stopPropagation();
+              triggerDownload(v.video_id);
+            };
+          }
 
-        container.appendChild(card);
-      });
+          row.querySelector('.del-row-btn').onclick = (e) => {
+            e.stopPropagation();
+            deleteVideo(v.video_id, v.title);
+          };
+
+          tbody.appendChild(row);
+        });
+        container.appendChild(tableCard);
+      }
 
       updateIcons();
     }
 
     function setFilter(filter) {
       currentFilter = filter;
-      document.getElementById('filter-all').className = filter === 'ALL' ? 'px-3 py-1.5 rounded-lg bg-sky-500 text-white' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
-      document.getElementById('filter-local').className = filter === 'LOCAL' ? 'px-3 py-1.5 rounded-lg bg-emerald-600 text-white' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
-      document.getElementById('filter-cloud').className = filter === 'CLOUD' ? 'px-3 py-1.5 rounded-lg bg-amber-600 text-white' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      const fAll = document.getElementById('filter-all');
+      const fLocal = document.getElementById('filter-local');
+      const fCloud = document.getElementById('filter-cloud');
+      if (fAll && fLocal && fCloud) {
+        fAll.className = filter === 'ALL' ? 'px-3 py-1 rounded-md transition bg-[#21262d] text-white border border-[#30363d]' : 'px-3 py-1 rounded-md transition text-slate-400 hover:text-white';
+        fLocal.className = filter === 'LOCAL' ? 'px-3 py-1 rounded-md transition bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'px-3 py-1 rounded-md transition text-slate-400 hover:text-emerald-400';
+        fCloud.className = filter === 'CLOUD' ? 'px-3 py-1 rounded-md transition bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'px-3 py-1 rounded-md transition text-slate-400 hover:text-amber-400';
+      }
       renderVideos();
+    }
+
+    // Trigger Download
+    async function triggerDownload(id) {
+      try {
+        await fetch(`/api/videos/${id}/download`, { method: 'POST', headers: getAuthHeaders() });
+        fetchAllData();
+      } catch (e) {}
     }
 
     // Authenticated Player Modal
@@ -859,7 +1250,6 @@
           }
         });
 
-        // Pass authentication token in stream query
         const streamSrc = authToken 
           ? `/api/stream/${v.video_id}?token=${encodeURIComponent(authToken)}`
           : `/api/stream/${v.video_id}`;
@@ -872,16 +1262,16 @@
       } else {
         container.innerHTML = `
           <div class="flex flex-col items-center justify-center p-8 text-center space-y-4 font-mono">
-            <i data-lucide="download-cloud" class="w-12 h-12 text-sky-400 animate-bounce"></i>
+            <i data-lucide="cloud-download" class="w-12 h-12 text-sky-400 animate-bounce"></i>
             <div>
-              <h4 class="text-lg font-bold text-white">Fetching On-Demand From Cloud</h4>
+              <h4 class="text-base font-bold text-white">Fetching On-Demand From Cloud</h4>
               <p class="text-xs text-slate-400">Streaming directly into /mnt/storage/videos/. Auto-plays on completion.</p>
             </div>
-            <div id="modal-transfer-hud" class="w-full max-w-sm bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-2">
-              <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+            <div id="modal-transfer-hud" class="w-full max-w-sm bg-[#010409] p-4 rounded-xl border border-[#30363d] text-xs text-slate-300 space-y-2">
+              <div class="w-full bg-[#21262d] h-2 rounded-full overflow-hidden">
                 <div id="modal-transfer-bar" class="bg-sky-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
               </div>
-              <div class="flex justify-between font-bold text-sky-400">
+              <div class="flex justify-between font-bold text-sky-400 font-mono">
                 <span id="modal-transfer-pct">0%</span>
                 <span id="modal-transfer-speed">0 MB/s</span>
               </div>
@@ -903,8 +1293,8 @@
       document.getElementById('player-modal').classList.remove('flex');
     }
 
-    async function deleteVideo(id) {
-      if (!confirm('Are you sure you want to remove this video and all assets from 1TB storage?')) return;
+    async function deleteVideo(id, title) {
+      if (!confirm(`Are you sure you want to remove "${title || id}" and all assets from storage?`)) return;
       const res = await fetch(`/api/videos/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
       if (res.status === 401) { handleLogout(); return; }
       fetchVideos();
@@ -929,7 +1319,7 @@
           const data = await res.json();
           const bar = document.getElementById('mongo-cols-bar');
           bar.innerHTML = data.collections.map(c => `
-            <button onclick="setMongoCol('${c.name}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold ${activeMongoCol === c.name ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}">
+            <button onclick="setMongoCol('${c.name}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold ${activeMongoCol === c.name ? 'bg-emerald-600 text-white' : 'bg-[#010409] text-slate-400 border border-[#30363d]'}">
               ${c.name} (${c.count})
             </button>
           `).join('');
@@ -973,8 +1363,8 @@
       container.innerHTML = filtered.map(doc => {
         const docId = doc.video_id || doc.username;
         return `
-          <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 relative space-y-2">
-            <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
+          <div class="bg-[#010409] p-3.5 rounded-xl border border-[#30363d] relative space-y-2">
+            <div class="flex justify-between items-center text-slate-400 border-b border-[#30363d]/80 pb-2">
               <span class="text-emerald-400 font-bold">${escapeHtml(doc.title || doc.username || doc.video_id)}</span>
               <button onclick="deleteMongoDoc('${docId}')" class="text-slate-500 hover:text-red-400"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
             </div>
@@ -1039,54 +1429,15 @@
       fetchAllData();
     }
 
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        closePlayerModal();
-        closeMongoModal();
-        closeSyncModal();
-        closeUrlModal();
+    // Transfers Drawer
+    function toggleTransfersDrawer() {
+      const drawer = document.getElementById('transfers-drawer');
+      const list = document.getElementById('transfers-list');
+      if (list.style.display === 'none') {
+        list.style.display = 'block';
+      } else {
+        list.style.display = 'none';
       }
-    });
-
-    // Authenticated WebSocket Telemetry
-    function initWebSocket() {
-      if (!authToken) return;
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/transfers?token=${encodeURIComponent(authToken)}`);
-
-      ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data);
-        if (msg.event === 'TRANSFER_UPDATE') {
-          transfers[msg.video_id] = msg;
-          renderTransfers();
-
-          if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
-            const bar = document.getElementById('modal-transfer-bar');
-            const pct = document.getElementById('modal-transfer-pct');
-            const speed = document.getElementById('modal-transfer-speed');
-            if (bar) bar.style.width = `${msg.percentage}%`;
-            if (pct) pct.innerText = `${msg.percentage}%`;
-            if (speed) speed.innerText = `${msg.speed_mbs} MB/s`;
-
-            if (msg.status === 'DOWNLOAD_COMPLETE') {
-              activeVideoModal.status = 'LOCAL_READY';
-              openPlayerModal(activeVideoModal);
-              fetchAllData();
-            }
-          }
-        } else if (msg.event === 'PROCESSING_COMPLETE') {
-          if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
-            activeVideoModal.vtt_url = msg.metadata.vtt_url;
-            activeVideoModal.preview_url = msg.metadata.preview_url;
-            openPlayerModal(activeVideoModal);
-          }
-          fetchAllData();
-        }
-      };
-
-      ws.onclose = () => {
-        if (authToken) setTimeout(initWebSocket, 3000);
-      };
     }
 
     function renderTransfers() {
@@ -1100,22 +1451,82 @@
       drawer.classList.remove('hidden');
       document.getElementById('transfers-count').innerText = `${list.length} active`;
       container.innerHTML = list.map(t => `
-        <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
-          <div class="flex justify-between font-medium text-white truncate">
+        <div class="bg-[#010409] p-2.5 rounded-lg border border-[#30363d]/70 space-y-1.5">
+          <div class="flex justify-between font-medium text-white truncate text-xs">
             <span class="truncate">${escapeHtml(t.title)}</span>
-            <span class="text-sky-400 font-mono">${t.percentage}%</span>
+            <span class="text-sky-400 font-mono font-bold">${t.percentage}%</span>
           </div>
-          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-            <div class="bg-sky-500 h-full" style="width: ${t.percentage}%"></div>
+          <div class="w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
+            <div class="bg-sky-500 h-full transition-all duration-300 rounded-full" style="width: ${t.percentage}%"></div>
           </div>
           <div class="flex justify-between text-[10px] text-slate-400 font-mono">
-            <span>${t.speed_mbs} MB/s</span>
+            <span class="text-sky-300">${t.speed_mbs} MB/s</span>
             <span>${escapeHtml(t.downloaded_str)} / ${escapeHtml(t.total_str)}</span>
             <span>ETA ${t.eta_seconds}s</span>
           </div>
         </div>
       `).join('');
     }
+
+    // Authenticated WebSocket Telemetry
+    function initWebSocket() {
+      if (!authToken) return;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/transfers?token=${encodeURIComponent(authToken)}`);
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.event === 'TRANSFER_UPDATE') {
+            transfers[msg.video_id] = msg;
+            renderTransfers();
+
+            if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
+              const bar = document.getElementById('modal-transfer-bar');
+              const pct = document.getElementById('modal-transfer-pct');
+              const speed = document.getElementById('modal-transfer-speed');
+              if (bar) bar.style.width = `${msg.percentage}%`;
+              if (pct) pct.innerText = `${msg.percentage}%`;
+              if (speed) speed.innerText = `${msg.speed_mbs} MB/s`;
+
+              if (msg.status === 'DOWNLOAD_COMPLETE') {
+                activeVideoModal.status = 'LOCAL_READY';
+                openPlayerModal(activeVideoModal);
+                fetchAllData();
+              }
+            }
+          } else if (msg.event === 'PROCESSING_COMPLETE') {
+            if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
+              activeVideoModal.vtt_url = msg.metadata.vtt_url;
+              activeVideoModal.preview_url = msg.metadata.preview_url;
+              openPlayerModal(activeVideoModal);
+            }
+            fetchAllData();
+          }
+        } catch (err) {}
+      };
+
+      ws.onclose = () => {
+        if (authToken) setTimeout(initWebSocket, 3000);
+      };
+    }
+
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closePlayerModal();
+        closeMongoModal();
+        closeSyncModal();
+        closeUrlModal();
+        clearSearch();
+      } else if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+        const sInput = document.getElementById('search-input');
+        if (sInput) {
+          e.preventDefault();
+          sInput.focus();
+        }
+      }
+    });
 
     // Startup Execution
     checkAuthWall();
