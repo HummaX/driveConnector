@@ -308,6 +308,19 @@ async def download_external_url(video_id: str, url: str):
         # Validate URL for SSRF before passing to yt-dlp
         validate_external_url(url)
 
+        # Explicit warning if a raw Google Video stream chunk is submitted
+        if ("googlevideo.com" in url and "videoplayback" in url) or ("&sig=" in url and "itag=" in url and "googlevideo" in url):
+            raise ValueError(
+                "Direct Google Video CDN stream chunks (googlevideo.com/videoplayback) are cryptographically IP-bound to your personal browser and rejected with HTTP 403 Forbidden by Google servers. Please provide the public YouTube link (https://www.youtube.com/watch?v=... or https://youtu.be/...) instead."
+            )
+
+        cookie_candidates = [
+            Path(settings.STORAGE_DIR) / "cookies.txt",
+            Path(__file__).parent / "cookies.txt",
+            Path(__file__).parent.parent / "cookies.txt"
+        ]
+        cookie_file = next((p for p in cookie_candidates if p.exists()), None)
+
         ydl_opts = {
             'outtmpl': str(part_path),
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -315,8 +328,20 @@ async def download_external_url(video_id: str, url: str):
             'quiet': True,
             'no_warnings': True,
             'overwrites': True,
-            'socket_timeout': 30
+            'socket_timeout': 30,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web', 'mweb'],
+                }
+            },
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
         }
+        if cookie_file:
+            ydl_opts['cookiefile'] = str(cookie_file)
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             return info
@@ -353,14 +378,17 @@ async def download_external_url(video_id: str, url: str):
         asyncio.create_task(process_video_background(video_id))
 
     except Exception as e:
-        print(f"[Downloader] Error in yt-dlp for {video_id}: {e}")
+        err_msg = str(e)
+        if ("googlevideo.com" in url or "videoplayback" in url) and ("403" in err_msg or "Forbidden" in err_msg):
+            err_msg = "Google Video CDN stream rejected (HTTP 403 Forbidden: IP-locked to your browser). Please paste the public YouTube URL (https://www.youtube.com/watch?v=...) instead of the raw stream chunk."
+        print(f"[Downloader] Error in yt-dlp for {video_id}: {err_msg}")
         if part_path.exists():
             try:
                 os.remove(part_path)
             except OSError:
                 pass
 
-        await update_video(video_id, {"status": "FAILED"})
+        await update_video(video_id, {"status": "FAILED", "error": err_msg})
         await broadcast_progress(
             video_id=video_id,
             title=title,
@@ -369,6 +397,6 @@ async def download_external_url(video_id: str, url: str):
             total_bytes=0,
             speed_bytes_sec=0,
             status="FAILED",
-            error_message=str(e)
+            error_message=err_msg
         )
         active_downloads.pop(video_id, None)

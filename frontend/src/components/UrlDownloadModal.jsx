@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { DownloadCloud, X, Loader2, Link2, AlertCircle } from 'lucide-react';
+import { DownloadCloud, X, Loader2, Link2, AlertCircle, AlertTriangle } from 'lucide-react';
 
 export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, authHeaders = {} }) {
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+
+  const isGoogleVideoCdn = url.includes('googlevideo.com') || url.includes('videoplayback');
 
   if (!isOpen) return null;
 
@@ -80,6 +82,17 @@ export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, a
               disabled={submitting}
               className="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition disabled:opacity-50"
             />
+            {isGoogleVideoCdn && (
+              <div className="flex items-start space-x-2.5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs mt-2.5">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-amber-200">Google Video CDN Stream Detected</p>
+                  <p className="text-[11px] text-amber-300/90 leading-relaxed">
+                    This raw stream URL is cryptographically tied to your personal browser IP and will trigger an <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-200">HTTP 403 Forbidden</code> on the server. Please copy and paste the public YouTube video URL (e.g. <span className="font-mono text-white">https://www.youtube.com/watch?v=...</span> or <span className="font-mono text-white">https://youtu.be/...</span>) instead.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

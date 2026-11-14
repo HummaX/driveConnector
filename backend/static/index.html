@@ -956,11 +956,23 @@
       </button>
       <h3 class="text-base font-semibold text-white mb-1">External Link Ingestion</h3>
       <p class="text-xs text-slate-400 mb-4">Direct MP4 URL, YouTube, Vimeo, or generic video stream</p>
-      <input id="url-input" type="url" placeholder="https://example.com/video.mp4" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-3 focus:outline-none focus:border-sky-500" />
+      <input id="url-input" type="url" oninput="handleUrlInputChange()" placeholder="https://www.youtube.com/watch?v=... or MP4 URL" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-3 focus:outline-none focus:border-sky-500" />
+      <div id="url-googlevideo-warning" class="hidden mb-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+        <div class="flex items-start space-x-2">
+          <i data-lucide="alert-triangle" class="w-4 h-4 mt-0.5 shrink-0 text-amber-400"></i>
+          <div class="space-y-1">
+            <p class="font-semibold text-amber-200">Google Video CDN Stream Detected</p>
+            <p class="text-[11px] text-amber-300/90 leading-relaxed">
+              This raw stream URL is cryptographically IP-locked to your personal browser and will trigger an <strong class="text-white">HTTP 403 Forbidden</strong> on the server. Please copy and paste the public YouTube video URL (e.g. <code class="text-white bg-black/40 px-1 py-0.5 rounded font-mono">https://www.youtube.com/watch?v=...</code>) instead.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div id="url-error-msg" class="hidden mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs"></div>
       <input id="url-title-input" type="text" placeholder="Custom Title (optional)" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-4 focus:outline-none focus:border-sky-500" />
       <div class="flex justify-end space-x-2">
         <button onclick="closeUrlModal()" class="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22]">Cancel</button>
-        <button onclick="triggerUrlDownload()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50">Start Download</button>
+        <button id="url-submit-btn" onclick="triggerUrlDownload()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50">Start Download</button>
       </div>
     </div>
   </div>
@@ -2726,21 +2738,64 @@
       }
     }
 
-    function openUrlModal() { document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex'); }
-    function closeUrlModal() { document.getElementById('url-modal').classList.add('hidden'); document.getElementById('url-modal').classList.remove('flex'); }
+    function openUrlModal() { 
+      document.getElementById('url-modal').classList.remove('hidden'); 
+      document.getElementById('url-modal').classList.add('flex');
+      const errEl = document.getElementById('url-error-msg');
+      if (errEl) errEl.classList.add('hidden');
+      handleUrlInputChange();
+    }
+    function closeUrlModal() { 
+      document.getElementById('url-modal').classList.add('hidden'); 
+      document.getElementById('url-modal').classList.remove('flex'); 
+    }
+
+    function handleUrlInputChange() {
+      const input = document.getElementById('url-input');
+      const val = input ? input.value.trim() : '';
+      const warn = document.getElementById('url-googlevideo-warning');
+      if (warn) {
+        if (val.includes('googlevideo.com') || val.includes('videoplayback')) {
+          warn.classList.remove('hidden');
+        } else {
+          warn.classList.add('hidden');
+        }
+      }
+    }
 
     async function triggerUrlDownload() {
       const url = document.getElementById('url-input').value.trim();
       const title = document.getElementById('url-title-input').value.trim();
+      const errEl = document.getElementById('url-error-msg');
+      const btn = document.getElementById('url-submit-btn');
       if (!url) return;
-      const res = await fetch('/api/videos/download-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ url, title: title || null })
-      });
-      if (res.status === 401) { handleLogout(); return; }
-      closeUrlModal();
-      fetchAllData();
+
+      if (errEl) errEl.classList.add('hidden');
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/videos/download-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ url, title: title || null })
+        });
+        if (res.status === 401) { handleLogout(); return; }
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Download request failed');
+        }
+        closeUrlModal();
+        document.getElementById('url-input').value = '';
+        document.getElementById('url-title-input').value = '';
+        fetchAllData();
+      } catch (err) {
+        if (errEl) {
+          errEl.innerText = err.message;
+          errEl.classList.remove('hidden');
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     }
 
     // Transfers Drawer

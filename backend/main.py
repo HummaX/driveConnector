@@ -352,6 +352,11 @@ async def trigger_url_download(
 ):
     """Downloads external URL link with SSRF protection (Requires Authentication)."""
     clean_url = payload.url.strip()
+    if ("googlevideo.com" in clean_url and "videoplayback" in clean_url) or ("&sig=" in clean_url and "itag=" in clean_url and "googlevideo" in clean_url):
+        raise HTTPException(
+            status_code=400,
+            detail="Raw Google Video CDN stream URLs (googlevideo.com/videoplayback) are cryptographically IP-bound to your personal browser and rejected with HTTP 403 Forbidden by Google when requested from the server. Please copy the public YouTube video URL (https://www.youtube.com/watch?v=... or https://youtu.be/...) instead."
+        )
     video = await create_url_video(url=clean_url, title=payload.title)
     video_id = video["video_id"]
     background_tasks.add_task(download_external_url, video_id, clean_url)
