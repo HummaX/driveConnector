@@ -1,21 +1,12 @@
 import os
 import re
-import time
 import shutil
-import platform
 import asyncio
+import time
+import platform
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
-
-try:
-    import psutil
-    # Initial call to prime psutil non-blocking cpu_percent calculations
-    psutil.cpu_percent(interval=None)
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    psutil = None
-    PSUTIL_AVAILABLE = False
 
 from fastapi import (
     FastAPI, HTTPException, Request, Response, BackgroundTasks,
@@ -25,17 +16,20 @@ from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from bson import ObjectId
+
+import psutil
 
 from config import settings
 from database import (
     init_db,
     close_db,
+    get_db,
     list_videos,
     get_video,
     create_url_video,
     update_video,
-    delete_video,
-    get_videos_collection
+    delete_video
 )
 from auth import (
     init_admin_user,
@@ -43,6 +37,7 @@ from auth import (
     verify_password,
     create_access_token,
     get_current_user,
+    get_current_user_flexible,
     validate_ws_token,
     UserLogin
 )
@@ -66,13 +61,54 @@ def validate_video_id(video_id: str) -> str:
         )
     return clean_id
 
+# Global state for server throughput tracking
+SERVER_START_TIME = time.time()
+_last_net_time = time.time()
+_last_net_bytes_recv = 0
+_last_net_bytes_sent = 0
+_current_in_rate_mb_s = 0.0
+_current_out_rate_mb_s = 0.0
+
+def update_network_rates():
+    global _last_net_time, _last_net_bytes_recv, _last_net_bytes_sent
+    global _current_in_rate_mb_s, _current_out_rate_mb_s
+
+    try:
+        net_io = psutil.net_io_counters()
+        now = time.time()
+        time_delta = now - _last_net_time
+
+        if time_delta >= 1.0 and _last_net_bytes_recv > 0:
+            recv_delta = max(0, net_io.bytes_recv - _last_net_bytes_recv)
+            sent_delta = max(0, net_io.bytes_sent - _last_net_bytes_sent)
+
+            _current_in_rate_mb_s = round(recv_delta / (1024 * 1024 * time_delta), 2)
+            _current_out_rate_mb_s = round(sent_delta / (1024 * 1024 * time_delta), 2)
+
+            _last_net_time = now
+            _last_net_bytes_recv = net_io.bytes_recv
+            _last_net_bytes_sent = net_io.bytes_sent
+        elif _last_net_bytes_recv == 0:
+            _last_net_time = now
+            _last_net_bytes_recv = net_io.bytes_recv
+            _last_net_bytes_sent = net_io.bytes_sent
+    except Exception:
+        pass
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize MongoDB, ensure directories exist, and seed admin user
+    # Startup: Initialize MongoDB, ensure directories exist, seed admin user, prime network counters
     await init_db()
     await init_admin_user()
     settings.videos_dir
     settings.metadata_dir
+    try:
+        net = psutil.net_io_counters()
+        global _last_net_bytes_recv, _last_net_bytes_sent
+        _last_net_bytes_recv = net.bytes_recv
+        _last_net_bytes_sent = net.bytes_sent
+    except Exception:
+        pass
     print(f"[MediaServer] Initialized storage at {settings.STORAGE_DIR}")
     yield
     # Shutdown
@@ -80,7 +116,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="DriveConnector - High-Performance Self-Hosted Media Streaming Server",
-    version="1.1.0",
+    version="1.3.0",
     lifespan=lifespan
 )
 
@@ -144,13 +180,20 @@ class DownloadUrlRequest(BaseModel):
 class SyncDriveRequest(BaseModel):
     folder_id: Optional[str] = None
 
-# ----------------- WebSocket Real-Time Telemetry -----------------
+class DbQueryRequest(BaseModel):
+    filter: Optional[Dict[str, Any]] = {}
+    limit: Optional[int] = 50
+
+# ----------------- WebSocket Real-Time Telemetry (Auth Guarded) -----------------
 @app.websocket("/ws/transfers")
 async def websocket_transfers_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
-    """Real-time transfer telemetry socket with authentication check."""
-    # Validate token if provided or accept connection
+    """Strictly authenticated real-time transfer telemetry socket."""
+    user = await validate_ws_token(token)
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await manager.connect(websocket)
-    # Send currently active downloads immediately upon connection
     for v_id, state in active_downloads.items():
         try:
             await websocket.send_json(state)
@@ -164,14 +207,21 @@ async def websocket_transfers_endpoint(websocket: WebSocket, token: Optional[str
     except Exception:
         await manager.disconnect(websocket)
 
-# ----------------- Video Catalog & Management Endpoints -----------------
+# ----------------- Video Catalog & Management Endpoints (Auth Guarded) -----------------
 @app.get("/api/videos", response_model=List[Dict[str, Any]])
-async def get_all_videos(status: Optional[str] = None, search: Optional[str] = None):
-    """Returns all cataloged videos with sanitized search parameter."""
+async def get_all_videos(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Returns all cataloged videos (Strictly Requires Authentication)."""
     return await list_videos(status=status, search=search)
 
 @app.get("/api/videos/{video_id}")
-async def get_single_video(video_id: str):
+async def get_single_video(
+    video_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
     valid_id = validate_video_id(video_id)
     video = await get_video(valid_id)
     if not video:
@@ -233,7 +283,6 @@ async def remove_video(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Path traversal guarded: ensure file is inside settings.videos_dir
     local_path = settings.videos_dir / f"{valid_id}.mp4"
     if local_path.exists():
         try:
@@ -251,12 +300,17 @@ async def remove_video(
     await delete_video(valid_id)
     return {"status": "deleted", "video_id": valid_id}
 
-# ----------------- RFC 7233 Compliant HTTP 206 Streaming Engine -----------------
+# ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
 @app.get("/api/stream/{video_id}")
-async def stream_video(video_id: str, request: Request):
+async def stream_video(
+    video_id: str,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user_flexible)
+):
     """
-    RFC 7233 Compliant HTTP Range Request Streaming Engine (CODE-03).
-    Supports start-end, start-only, and suffix-byte ranges with automatic bounds clamping.
+    Authenticated HTTP Range Request Streaming Engine.
+    Accepts Authorization Header, ?token= parameter, or cookie.
+    Unauthorized users cannot stream video content.
     """
     valid_id = validate_video_id(video_id)
     video = await get_video(valid_id)
@@ -275,11 +329,9 @@ async def stream_video(video_id: str, request: Request):
     range_header = request.headers.get("range")
 
     if not range_header:
-        # Full file stream fallback
         def file_iterator():
             with open(video_path, "rb") as f:
                 while chunk := f.read(1024 * 1024):
-                    stream_tracker.record_bytes(len(chunk))
                     yield chunk
 
         headers = {
@@ -289,7 +341,6 @@ async def stream_video(video_id: str, request: Request):
         }
         return StreamingResponse(file_iterator(), headers=headers)
 
-    # Parse Range: bytes=start-end, bytes=start-, or bytes=-suffix
     range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
     if not range_match:
         raise HTTPException(status_code=416, detail="Invalid Range header format")
@@ -300,18 +351,14 @@ async def stream_video(video_id: str, request: Request):
         raise HTTPException(status_code=416, detail="Invalid Range parameters")
 
     if raw_start == "":
-        # Suffix range: bytes=-500 (last 500 bytes)
         suffix_length = int(raw_end)
         start = max(0, file_size - suffix_length)
         end = file_size - 1
     elif raw_end == "":
-        # Start-only range: bytes=500- (from 500 to end)
         start = int(raw_start)
         end = file_size - 1
     else:
-        # Full range: bytes=start-end
         start = int(raw_start)
-        # RFC 7233 §2.1: Clamp end to file_size - 1 if client requests beyond EOF
         end = min(int(raw_end), file_size - 1)
 
     if start >= file_size or start > end:
@@ -321,7 +368,6 @@ async def stream_video(video_id: str, request: Request):
             headers={"Content-Range": f"bytes */{file_size}"}
         )
 
-    # 4MB max chunk response for fast seeking responsiveness
     max_chunk = 4 * 1024 * 1024
     if (end - start + 1) > max_chunk:
         end = start + max_chunk - 1
@@ -337,7 +383,6 @@ async def stream_video(video_id: str, request: Request):
                 data = f.read(chunk_size)
                 if not data:
                     break
-                stream_tracker.record_bytes(len(data))
                 remaining -= len(data)
                 yield data
 
@@ -355,254 +400,125 @@ async def stream_video(video_id: str, request: Request):
         headers=headers
     )
 
-# ----------------- System & Storage Telemetry -----------------
-SERVER_START_TIME = time.time()
+# ----------------- Hardware & Process Telemetry (Auth Guarded) -----------------
+@app.get("/api/system/metrics")
+async def get_system_metrics(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Comprehensive Hardware & Operational Metrics (Requires Authentication)."""
+    update_network_rates()
 
-class StreamThroughputTracker:
-    """Tracks live streaming throughput using a rolling window."""
-    def __init__(self):
-        self.window: List[tuple] = []
-
-    def record_bytes(self, num_bytes: int):
-        now = time.time()
-        self.window.append((now, num_bytes))
-        cutoff = now - 3.0
-        if len(self.window) > 100 or (self.window and self.window[0][0] < cutoff):
-            self.window = [entry for entry in self.window if entry[0] >= cutoff]
-
-    def get_speed_mb_s(self) -> float:
-        now = time.time()
-        cutoff = now - 3.0
-        self.window = [entry for entry in self.window if entry[0] >= cutoff]
-        if not self.window:
-            return 0.0
-        total_bytes = sum(b for _, b in self.window)
-        duration = max(0.5, now - self.window[0][0])
-        speed = (total_bytes / (1024 * 1024)) / duration
-        return round(speed, 2)
-
-stream_tracker = StreamThroughputTracker()
-
-class NetworkTracker:
-    """Calculates live inbound and outbound network data rates via delta bytes / delta time."""
-    def __init__(self):
-        self.last_time = time.time()
-        self.last_bytes_recv = 0
-        self.last_bytes_sent = 0
-        self.input_mb_s = 0.0
-        self.output_mb_s = 0.0
-        self.initialized = False
-        if PSUTIL_AVAILABLE:
-            try:
-                net = psutil.net_io_counters()
-                if net:
-                    self.last_bytes_recv = net.bytes_recv
-                    self.last_bytes_sent = net.bytes_sent
-                    self.initialized = True
-            except Exception:
-                pass
-
-    def get_metrics(self) -> Dict[str, float]:
-        now = time.time()
-        total_recv_mb = 0.0
-        total_sent_mb = 0.0
-
-        if PSUTIL_AVAILABLE:
-            try:
-                net = psutil.net_io_counters()
-                if net:
-                    total_recv_mb = round(net.bytes_recv / (1024 * 1024), 2)
-                    total_sent_mb = round(net.bytes_sent / (1024 * 1024), 2)
-
-                    if not self.initialized:
-                        self.last_time = now
-                        self.last_bytes_recv = net.bytes_recv
-                        self.last_bytes_sent = net.bytes_sent
-                        self.initialized = True
-                    else:
-                        dt = now - self.last_time
-                        if dt >= 0.5:
-                            delta_recv = max(0, net.bytes_recv - self.last_bytes_recv)
-                            delta_sent = max(0, net.bytes_sent - self.last_bytes_sent)
-                            self.input_mb_s = round((delta_recv / (1024 * 1024)) / dt, 2)
-                            self.output_mb_s = round((delta_sent / (1024 * 1024)) / dt, 2)
-                            self.last_time = now
-                            self.last_bytes_recv = net.bytes_recv
-                            self.last_bytes_sent = net.bytes_sent
-            except Exception:
-                pass
-
-        return {
-            "input_mb_s": self.input_mb_s,
-            "output_mb_s": self.output_mb_s,
-            "total_received_mb": total_recv_mb,
-            "total_sent_mb": total_sent_mb,
-        }
-
-net_tracker = NetworkTracker()
-
-def get_cpu_metrics() -> Dict[str, Any]:
-    percent = 0.0
-    cores = os.cpu_count() or 1
-    frequency_mhz = 0.0
-
-    if PSUTIL_AVAILABLE:
-        try:
-            percent = float(psutil.cpu_percent(interval=None))
-        except Exception:
-            percent = 0.0
-
-        try:
-            cpu_count = psutil.cpu_count(logical=True)
-            if cpu_count:
-                cores = cpu_count
-        except Exception:
-            pass
-
-        try:
-            freq = psutil.cpu_freq()
-            if freq and freq.current:
-                frequency_mhz = round(freq.current, 1)
-        except Exception:
-            frequency_mhz = 0.0
-
-    return {
-        "percent": round(percent, 1),
-        "cores": cores,
-        "frequency_mhz": frequency_mhz
-    }
-
-def get_ram_metrics() -> Dict[str, Any]:
-    total_gb = 16.0
-    used_gb = 0.0
-    free_gb = 16.0
-    percent = 0.0
-
-    if PSUTIL_AVAILABLE:
-        try:
-            vmem = psutil.virtual_memory()
-            total_gb = round(vmem.total / (1024 ** 3), 2)
-            used_gb = round(vmem.used / (1024 ** 3), 2)
-            free_gb = round(vmem.available / (1024 ** 3), 2)
-            percent = round(float(vmem.percent), 1)
-        except Exception:
-            pass
-
-    return {
-        "total_gb": total_gb,
-        "used_gb": used_gb,
-        "free_gb": free_gb,
-        "percent": percent
-    }
-
-def get_disk_metrics() -> Dict[str, Any]:
-    storage_path = settings.STORAGE_DIR if os.path.exists(settings.STORAGE_DIR) else "."
+    # CPU metrics
+    cpu_percent = 0.0
+    cpu_cores = os.cpu_count() or 1
+    cpu_freq = 0.0
     try:
-        total, used, free = shutil.disk_usage(storage_path)
-    except Exception:
-        total, used, free = 1000 * (1024 ** 3), 0, 1000 * (1024 ** 3)
-
-    def to_gb(b):
-        return round(b / (1024 ** 3), 2)
-
-    pct = round((used / total) * 100, 1) if total > 0 else 0.0
-
-    return {
-        "mount": str(storage_path),
-        "total_gb": to_gb(total),
-        "used_gb": to_gb(used),
-        "free_gb": to_gb(free),
-        "percent": pct
-    }
-
-async def get_pipeline_metrics() -> Dict[str, int]:
-    counts = {
-        "total_files": 0,
-        "local_files": 0,
-        "cloud_files": 0,
-        "in_queue": 0,
-        "in_processing": 0,
-        "completed": 0
-    }
-    try:
-        col = get_videos_collection()
-        pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]
-        status_map = {}
-        async for doc in col.aggregate(pipeline):
-            status_map[doc["_id"]] = doc["count"]
-
-        completed = status_map.get("LOCAL_READY", 0)
-        in_processing = status_map.get("PROCESSING", 0)
-        in_queue = status_map.get("DOWNLOADING", 0)
-        cloud_files = status_map.get("REMOTE_ONLY", 0)
-
-        active_dl_count = len([d for d in active_downloads.values() if d.get("status") == "DOWNLOADING"])
-        in_queue = max(in_queue, active_dl_count)
-
-        total_files = sum(status_map.values())
-        local_files = completed + in_processing
-
-        counts["total_files"] = total_files
-        counts["local_files"] = local_files
-        counts["cloud_files"] = cloud_files
-        counts["in_queue"] = in_queue
-        counts["in_processing"] = in_processing
-        counts["completed"] = completed
+        cpu_percent = psutil.cpu_percent(interval=None)
+        freq = psutil.cpu_freq()
+        if freq:
+            cpu_freq = round(freq.current, 1)
     except Exception:
         pass
 
-    return counts
+    # RAM metrics
+    ram_total_gb = 16.0
+    ram_used_gb = 2.0
+    ram_free_gb = 14.0
+    ram_percent = 12.5
+    try:
+        mem = psutil.virtual_memory()
+        ram_total_gb = round(mem.total / (1024 ** 3), 2)
+        ram_used_gb = round(mem.used / (1024 ** 3), 2)
+        ram_free_gb = round(mem.available / (1024 ** 3), 2)
+        ram_percent = round(mem.percent, 1)
+    except Exception:
+        pass
 
-def get_throughput_metrics() -> Dict[str, float]:
-    dl_speed = 0.0
-    for d in active_downloads.values():
-        if d.get("status") == "DOWNLOADING":
-            dl_speed += float(d.get("speed_mbs", 0.0))
+    # 1TB Storage Disk metrics
+    storage_path = settings.STORAGE_DIR if os.path.exists(settings.STORAGE_DIR) else "."
+    disk_total_gb = 1000.0
+    disk_used_gb = 0.0
+    disk_free_gb = 1000.0
+    disk_percent = 0.0
+    try:
+        usage = shutil.disk_usage(storage_path)
+        disk_total_gb = round(usage.total / (1024 ** 3), 2)
+        disk_used_gb = round(usage.used / (1024 ** 3), 2)
+        disk_free_gb = round(usage.free / (1024 ** 3), 2)
+        disk_percent = round((usage.used / usage.total) * 100, 1) if usage.total > 0 else 0.0
+    except Exception:
+        pass
 
-    stream_speed = stream_tracker.get_speed_mb_s()
+    # Network I/O metrics
+    net_rx_mb = 0.0
+    net_tx_mb = 0.0
+    try:
+        net_io = psutil.net_io_counters()
+        net_rx_mb = round(net_io.bytes_recv / (1024 * 1024), 1)
+        net_tx_mb = round(net_io.bytes_sent / (1024 * 1024), 1)
+    except Exception:
+        pass
+
+    # Pipeline counts from MongoDB & active downloads
+    db = get_db()
+    total_files = await db["videos"].count_documents({})
+    local_files = await db["videos"].count_documents({"status": "LOCAL_READY"})
+    cloud_files = await db["videos"].count_documents({"status": "REMOTE_ONLY"})
+    in_processing = await db["videos"].count_documents({"status": "PROCESSING"})
+    in_queue = len(active_downloads)
+
+    # Active download speed sum
+    live_dl_speed = sum(
+        t.get("speed_mbs", 0.0) for t in active_downloads.values() if t.get("status") == "DOWNLOADING"
+    )
+
+    uptime_sec = int(time.time() - SERVER_START_TIME)
 
     return {
-        "live_download_speed_mb_s": round(dl_speed, 2),
-        "live_stream_speed_mb_s": round(stream_speed, 2)
-    }
-
-def get_server_metrics() -> Dict[str, Any]:
-    uptime = max(0, int(time.time() - SERVER_START_TIME))
-    os_name = f"{platform.system()} {platform.release()}".strip() or platform.system()
-    return {
-        "status": "optimal",
-        "uptime_seconds": uptime,
-        "os": os_name
-    }
-
-@app.get("/api/system/metrics")
-async def get_system_metrics():
-    """
-    Returns real-time server telemetry: CPU, RAM, Disk, Network I/O rates,
-    Media Pipeline queue & completion stats, live streaming/download throughput,
-    and server health status with graceful fallbacks.
-    """
-    cpu = get_cpu_metrics()
-    ram = get_ram_metrics()
-    disk = get_disk_metrics()
-    network = net_tracker.get_metrics()
-    pipeline = await get_pipeline_metrics()
-    throughput = get_throughput_metrics()
-    server = get_server_metrics()
-
-    return {
-        "cpu": cpu,
-        "ram": ram,
-        "disk": disk,
-        "network": network,
-        "pipeline": pipeline,
-        "throughput": throughput,
-        "server": server
+        "cpu": {
+            "percent": cpu_percent,
+            "cores": cpu_cores,
+            "frequency_mhz": cpu_freq
+        },
+        "ram": {
+            "total_gb": ram_total_gb,
+            "used_gb": ram_used_gb,
+            "free_gb": ram_free_gb,
+            "percent": ram_percent
+        },
+        "disk": {
+            "mount": settings.STORAGE_DIR,
+            "total_gb": disk_total_gb,
+            "used_gb": disk_used_gb,
+            "free_gb": disk_free_gb,
+            "percent": disk_percent
+        },
+        "network": {
+            "input_mb_s": _current_in_rate_mb_s,
+            "output_mb_s": _current_out_rate_mb_s,
+            "total_received_mb": net_rx_mb,
+            "total_sent_mb": net_tx_mb
+        },
+        "pipeline": {
+            "total_files": total_files,
+            "local_files": local_files,
+            "cloud_files": cloud_files,
+            "in_queue": in_queue,
+            "in_processing": in_processing,
+            "completed": local_files
+        },
+        "throughput": {
+            "live_download_speed_mb_s": round(live_dl_speed, 2),
+            "live_stream_speed_mb_s": _current_out_rate_mb_s
+        },
+        "server": {
+            "status": "optimal",
+            "uptime_seconds": uptime_sec,
+            "os": f"{platform.system()} {platform.release()}"
+        }
     }
 
 @app.get("/api/system/storage")
-async def get_storage_stats():
-    """Returns disk usage metrics for the OVHcloud 1TB Block Storage mount point."""
+async def get_storage_stats(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Returns disk usage metrics for the OVHcloud 1TB Block Storage (Requires Auth)."""
     storage_path = settings.STORAGE_DIR if os.path.exists(settings.STORAGE_DIR) else "."
     total, used, free = shutil.disk_usage(storage_path)
 
@@ -619,6 +535,80 @@ async def get_storage_stats():
         "used_percent": pct
     }
 
+# ----------------- MongoDB Integrated UI & Management API -----------------
+@app.get("/api/db/stats")
+async def get_database_stats(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Returns MongoDB collections, document counts, and storage stats (Requires Auth)."""
+    db = get_db()
+    collections_names = await db.list_collection_names()
+    stats = []
+
+    for name in collections_names:
+        count = await db[name].count_documents({})
+        stats.append({
+            "name": name,
+            "count": count
+        })
+
+    return {
+        "database": settings.DATABASE_NAME,
+        "collections": stats,
+        "mongo_express_port": 8081,
+        "mongo_express_url": "http://127.0.0.1:8081/"
+    }
+
+@app.get("/api/db/collections/{collection_name}")
+async def get_collection_documents(
+    collection_name: str,
+    limit: int = 50,
+    skip: int = 0,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Returns documents from a collection with sensitive fields redacted (Requires Auth)."""
+    db = get_db()
+    if collection_name not in ["videos", "users"]:
+        raise HTTPException(status_code=400, detail="Invalid collection name")
+
+    col = db[collection_name]
+    cursor = col.find({}, {"_id": 0}).skip(skip).limit(min(100, limit))
+    docs = await cursor.to_list(length=100)
+
+    # Redact sensitive password hashes if users collection
+    if collection_name == "users":
+        for doc in docs:
+            doc.pop("password_hash", None)
+
+    total = await col.count_documents({})
+    return {
+        "collection": collection_name,
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+        "documents": docs
+    }
+
+@app.delete("/api/db/collections/{collection_name}/{doc_id}")
+async def delete_collection_document(
+    collection_name: str,
+    doc_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Deletes a document from the MongoDB collection (Requires Auth)."""
+    db = get_db()
+    if collection_name not in ["videos", "users"]:
+        raise HTTPException(status_code=400, detail="Invalid collection name")
+
+    col = db[collection_name]
+    # Delete by video_id or username
+    if collection_name == "videos":
+        res = await col.delete_one({"video_id": doc_id})
+    else:
+        if doc_id == settings.ADMIN_USERNAME:
+            raise HTTPException(status_code=400, detail="Cannot delete default admin user")
+        res = await col.delete_one({"username": doc_id})
+
+    return {"deleted": res.deleted_count > 0, "collection": collection_name, "id": doc_id}
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "app": "drive_connector", "version": "1.1.0"}
+    return {"status": "ok", "app": "drive_connector", "version": "1.3.0"}

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DriveConnector - 1TB Stream & On-Demand Media Ingestion</title>
+  <title>DriveConnector - 1TB Stream & On-Demand Media Platform</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons CDN -->
@@ -20,367 +20,276 @@
     .plyr--full-ui input[type=range] { color: #0ea5e9; }
   </style>
 </head>
-<body class="min-h-screen flex flex-col">
+<body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
 
-  <!-- Header -->
-  <header class="sticky top-0 z-30 w-full bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-      <div class="flex items-center space-x-3">
-        <div class="p-2 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-lg shadow-sky-500/20">
-          <i data-lucide="play-square" class="w-5 h-5"></i>
+  <!-- ==================== 1. STRICT AUTH WALL: LOGIN VIEW ==================== -->
+  <div id="login-wall-view" class="fixed inset-0 z-50 flex flex-col justify-center items-center px-4 bg-slate-950">
+    <div class="absolute top-1/4 -left-32 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute bottom-1/4 -right-32 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="relative w-full max-w-md bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6">
+      <div class="flex flex-col items-center text-center space-y-2">
+        <div class="p-3.5 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-xl shadow-sky-500/25 mb-1">
+          <i data-lucide="play-square" class="w-8 h-8 fill-white"></i>
         </div>
+        <h1 class="text-2xl font-bold tracking-tight text-white">DriveConnector</h1>
+        <p class="text-xs text-slate-400">High-Performance 1TB Stream & On-Demand Media Platform</p>
+      </div>
+
+      <div class="flex items-center justify-center space-x-2 px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[11px] font-medium mx-auto w-fit">
+        <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+        <span>Strict Access Wall Active</span>
+      </div>
+
+      <form onsubmit="handleLoginSubmit(event)" class="space-y-4 pt-2">
         <div>
-          <h1 class="text-base font-bold text-white flex items-center space-x-2">
-            <span>DriveConnector</span>
-            <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">1TB Mount</span>
-          </h1>
-          <p class="text-[11px] text-slate-400 hidden sm:block">On-Demand Cloud Media Ingestion & Range-Streaming</p>
-        </div>
-      </div>
-
-      <!-- Storage Widget -->
-      <div id="storage-widget" class="hidden md:flex items-center space-x-3 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs">
-        <i data-lucide="hard-drive" class="w-4 h-4 text-sky-400"></i>
-        <div class="flex flex-col min-w-[120px]">
-          <div class="flex justify-between items-center text-[11px] text-slate-300 font-medium">
-            <span>1TB Storage</span>
-            <span id="storage-text">Loading...</span>
-          </div>
-          <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1 overflow-hidden">
-            <div id="storage-bar" class="h-full bg-sky-500 transition-all duration-500" style="width: 0%"></div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Operator Username</label>
+          <div class="relative">
+            <i data-lucide="user" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
+            <input id="login-username" type="text" value="admin" required class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition" />
           </div>
         </div>
-      </div>
 
-      <!-- Actions & Auth -->
-      <div class="flex items-center space-x-2.5">
-        <button onclick="fetchVideos()" title="Refresh" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">
-          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-        </button>
-        <button onclick="openSyncModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-800 transition">
-          <i data-lucide="cloud" class="w-4 h-4 text-sky-400"></i>
-          <span>Sync Drive</span>
-        </button>
-        <button onclick="openUrlModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow-md shadow-indigo-600/20 transition">
-          <i data-lucide="plus" class="w-4 h-4"></i>
-          <span>Add URL</span>
-        </button>
-
-        <div id="auth-section" class="flex items-center pl-2 border-l border-slate-800">
-          <button id="auth-btn" onclick="openLoginModal()" class="flex items-center space-x-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition">
-            <i data-lucide="log-in" class="w-4 h-4"></i>
-            <span>Sign In</span>
-          </button>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
+          <div class="relative">
+            <i data-lucide="lock" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
+            <input id="login-password" type="password" required placeholder="••••••••••••" class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition" />
+          </div>
         </div>
+
+        <div id="login-error" class="text-xs text-red-400 hidden"></div>
+
+        <button id="login-submit-btn" type="submit" class="w-full py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white shadow-lg shadow-sky-500/25 transition">
+          Unlock Platform
+        </button>
+      </form>
+
+      <div class="pt-2 text-center text-[11px] text-slate-500 border-t border-slate-800/80">
+        Default: <code class="text-slate-400 bg-slate-950 px-1.5 py-0.5 rounded">admin</code> / <code class="text-slate-400 bg-slate-950 px-1.5 py-0.5 rounded">Admin@Drive2026!</code>
       </div>
     </div>
+  </div>
 
-    <!-- Sleek Server Telemetry Header Bar -->
-    <div class="border-t border-slate-800/80 bg-slate-950/90 backdrop-blur-md px-4 sm:px-6 py-2" aria-label="Server Telemetry Header Bar">
-      <div class="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto text-xs">
-        <!-- Server Status Indicator -->
-        <div class="flex items-center space-x-2 shrink-0">
-          <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[11px]">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span id="hdr-server-status" class="font-semibold uppercase tracking-wider">OPTIMAL</span>
-          </div>
-          <span class="text-[11px] text-slate-500 hidden xl:inline font-mono">Dedicated 1TB NVMe Node</span>
-        </div>
-
-        <!-- Telemetry Pills Group -->
-        <div class="flex items-center space-x-2 sm:space-x-2.5 shrink-0">
-          <!-- 1. Server Processor / CPU pill -->
-          <div class="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 hover:border-sky-500/40 transition font-mono group" title="Server Processor (CPU)">
-            <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400 group-hover:rotate-12 transition-transform"></i>
-            <span class="text-slate-400 text-[11px]">CPU</span>
-            <span id="hdr-cpu-val" class="text-white font-semibold text-[11px] min-w-[32px]">0%</span>
-            <div class="w-10 bg-slate-800 h-1.5 rounded-full overflow-hidden">
-              <div id="hdr-cpu-bar" class="h-full bg-sky-400 transition-all duration-500" style="width: 5%"></div>
-            </div>
-          </div>
-
-          <!-- 2. RAM pill -->
-          <div class="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 hover:border-indigo-500/40 transition font-mono group" title="RAM Utilization">
-            <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform"></i>
-            <span class="text-slate-400 text-[11px]">RAM</span>
-            <span id="hdr-ram-val" class="text-white font-semibold text-[11px]">0/0 GB [0%]</span>
-            <div class="w-10 bg-slate-800 h-1.5 rounded-full overflow-hidden hidden md:block">
-              <div id="hdr-ram-bar" class="h-full bg-indigo-500 transition-all duration-500" style="width: 5%"></div>
-            </div>
-          </div>
-
-          <!-- 3. Storage / Disk pill (1TB volume) -->
-          <div class="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 hover:border-emerald-500/40 transition font-mono group" title="Storage Disk Utilization (1TB Volume)">
-            <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform"></i>
-            <span class="text-slate-400 text-[11px]">Disk (1TB):</span>
-            <span id="hdr-disk-val" class="text-white font-semibold text-[11px]">0 GB [0%]</span>
-            <div class="w-10 bg-slate-800 h-1.5 rounded-full overflow-hidden hidden sm:block">
-              <div id="hdr-disk-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width: 3%"></div>
-            </div>
-          </div>
-
-          <!-- 4. Server Input pill (Inbound MB/s) -->
-          <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 hover:border-cyan-500/40 transition font-mono group" title="Server Input: Inbound media ingestion rate">
-            <i data-lucide="arrow-down-to-line" class="w-3.5 h-3.5 text-cyan-400 group-hover:translate-y-0.5 transition-transform"></i>
-            <span class="text-slate-400 text-[11px]">In:</span>
-            <span id="hdr-input-val" class="text-cyan-300 font-semibold text-[11px]">0.0 MB/s</span>
-          </div>
-
-          <!-- 5. Server Output pill (Streaming upload MB/s) -->
-          <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 hover:border-violet-500/40 transition font-mono group" title="Server Output: Streaming upload rate">
-            <i data-lucide="arrow-up-from-line" class="w-3.5 h-3.5 text-violet-400 group-hover:-translate-y-0.5 transition-transform"></i>
-            <span class="text-slate-400 text-[11px]">Out:</span>
-            <span id="hdr-output-val" class="text-violet-300 font-semibold text-[11px]">0.0 MB/s</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <!-- Main Content -->
-  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
-    <!-- Main page hero Stats Dashboard -->
-    <section id="stats-dashboard" class="mb-8 relative rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 p-5 shadow-2xl overflow-hidden" aria-label="Executive Metrics Dashboard">
-      <!-- Background ambient lighting -->
-      <div class="absolute -top-12 left-1/4 w-96 h-36 bg-sky-500/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
-      <div class="absolute -top-12 right-1/4 w-96 h-36 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
-
-      <!-- Mission Control Top Bar -->
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 px-1">
-        <div class="flex items-center space-x-2.5">
-          <div class="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400">
-            <i data-lucide="activity" class="w-4 h-4 animate-pulse"></i>
+  <!-- ==================== 2. MAIN AUTHENTICATED PLATFORM VIEW ==================== -->
+  <div id="main-platform-view" class="hidden flex-1 flex-col">
+    <!-- Header with Hardware Telemetry Bar -->
+    <header class="sticky top-0 z-30 w-full bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 shadow-md">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+        <!-- Brand -->
+        <div class="flex items-center space-x-3 shrink-0">
+          <div class="p-2 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-lg shadow-sky-500/20">
+            <i data-lucide="play-square" class="w-5 h-5"></i>
           </div>
           <div>
-            <h2 class="text-sm font-semibold tracking-tight text-white flex items-center space-x-2">
-              <span>Executive Telemetry & Stream Ingestion Pipeline</span>
-              <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block"></span>
-                <span id="hero-server-status">OPTIMAL</span>
-              </span>
-            </h2>
-            <p class="text-[11px] text-slate-400">
-              OVHcloud Dedicated Node • <span id="hero-server-os">Linux</span> • Uptime <span id="hero-uptime">Just started</span> • Real-time 3s refresh
-            </p>
+            <h1 class="text-base font-bold text-white flex items-center space-x-2">
+              <span>DriveConnector</span>
+              <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">1TB NVMe</span>
+            </h1>
+            <p class="text-[10px] text-slate-400 hidden xl:block">Dedicated Ingestion & High-Speed Range Streaming</p>
           </div>
         </div>
 
-        <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-400 self-start sm:self-auto">
-          <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-900/80 border border-slate-800">
-            <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-            <span>Telemetry Live</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main 6-Card Executive Metrics Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <!-- Card 1: Total Media Catalog -->
-        <div onclick="setFilter('ALL')" class="group relative rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-sky-500/40 p-4 transition-all duration-300 hover:shadow-xl hover:shadow-sky-500/5 cursor-pointer flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-medium text-slate-400 tracking-wide uppercase font-mono">Total Catalog</span>
-            <div class="p-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 group-hover:scale-110 transition-transform">
-              <i data-lucide="database" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div>
-            <div class="flex items-baseline space-x-2">
-              <span id="hero-total-files" class="text-2xl font-bold text-white tracking-tight font-mono">0</span>
-              <span class="text-xs text-slate-500">files</span>
-            </div>
-            <!-- Split badge: Cloud vs Server -->
-            <div class="mt-2.5 flex items-center space-x-1.5 text-[10px] font-mono">
-              <span onclick="event.stopPropagation(); setFilter('CLOUD');" class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition flex items-center space-x-1" title="Google Drive Cloud Remote Only">
-                <i data-lucide="cloud" class="w-3 h-3"></i>
-                <span id="hero-cloud-files">0 Cloud</span>
-              </span>
-              <span onclick="event.stopPropagation(); setFilter('LOCAL');" class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20 transition flex items-center space-x-1" title="Cached on 1TB NVMe Server">
-                <i data-lucide="hard-drive" class="w-3 h-3"></i>
-                <span id="hero-local-files">0 Local</span>
-              </span>
-            </div>
-            <!-- Visual ratio bar -->
-            <div class="mt-3 w-full bg-slate-800 h-1 rounded-full overflow-hidden flex">
-              <div id="hero-ratio-local" class="bg-emerald-400 transition-all duration-500" style="width: 0%"></div>
-              <div id="hero-ratio-cloud" class="bg-amber-400 transition-all duration-500" style="width: 0%"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Card 2: Ingestion Queue -->
-        <div class="group relative rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-amber-500/40 p-4 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/5 flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-medium text-slate-400 tracking-wide uppercase font-mono">Ingestion Queue</span>
-            <div id="hero-queue-box" class="p-2 rounded-xl transition-transform group-hover:scale-110 bg-slate-800/60 border border-slate-700/50 text-slate-400">
-              <i data-lucide="clock" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div>
-            <div class="flex items-baseline space-x-2">
-              <span id="hero-queue-files" class="text-2xl font-bold text-white tracking-tight font-mono">0</span>
-              <span class="text-xs text-slate-500">queued</span>
-            </div>
-            <div class="mt-2.5">
-              <span id="hero-queue-badge" class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono border bg-slate-800/50 text-slate-400 border-slate-700/50">
-                <span id="hero-queue-dot" class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                <span id="hero-queue-label">Queue Idle • Standby</span>
-              </span>
-            </div>
-            <p class="mt-3 text-[11px] text-slate-500 truncate">Drive & URL parallel workers</p>
-          </div>
-        </div>
-
-        <!-- Card 3: Active Processing (FFmpeg Sprite & Preview) -->
-        <div class="group relative rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-violet-500/40 p-4 transition-all duration-300 hover:shadow-xl hover:shadow-violet-500/5 flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-medium text-slate-400 tracking-wide uppercase font-mono">FFmpeg Processing</span>
-            <div id="hero-processing-box" class="p-2 rounded-xl transition-transform group-hover:scale-110 bg-slate-800/60 border border-slate-700/50 text-slate-400">
-              <i data-lucide="sparkles" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div>
-            <div class="flex items-baseline space-x-2">
-              <span id="hero-processing-files" class="text-2xl font-bold text-white tracking-tight font-mono">0</span>
-              <span class="text-xs text-slate-500">active tasks</span>
-            </div>
-            <div class="mt-2.5">
-              <span id="hero-processing-badge" class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono border bg-slate-800/50 text-slate-400 border-slate-700/50">
-                <i data-lucide="zap" class="w-3 h-3 text-violet-400"></i>
-                <span id="hero-processing-label">FFmpeg Ready</span>
-              </span>
-            </div>
-            <p class="mt-3 text-[11px] text-slate-500 truncate">Storyboard & scrub previews</p>
-          </div>
-        </div>
-
-        <!-- Card 4: Inbound / Live Speed (Fetch) -->
-        <div class="group relative rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-cyan-500/40 p-4 transition-all duration-300 hover:shadow-xl hover:shadow-cyan-500/5 flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-medium text-slate-400 tracking-wide uppercase font-mono">Live Inbound</span>
-            <div class="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 group-hover:scale-110 transition-transform">
-              <i data-lucide="arrow-down-to-line" class="w-4 h-4 animate-pulse"></i>
-            </div>
-          </div>
-          <div>
-            <div class="flex items-baseline space-x-1 font-mono">
-              <span id="hero-inbound-speed" class="text-2xl font-bold text-cyan-300 tracking-tight">0.0</span>
-              <span class="text-xs text-slate-500">MB/s</span>
-            </div>
-            <div class="mt-2.5">
-              <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-mono">
-                <i data-lucide="download" class="w-3 h-3 text-cyan-400"></i>
-                <span>Cloud Stream Ingestion</span>
-              </span>
-            </div>
-            <p class="mt-2 text-[10px] font-mono text-slate-500 truncate">
-              Total Rx: <span id="hero-total-rx">0</span> MB
-            </p>
-          </div>
-        </div>
-
-        <!-- Card 5: Outbound / Stream Speed -->
-        <div class="group relative rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-indigo-500/40 p-4 transition-all duration-300 hover:shadow-xl hover:shadow-indigo-500/5 flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-medium text-slate-400 tracking-wide uppercase font-mono">Live Outbound</span>
-            <div class="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 group-hover:scale-110 transition-transform">
-              <i data-lucide="arrow-up-from-line" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div>
-            <div class="flex items-baseline space-x-1 font-mono">
-              <span id="hero-outbound-speed" class="text-2xl font-bold text-indigo-300 tracking-tight">0.0</span>
-              <span class="text-xs text-slate-500">MB/s</span>
-            </div>
-            <div class="mt-2.5">
-              <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-mono">
-                <i data-lucide="upload" class="w-3 h-3 text-indigo-400"></i>
-                <span>Range-Streaming Rate</span>
-              </span>
-            </div>
-            <p class="mt-2 text-[10px] font-mono text-slate-500 truncate">
-              Total Tx: <span id="hero-total-tx">0</span> MB
-            </p>
-          </div>
-        </div>
-
-        <!-- Card 6: Completed & Ready Files / Storage Utilization -->
-        <div onclick="setFilter('LOCAL')" class="group relative rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-emerald-500/40 p-4 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/5 cursor-pointer flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-medium text-slate-400 tracking-wide uppercase font-mono">Ready to Stream</span>
-            <div class="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 group-hover:scale-110 transition-transform">
-              <i data-lucide="check-circle-2" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div>
-            <div class="flex items-baseline space-x-2">
-              <span id="hero-completed-files" class="text-2xl font-bold text-emerald-400 tracking-tight font-mono">0</span>
-              <span class="text-xs text-slate-500">completed</span>
-            </div>
-            <div class="mt-2.5">
-              <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-mono">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                <span>Zero-Latency Ready</span>
-              </span>
-            </div>
-            <p class="mt-3 text-[11px] text-slate-500 truncate">Instant byte-range seekable</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Secondary Hardware & Storage Telemetry Strip -->
-      <div class="mt-4 pt-3 border-t border-slate-800/60 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs font-mono">
-        <!-- CPU Detailed -->
-        <div class="flex items-center justify-between bg-slate-950/60 px-3.5 py-2.5 rounded-xl border border-slate-800/60">
-          <div class="flex items-center space-x-2">
+        <!-- Center: Real-Time Hardware Telemetry -->
+        <div class="hidden md:flex items-center space-x-2 text-xs font-mono">
+          <!-- CPU -->
+          <div class="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg">
             <i data-lucide="cpu" class="w-3.5 h-3.5 text-sky-400"></i>
-            <span class="text-slate-400 text-[11px]">Processor:</span>
-            <span id="detail-cpu-pct" class="text-white font-semibold">0%</span>
+            <div class="flex flex-col">
+              <div class="flex items-center space-x-1 text-[10px]">
+                <span class="text-slate-400">CPU</span>
+                <span id="header-cpu-pct" class="text-white font-semibold">0%</span>
+              </div>
+              <div class="w-12 bg-slate-800 h-1 rounded-full overflow-hidden mt-0.5">
+                <div id="header-cpu-bar" class="h-full bg-sky-500 transition-all duration-500" style="width: 0%"></div>
+              </div>
+            </div>
           </div>
-          <span id="detail-cpu-info" class="text-[10px] text-slate-500">-- cores</span>
-        </div>
 
-        <!-- RAM Detailed -->
-        <div class="flex items-center justify-between bg-slate-950/60 px-3.5 py-2.5 rounded-xl border border-slate-800/60">
-          <div class="flex items-center space-x-2">
-            <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-400"></i>
-            <span class="text-slate-400 text-[11px]">Memory:</span>
-            <span id="detail-ram-val" class="text-white font-semibold">0 / 0 GB</span>
+          <!-- RAM -->
+          <div class="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
+            <div class="flex flex-col">
+              <div class="flex items-center space-x-1 text-[10px]">
+                <span class="text-slate-400">RAM</span>
+                <span id="header-ram-used" class="text-white font-semibold">0G</span>
+                <span id="header-ram-pct" class="text-slate-500">[0%]</span>
+              </div>
+              <div class="w-14 bg-slate-800 h-1 rounded-full overflow-hidden mt-0.5">
+                <div id="header-ram-bar" class="h-full bg-indigo-500 transition-all duration-500" style="width: 0%"></div>
+              </div>
+            </div>
           </div>
-          <span id="detail-ram-pct" class="text-[10px] text-slate-500">(0%)</span>
-        </div>
 
-        <!-- Disk Detailed -->
-        <div class="flex items-center justify-between bg-slate-950/60 px-3.5 py-2.5 rounded-xl border border-slate-800/60">
-          <div class="flex items-center space-x-2">
+          <!-- Storage -->
+          <div class="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg">
             <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-emerald-400"></i>
-            <span class="text-slate-400 text-[11px]">Storage (1TB):</span>
-            <span id="detail-disk-val" class="text-white font-semibold">0 / 0 GB</span>
+            <div class="flex flex-col">
+              <div class="flex items-center space-x-1 text-[10px]">
+                <span class="text-slate-400">Disk</span>
+                <span id="header-disk-used" class="text-white font-semibold">0G</span>
+                <span id="header-disk-total" class="text-slate-500">/1000G</span>
+              </div>
+              <div class="w-14 bg-slate-800 h-1 rounded-full overflow-hidden mt-0.5">
+                <div id="header-disk-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width: 0%"></div>
+              </div>
+            </div>
           </div>
-          <span id="detail-disk-pct" class="text-[10px] text-slate-500">(0%)</span>
+
+          <!-- Network Throughput -->
+          <div class="hidden lg:flex items-center space-x-2.5 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-[10px]">
+            <div class="flex items-center space-x-1 text-sky-400">
+              <i data-lucide="arrow-down-right" class="w-3 h-3"></i>
+              <span class="text-slate-400">In:</span>
+              <span id="header-net-in" class="font-semibold">0 MB/s</span>
+            </div>
+            <span class="text-slate-700">|</span>
+            <div class="flex items-center space-x-1 text-emerald-400">
+              <i data-lucide="arrow-up-right" class="w-3 h-3"></i>
+              <span class="text-slate-400">Out:</span>
+              <span id="header-net-out" class="font-semibold">0 MB/s</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center space-x-2 shrink-0">
+          <button onclick="fetchAllData()" title="Refresh" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          </button>
+          <button onclick="openMongoModal()" title="MongoDB Explorer" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-800/60 hover:border-emerald-600 text-emerald-400 text-xs font-semibold hover:bg-emerald-900/40 transition">
+            <i data-lucide="database" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">MongoDB UI</span>
+          </button>
+          <button onclick="openSyncModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-800 transition">
+            <i data-lucide="cloud" class="w-4 h-4 text-sky-400"></i>
+            <span class="hidden sm:inline">Sync Drive</span>
+          </button>
+          <button onclick="openUrlModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow-md shadow-indigo-600/20 transition">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Add URL</span>
+          </button>
+
+          <!-- Logout -->
+          <div class="flex items-center space-x-1.5 pl-2 border-l border-slate-800">
+            <span class="hidden sm:inline text-xs text-slate-300 font-mono bg-slate-900 px-2 py-1 rounded-lg border border-slate-800">admin</span>
+            <button onclick="handleLogout()" title="Log Out" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 transition">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
         </div>
       </div>
-    </section>
+    </header>
 
-    <!-- Toolbar -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-      <div class="relative flex-1 max-w-md">
-        <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
-        <input id="search-input" type="text" oninput="renderVideos()" placeholder="Search library by title..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition" />
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <!-- Executive Operational Metrics Dashboard -->
+      <section class="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm space-y-4 shadow-xl">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/60 pb-3">
+          <div class="flex items-center space-x-2">
+            <div class="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
+              <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h2 class="text-sm font-bold text-white">System Operations & Ingestion Metrics</h2>
+              <p class="text-[11px] text-slate-400">Live operational telemetry across storage, queue, and streaming pipeline</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>LIVE TELEMETRY</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 6 KPI Cards Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
+          <!-- 1. Total Media Library -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="text-[11px] font-medium">Total Catalog</span>
+              <i data-lucide="film" class="w-4 h-4 text-sky-400"></i>
+            </div>
+            <div class="text-xl font-bold text-white font-mono" id="kpi-total-files">0</div>
+            <div class="text-[10px] text-slate-400 mt-1 flex justify-between font-mono">
+              <span id="kpi-local-count" class="text-emerald-400">0 Local</span>
+              <span>•</span>
+              <span id="kpi-cloud-count" class="text-amber-400">0 Cloud</span>
+            </div>
+          </div>
+
+          <!-- 2. Ingestion Queue -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="text-[11px] font-medium">Ingestion Queue</span>
+              <i data-lucide="arrow-down-circle" class="w-4 h-4 text-sky-400"></i>
+            </div>
+            <div class="text-xl font-bold text-white font-mono" id="kpi-queue-count">0</div>
+            <div class="text-[10px] text-sky-400 font-mono mt-1" id="kpi-queue-status">0 In Transfer</div>
+          </div>
+
+          <!-- 3. Active Processing -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="text-[11px] font-medium">Active Processing</span>
+              <i data-lucide="cpu" class="w-4 h-4 text-purple-400"></i>
+            </div>
+            <div class="text-xl font-bold text-white font-mono" id="kpi-proc-count">0</div>
+            <div class="text-[10px] text-purple-400 font-mono mt-1">FFmpeg VTT Sprites</div>
+          </div>
+
+          <!-- 4. Download Fetch Speed -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="text-[11px] font-medium">Download Fetch</span>
+              <i data-lucide="arrow-down-right" class="w-4 h-4 text-sky-400"></i>
+            </div>
+            <div class="text-xl font-bold text-sky-400 font-mono" id="kpi-in-speed">0 MB/s</div>
+            <div class="text-[10px] text-slate-500 font-mono mt-1" id="kpi-rx-total">Total: 0 MB</div>
+          </div>
+
+          <!-- 5. Streaming Upload Speed -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="text-[11px] font-medium">Stream Outbound</span>
+              <i data-lucide="arrow-up-right" class="w-4 h-4 text-emerald-400"></i>
+            </div>
+            <div class="text-xl font-bold text-emerald-400 font-mono" id="kpi-out-speed">0 MB/s</div>
+            <div class="text-[10px] text-slate-500 font-mono mt-1" id="kpi-tx-total">Total: 0 MB</div>
+          </div>
+
+          <!-- 6. 1TB Storage Volume -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="text-[11px] font-medium">1TB Storage</span>
+              <i data-lucide="hard-drive" class="w-4 h-4 text-amber-400"></i>
+            </div>
+            <div class="text-xl font-bold text-white font-mono" id="kpi-disk-used">0 GB</div>
+            <div class="text-[10px] text-slate-400 font-mono mt-1" id="kpi-disk-pct">0% Used</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Toolbar: Search & Filters -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-2">
+        <div class="relative flex-1 max-w-md">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"></i>
+          <input id="search-input" type="text" oninput="renderVideos()" placeholder="Search library by title..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition" />
+        </div>
+        <div class="flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-medium">
+          <button onclick="setFilter('ALL')" id="filter-all" class="px-3 py-1.5 rounded-lg bg-sky-500 text-white">All (<span id="count-all">0</span>)</button>
+          <button onclick="setFilter('LOCAL')" id="filter-local" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">Saved Local (<span id="count-local">0</span>)</button>
+          <button onclick="setFilter('CLOUD')" id="filter-cloud" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">On Cloud (<span id="count-cloud">0</span>)</button>
+        </div>
       </div>
-      <div class="flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-medium">
-        <button onclick="setFilter('ALL')" id="filter-all" class="px-3 py-1.5 rounded-lg bg-sky-500 text-white">All (<span id="count-all">0</span>)</button>
-        <button onclick="setFilter('LOCAL')" id="filter-local" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">Saved Local (<span id="count-local">0</span>)</button>
-        <button onclick="setFilter('CLOUD')" id="filter-cloud" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">On Cloud (<span id="count-cloud">0</span>)</button>
-      </div>
-    </div>
 
-    <!-- Video Grid -->
-    <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
-  </main>
+      <!-- Video Grid -->
+      <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+    </main>
+  </div>
 
+  <!-- ==================== 3. MODALS ==================== -->
   <!-- Player Modal -->
   <div id="player-modal" onclick="closePlayerModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/90 backdrop-blur-md">
     <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
@@ -396,6 +305,42 @@
       <div class="px-6 py-3 bg-slate-950 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800">
         <span id="player-footer-path"></span>
         <span id="player-footer-status" class="uppercase font-mono text-white"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MongoDB Explorer Modal -->
+  <div id="mongo-modal" onclick="closeMongoModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800">
+        <div class="flex items-center space-x-3">
+          <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+            <i data-lucide="database" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center space-x-2">
+              <span>MongoDB Live Explorer</span>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">media_db</span>
+            </h3>
+            <p class="text-[11px] text-slate-400">Direct collection inspection & live document state</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="fetchMongoDocs(activeMongoCol)" title="Refresh" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+          <button onclick="closeMongoModal()" class="p-2 rounded-lg text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+      </div>
+
+      <div class="px-6 py-3 bg-slate-950/40 border-b border-slate-800 flex items-center justify-between gap-3">
+        <div class="flex items-center space-x-2" id="mongo-cols-bar"></div>
+        <input id="mongo-search-input" type="text" oninput="renderMongoDocs()" placeholder="Filter current collection..." class="w-64 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white" />
+      </div>
+
+      <div id="mongo-docs-container" class="flex-1 overflow-y-auto p-6 space-y-3 font-mono text-xs"></div>
+
+      <div class="px-6 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <span id="mongo-total-info"></span>
+        <span class="text-[11px] text-slate-500 font-mono">Mongo Express: ssh -L 8081:localhost:8081 user@server</span>
       </div>
     </div>
   </div>
@@ -434,34 +379,6 @@
     </div>
   </div>
 
-  <!-- Login Modal -->
-  <div id="login-modal" onclick="closeLoginModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-      <button onclick="closeLoginModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
-        <i data-lucide="x" class="w-5 h-5"></i>
-      </button>
-      <div class="flex flex-col items-center text-center mb-5">
-        <div class="p-3 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 mb-2">
-          <i data-lucide="lock" class="w-6 h-6"></i>
-        </div>
-        <h3 class="text-lg font-bold text-white">Admin Login</h3>
-        <p class="text-xs text-slate-400">Sign in to sync Google Drive or download files</p>
-      </div>
-      <form onsubmit="handleLoginSubmit(event)" class="space-y-3.5">
-        <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1">Username</label>
-          <input id="login-username" type="text" value="admin" required class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-sky-500" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
-          <input id="login-password" type="password" required placeholder="••••••••••••" class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-sky-500" />
-        </div>
-        <div id="login-error" class="text-xs text-red-400 hidden"></div>
-        <button id="login-submit-btn" type="submit" class="w-full py-2.5 rounded-lg text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg transition">Sign In</button>
-      </form>
-    </div>
-  </div>
-
   <!-- Real-Time Transfers Floating Drawer -->
   <div id="transfers-drawer" class="fixed bottom-4 right-4 z-40 w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl hidden overflow-hidden">
     <div class="px-4 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs font-semibold text-white">
@@ -484,9 +401,9 @@
     let activePlayer = null;
     let activeVideoModal = null;
     let authToken = localStorage.getItem('drive_auth_token') || null;
-    let latestMetrics = null;
+    let activeMongoCol = 'videos';
+    let mongoDocs = [];
 
-    // CYB-03: HTML Escaping Helper to eliminate Stored/DOM XSS
     function escapeHtml(str) {
       if (!str) return '';
       return String(str)
@@ -505,269 +422,114 @@
       if (window.lucide) lucide.createIcons();
     }
 
-    function updateAuthUI() {
-      const authSection = document.getElementById('auth-section');
-      if (authToken) {
-        authSection.innerHTML = `
-          <div class="flex items-center space-x-2">
-            <span class="text-xs text-slate-300 font-mono bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">admin</span>
-            <button onclick="handleLogout()" title="Log Out" class="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 transition">
-              <i data-lucide="log-out" class="w-4 h-4"></i>
-            </button>
-          </div>
-        `;
+    // Auth Wall State
+    function checkAuthWall() {
+      const loginWall = document.getElementById('login-wall-view');
+      const mainView = document.getElementById('main-platform-view');
+
+      if (!authToken) {
+        loginWall.classList.remove('hidden');
+        mainView.classList.add('hidden');
+        mainView.classList.remove('flex');
       } else {
-        authSection.innerHTML = `
-          <button onclick="openLoginModal()" class="flex items-center space-x-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition">
-            <i data-lucide="log-in" class="w-4 h-4"></i>
-            <span>Sign In</span>
-          </button>
-        `;
+        loginWall.classList.add('hidden');
+        mainView.classList.remove('hidden');
+        mainView.classList.add('flex');
+        fetchAllData();
+        initWebSocket();
       }
       updateIcons();
     }
 
-    function formatBytes(bytes) {
-      if (!bytes || bytes <= 0) return '0 B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-    }
+    async function handleLoginSubmit(e) {
+      e.preventDefault();
+      const u = document.getElementById('login-username').value.trim();
+      const p = document.getElementById('login-password').value;
+      const errBox = document.getElementById('login-error');
+      errBox.classList.add('hidden');
 
-    function formatDuration(sec) {
-      if (!sec) return '';
-      const m = Math.floor(sec / 60);
-      const s = Math.floor(sec % 60);
-      return `${m}:${s < 10 ? '0' : ''}${s}`;
-    }
-
-    function formatUptime(seconds) {
-      if (!seconds || seconds <= 0) return 'Just started';
-      const d = Math.floor(seconds / 86400);
-      const h = Math.floor((seconds % 86400) / 3600);
-      const m = Math.floor((seconds % 3600) / 60);
-      if (d > 0) return `${d}d ${h}h`;
-      if (h > 0) return `${h}h ${m}m`;
-      return `${m}m`;
-    }
-
-    async function fetchStorage() {
       try {
-        const res = await fetch('/api/system/storage');
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Login failed');
+        }
+        const data = await res.json();
+        authToken = data.access_token;
+        localStorage.setItem('drive_auth_token', authToken);
+        checkAuthWall();
+      } catch (err) {
+        errBox.innerText = err.message;
+        errBox.classList.remove('hidden');
+      }
+    }
+
+    function handleLogout() {
+      authToken = null;
+      localStorage.removeItem('drive_auth_token');
+      checkAuthWall();
+    }
+
+    // System Metrics & Hardware Polling
+    async function fetchMetrics() {
+      if (!authToken) return;
+      try {
+        const res = await fetch('/api/system/metrics', { headers: getAuthHeaders() });
+        if (res.status === 401) { handleLogout(); return; }
         if (res.ok) {
           const data = await res.json();
-          document.getElementById('storage-text').innerText = `${data.used_gb} GB / ${data.total_gb} GB`;
-          document.getElementById('storage-bar').style.width = `${Math.min(100, data.used_percent)}%`;
+
+          // Header
+          document.getElementById('header-cpu-pct').innerText = `${data.cpu.percent}%`;
+          document.getElementById('header-cpu-bar').style.width = `${Math.min(100, data.cpu.percent)}%`;
+          document.getElementById('header-ram-used').innerText = `${data.ram.used_gb}G`;
+          document.getElementById('header-ram-pct').innerText = `[${data.ram.percent}%]`;
+          document.getElementById('header-ram-bar').style.width = `${Math.min(100, data.ram.percent)}%`;
+          document.getElementById('header-disk-used').innerText = `${data.disk.used_gb}G`;
+          document.getElementById('header-disk-bar').style.width = `${Math.min(100, data.disk.percent)}%`;
+          document.getElementById('header-net-in').innerText = `${data.network.input_mb_s} MB/s`;
+          document.getElementById('header-net-out').innerText = `${data.network.output_mb_s} MB/s`;
+
+          // KPI Dashboard
+          document.getElementById('kpi-total-files').innerText = data.pipeline.total_files;
+          document.getElementById('kpi-local-count').innerText = `${data.pipeline.local_files} Local`;
+          document.getElementById('kpi-cloud-count').innerText = `${data.pipeline.cloud_files} Cloud`;
+          document.getElementById('kpi-queue-count').innerText = data.pipeline.in_queue;
+          document.getElementById('kpi-proc-count').innerText = data.pipeline.in_processing;
+          document.getElementById('kpi-in-speed').innerText = `${data.throughput.live_download_speed_mb_s} MB/s`;
+          document.getElementById('kpi-rx-total').innerText = `Total: ${data.network.total_received_mb} MB`;
+          document.getElementById('kpi-out-speed').innerText = `${data.throughput.live_stream_speed_mb_s} MB/s`;
+          document.getElementById('kpi-tx-total').innerText = `Total: ${data.network.total_sent_mb} MB`;
+          document.getElementById('kpi-disk-used').innerText = `${data.disk.used_gb} GB`;
+          document.getElementById('kpi-disk-pct').innerText = `${data.disk.percent}% Used`;
         }
       } catch (e) {}
     }
 
-    async function fetchMetrics() {
-      try {
-        const res = await fetch('/api/system/metrics');
-        if (res.ok) {
-          const data = await res.json();
-          latestMetrics = data;
-          updateMetricsUI(data);
-        } else {
-          fallbackMetricsFromLocal();
-        }
-      } catch (e) {
-        fallbackMetricsFromLocal();
-      }
-    }
-
-    function fallbackMetricsFromLocal() {
-      const localCount = videos.filter(v => v.status === 'LOCAL_READY').length;
-      const cloudCount = videos.filter(v => v.status === 'REMOTE_ONLY').length;
-      const inQueue = Object.values(transfers).filter(t => t.status === 'DOWNLOADING' || t.status === 'WAITING').length;
-      const inProcessing = Object.values(transfers).filter(t => t.status === 'PROCESSING').length;
-      
-      const fallbackData = {
-        cpu: { percent: 18.0, cores: 4, frequency_mhz: 2400.0 },
-        ram: { total_gb: 16.0, used_gb: 3.4, free_gb: 12.6, percent: 21.2 },
-        disk: { mount: '/mnt/storage', total_gb: 1000.0, used_gb: parseFloat((localCount * 2.4).toFixed(1)), free_gb: parseFloat((1000.0 - (localCount * 2.4)).toFixed(1)), percent: Math.round(((localCount * 2.4) / 1000.0) * 100) },
-        network: { input_mb_s: 0.0, output_mb_s: 0.0, total_received_mb: 1024.0, total_sent_mb: 512.0 },
-        pipeline: { total_files: videos.length, local_files: localCount, cloud_files: cloudCount, in_queue: inQueue, in_processing: inProcessing, completed: localCount },
-        throughput: { live_download_speed_mb_s: 0.0, live_stream_speed_mb_s: 0.0 },
-        server: { status: 'optimal', uptime_seconds: 3600, os: 'Linux' }
-      };
-      updateMetricsUI(fallbackData);
-    }
-
-    function updateMetricsUI(data) {
-      if (!data) return;
-
-      // Escape all dynamic strings to guarantee security
-      const safeStatus = escapeHtml((data.server && data.server.status) || 'optimal');
-      const safeOs = escapeHtml((data.server && data.server.os) || 'Linux');
-      const uptimeStr = formatUptime(data.server && data.server.uptime_seconds);
-
-      // 1. Header Telemetry Bar
-      const cpuPct = data.cpu && data.cpu.percent !== undefined ? Number(data.cpu.percent) : 0;
-      const cpuEl = document.getElementById('hdr-cpu-val');
-      const cpuBarEl = document.getElementById('hdr-cpu-bar');
-      if (cpuEl) cpuEl.innerText = `${cpuPct}%`;
-      if (cpuBarEl) {
-        cpuBarEl.style.width = `${Math.min(100, Math.max(5, cpuPct))}%`;
-        cpuBarEl.className = `h-full transition-all duration-500 ${cpuPct > 85 ? 'bg-red-500' : cpuPct > 60 ? 'bg-amber-500' : 'bg-sky-400'}`;
-      }
-
-      const ramUsed = data.ram && data.ram.used_gb !== undefined ? Number(data.ram.used_gb) : 0;
-      const ramTotal = data.ram && data.ram.total_gb !== undefined ? Number(data.ram.total_gb) : 16;
-      const ramPct = data.ram && data.ram.percent !== undefined ? Number(data.ram.percent) : 0;
-      const ramEl = document.getElementById('hdr-ram-val');
-      const ramBarEl = document.getElementById('hdr-ram-bar');
-      if (ramEl) ramEl.innerText = `${ramUsed}/${ramTotal} GB [${ramPct}%]`;
-      if (ramBarEl) ramBarEl.style.width = `${Math.min(100, Math.max(5, ramPct))}%`;
-
-      const diskUsed = data.disk && data.disk.used_gb !== undefined ? Number(data.disk.used_gb) : 0;
-      const diskTotal = data.disk && data.disk.total_gb !== undefined ? Number(data.disk.total_gb) : 1000;
-      const diskPct = data.disk && data.disk.percent !== undefined ? Number(data.disk.percent) : 0;
-      const diskFree = data.disk && data.disk.free_gb !== undefined ? Number(data.disk.free_gb) : (diskTotal - diskUsed);
-      const diskEl = document.getElementById('hdr-disk-val');
-      const diskBarEl = document.getElementById('hdr-disk-bar');
-      if (diskEl) diskEl.innerText = `${diskUsed} GB [${diskPct}%]`;
-      if (diskBarEl) diskBarEl.style.width = `${Math.min(100, Math.max(3, diskPct))}%`;
-
-      // Update legacy storage widget in header row as well
-      const storageTextEl = document.getElementById('storage-text');
-      const storageBarEl = document.getElementById('storage-bar');
-      if (storageTextEl) storageTextEl.innerText = `${diskUsed} GB / ${diskTotal} GB`;
-      if (storageBarEl) storageBarEl.style.width = `${Math.min(100, diskPct)}%`;
-
-      const inSpeed = data.throughput && data.throughput.live_download_speed_mb_s !== undefined
-        ? Number(data.throughput.live_download_speed_mb_s)
-        : (data.network && data.network.input_mb_s !== undefined ? Number(data.network.input_mb_s) : 0.0);
-      const outSpeed = data.throughput && data.throughput.live_stream_speed_mb_s !== undefined
-        ? Number(data.throughput.live_stream_speed_mb_s)
-        : (data.network && data.network.output_mb_s !== undefined ? Number(data.network.output_mb_s) : 0.0);
-
-      const inEl = document.getElementById('hdr-input-val');
-      const outEl = document.getElementById('hdr-output-val');
-      if (inEl) inEl.innerText = `${inSpeed.toFixed(1)} MB/s`;
-      if (outEl) outEl.innerText = `${outSpeed.toFixed(1)} MB/s`;
-
-      const hdrStatusEl = document.getElementById('hdr-server-status');
-      if (hdrStatusEl) hdrStatusEl.innerText = safeStatus.toUpperCase();
-
-      // 2. Main Page Hero Stats Dashboard
-      const heroStatusEl = document.getElementById('hero-server-status');
-      if (heroStatusEl) heroStatusEl.innerText = safeStatus.toUpperCase();
-
-      const heroOsEl = document.getElementById('hero-server-os');
-      if (heroOsEl) heroOsEl.innerText = safeOs;
-
-      const heroUptimeEl = document.getElementById('hero-uptime');
-      if (heroUptimeEl) heroUptimeEl.innerText = uptimeStr;
-
-      // Pipeline numbers
-      const totalFiles = data.pipeline && data.pipeline.total_files !== undefined ? data.pipeline.total_files : videos.length;
-      const localFiles = data.pipeline && data.pipeline.local_files !== undefined ? data.pipeline.local_files : videos.filter(v => v.status === 'LOCAL_READY').length;
-      const cloudFiles = data.pipeline && data.pipeline.cloud_files !== undefined ? data.pipeline.cloud_files : videos.filter(v => v.status === 'REMOTE_ONLY').length;
-      const inQueue = data.pipeline && data.pipeline.in_queue !== undefined ? data.pipeline.in_queue : 0;
-      const inProcessing = data.pipeline && data.pipeline.in_processing !== undefined ? data.pipeline.in_processing : 0;
-      const completed = data.pipeline && data.pipeline.completed !== undefined ? data.pipeline.completed : localFiles;
-
-      const heroTotalEl = document.getElementById('hero-total-files');
-      if (heroTotalEl) heroTotalEl.innerText = totalFiles;
-
-      const heroCloudEl = document.getElementById('hero-cloud-files');
-      if (heroCloudEl) heroCloudEl.innerText = `${cloudFiles} Cloud`;
-
-      const heroLocalEl = document.getElementById('hero-local-files');
-      if (heroLocalEl) heroLocalEl.innerText = `${localFiles} Local`;
-
-      const localRatio = totalFiles > 0 ? Math.round((localFiles / totalFiles) * 100) : 0;
-      const cloudRatio = totalFiles > 0 ? 100 - localRatio : 0;
-      const ratioLocalEl = document.getElementById('hero-ratio-local');
-      const ratioCloudEl = document.getElementById('hero-ratio-cloud');
-      if (ratioLocalEl) ratioLocalEl.style.width = `${localRatio}%`;
-      if (ratioCloudEl) ratioCloudEl.style.width = `${cloudRatio}%`;
-
-      // Card 2: Queue
-      const queueEl = document.getElementById('hero-queue-files');
-      if (queueEl) queueEl.innerText = inQueue;
-      const queueBoxEl = document.getElementById('hero-queue-box');
-      const queueDotEl = document.getElementById('hero-queue-dot');
-      const queueBadgeEl = document.getElementById('hero-queue-badge');
-      const queueLabelEl = document.getElementById('hero-queue-label');
-      if (inQueue > 0) {
-        if (queueBoxEl) queueBoxEl.className = 'p-2 rounded-xl transition-transform group-hover:scale-110 bg-amber-500/20 border border-amber-500/30 text-amber-300 animate-pulse';
-        if (queueBadgeEl) queueBadgeEl.className = 'inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono border bg-amber-500/10 text-amber-300 border-amber-500/25';
-        if (queueDotEl) queueDotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping';
-        if (queueLabelEl) queueLabelEl.innerText = 'Fetching Remote Stream';
-      } else {
-        if (queueBoxEl) queueBoxEl.className = 'p-2 rounded-xl transition-transform group-hover:scale-110 bg-slate-800/60 border border-slate-700/50 text-slate-400';
-        if (queueBadgeEl) queueBadgeEl.className = 'inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono border bg-slate-800/50 text-slate-400 border-slate-700/50';
-        if (queueDotEl) queueDotEl.className = 'w-1.5 h-1.5 rounded-full bg-slate-500';
-        if (queueLabelEl) queueLabelEl.innerText = 'Queue Idle • Standby';
-      }
-
-      // Card 3: Processing
-      const procEl = document.getElementById('hero-processing-files');
-      if (procEl) procEl.innerText = inProcessing;
-      const procBoxEl = document.getElementById('hero-processing-box');
-      const procBadgeEl = document.getElementById('hero-processing-badge');
-      const procLabelEl = document.getElementById('hero-processing-label');
-      if (inProcessing > 0) {
-        if (procBoxEl) procBoxEl.className = 'p-2 rounded-xl transition-transform group-hover:scale-110 bg-violet-500/20 border border-violet-500/30 text-violet-300 animate-spin';
-        if (procBadgeEl) procBadgeEl.className = 'inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono border bg-violet-500/10 text-violet-300 border-violet-500/25';
-        if (procLabelEl) procLabelEl.innerText = 'Generating VTT Sprites';
-      } else {
-        if (procBoxEl) procBoxEl.className = 'p-2 rounded-xl transition-transform group-hover:scale-110 bg-slate-800/60 border border-slate-700/50 text-slate-400';
-        if (procBadgeEl) procBadgeEl.className = 'inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono border bg-slate-800/50 text-slate-400 border-slate-700/50';
-        if (procLabelEl) procLabelEl.innerText = 'FFmpeg Ready';
-      }
-
-      // Card 4: Inbound Speed
-      const inSpeedEl = document.getElementById('hero-inbound-speed');
-      if (inSpeedEl) inSpeedEl.innerText = inSpeed.toFixed(1);
-      const totalRxEl = document.getElementById('hero-total-rx');
-      if (totalRxEl) totalRxEl.innerText = data.network && data.network.total_received_mb !== undefined ? Math.round(data.network.total_received_mb) : '1024';
-
-      // Card 5: Outbound Speed
-      const outSpeedEl = document.getElementById('hero-outbound-speed');
-      if (outSpeedEl) outSpeedEl.innerText = outSpeed.toFixed(1);
-      const totalTxEl = document.getElementById('hero-total-tx');
-      if (totalTxEl) totalTxEl.innerText = data.network && data.network.total_sent_mb !== undefined ? Math.round(data.network.total_sent_mb) : '512';
-
-      // Card 6: Completed Files
-      const compEl = document.getElementById('hero-completed-files');
-      if (compEl) compEl.innerText = completed;
-
-      // Detailed Bottom Strip
-      const detCpuPct = document.getElementById('detail-cpu-pct');
-      const detCpuInfo = document.getElementById('detail-cpu-info');
-      if (detCpuPct) detCpuPct.innerText = `${cpuPct}%`;
-      if (detCpuInfo) detCpuInfo.innerText = `${data.cpu && data.cpu.cores ? data.cpu.cores : 4} cores ${data.cpu && data.cpu.frequency_mhz ? '@ ' + data.cpu.frequency_mhz + ' MHz' : ''}`;
-
-      const detRamVal = document.getElementById('detail-ram-val');
-      const detRamPct = document.getElementById('detail-ram-pct');
-      if (detRamVal) detRamVal.innerText = `${ramUsed} / ${ramTotal} GB`;
-      if (detRamPct) detRamPct.innerText = `(${ramPct}%)`;
-
-      const detDiskVal = document.getElementById('detail-disk-val');
-      const detDiskPct = document.getElementById('detail-disk-pct');
-      if (detDiskVal) detDiskVal.innerText = `${diskUsed} / ${diskTotal} GB`;
-      if (detDiskPct) detDiskPct.innerText = `(${diskPct}%)`;
-
-      updateIcons();
-    }
-
     async function fetchVideos() {
+      if (!authToken) return;
       try {
-        const res = await fetch('/api/videos');
+        const res = await fetch('/api/videos', { headers: getAuthHeaders() });
+        if (res.status === 401) { handleLogout(); return; }
         if (res.ok) {
           videos = await res.json();
           renderVideos();
-          if (!latestMetrics) fallbackMetricsFromLocal();
         }
       } catch (e) {
         console.error(e);
       }
     }
 
+    function fetchAllData() {
+      fetchVideos();
+      fetchMetrics();
+    }
+
+    // Video Grid Rendering
     function renderVideos() {
       const query = (document.getElementById('search-input').value || '').toLowerCase();
       const filtered = videos.filter(v => {
@@ -816,7 +578,7 @@
               ${isLocal ? `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/90 text-white backdrop-blur shadow">Saved on Server</span>` : `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/90 text-white backdrop-blur shadow">On Cloud (Click to Fetch)</span>`}
             </div>
 
-            ${v.duration_seconds > 0 ? `<div class="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/80 font-mono text-[10px] text-white">${formatDuration(v.duration_seconds)}</div>` : ''}
+            ${v.duration_seconds > 0 ? `<div class="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/80 font-mono text-[10px] text-white">${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}</div>` : ''}
 
             <div class="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition">
               <div class="p-3.5 rounded-full bg-sky-500 text-white shadow-xl"><i data-lucide="play" class="w-5 h-5 fill-white translate-x-0.5"></i></div>
@@ -828,7 +590,7 @@
               <div class="flex items-center space-x-2 text-[11px] text-slate-400">
                 <span>${safeSource}</span>
                 <span>•</span>
-                <span>${formatBytes(v.file_size_bytes)}</span>
+                <span>${(v.file_size_bytes / (1024*1024)).toFixed(1)} MB</span>
               </div>
             </div>
             <div class="flex items-center justify-between pt-3 mt-2 border-t border-slate-800/80 text-xs">
@@ -838,7 +600,6 @@
           </div>
         `;
 
-        // Event listener delegation to avoid inline eval
         card.querySelector('.delete-btn').onclick = (e) => {
           e.stopPropagation();
           deleteVideo(v.video_id);
@@ -858,6 +619,7 @@
       renderVideos();
     }
 
+    // Authenticated Player Modal
     async function openPlayerModal(v) {
       activeVideoModal = v;
       document.getElementById('player-title').innerText = v.title;
@@ -866,7 +628,6 @@
       document.getElementById('player-modal').classList.remove('hidden');
       document.getElementById('player-modal').classList.add('flex');
 
-      // UI-06 Fix: Properly destroy any existing Plyr player before instantiating new one
       if (activePlayer) {
         activePlayer.destroy();
         activePlayer = null;
@@ -894,10 +655,15 @@
           }
         });
 
+        // Pass authentication token in stream query
+        const streamSrc = authToken 
+          ? `/api/stream/${v.video_id}?token=${encodeURIComponent(authToken)}`
+          : `/api/stream/${v.video_id}`;
+
         activePlayer.source = {
           type: 'video',
           title: v.title,
-          sources: [{ src: `/api/stream/${v.video_id}`, type: 'video/mp4' }]
+          sources: [{ src: streamSrc, type: 'video/mp4' }]
         };
       } else {
         container.innerHTML = `
@@ -919,10 +685,6 @@
           </div>
         `;
         updateIcons();
-        if (!authToken) {
-          openLoginModal();
-          return;
-        }
         fetch(`/api/videos/${v.video_id}/download`, { method: 'POST', headers: getAuthHeaders() });
       }
     }
@@ -938,67 +700,98 @@
     }
 
     async function deleteVideo(id) {
-      if (!authToken) {
-        openLoginModal();
-        return;
-      }
       if (!confirm('Are you sure you want to remove this video and all assets from 1TB storage?')) return;
       const res = await fetch(`/api/videos/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
-      if (res.status === 401) {
-        openLoginModal();
-        return;
-      }
+      if (res.status === 401) { handleLogout(); return; }
       fetchVideos();
     }
 
-    // Modal controls
-    function openSyncModal() {
-      if (!authToken) { openLoginModal(); return; }
-      document.getElementById('sync-modal').classList.remove('hidden'); document.getElementById('sync-modal').classList.add('flex');
+    // MongoDB Live UI
+    async function openMongoModal() {
+      document.getElementById('mongo-modal').classList.remove('hidden');
+      document.getElementById('mongo-modal').classList.add('flex');
+      fetchMongoStats();
+      fetchMongoDocs(activeMongoCol);
     }
-    function closeSyncModal() { document.getElementById('sync-modal').classList.add('hidden'); document.getElementById('sync-modal').classList.remove('flex'); }
-    function openUrlModal() {
-      if (!authToken) { openLoginModal(); return; }
-      document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex');
+    function closeMongoModal() {
+      document.getElementById('mongo-modal').classList.add('hidden');
+      document.getElementById('mongo-modal').classList.remove('flex');
     }
-    function closeUrlModal() { document.getElementById('url-modal').classList.add('hidden'); document.getElementById('url-modal').classList.remove('flex'); }
 
-    function openLoginModal() { document.getElementById('login-modal').classList.remove('hidden'); document.getElementById('login-modal').classList.add('flex'); }
-    function closeLoginModal() { document.getElementById('login-modal').classList.add('hidden'); document.getElementById('login-modal').classList.remove('flex'); }
-
-    async function handleLoginSubmit(e) {
-      e.preventDefault();
-      const u = document.getElementById('login-username').value.trim();
-      const p = document.getElementById('login-password').value;
-      const errBox = document.getElementById('login-error');
-      errBox.classList.add('hidden');
-
+    async function fetchMongoStats() {
       try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: u, password: p })
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.detail || 'Login failed');
+        const res = await fetch('/api/db/stats', { headers: getAuthHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          const bar = document.getElementById('mongo-cols-bar');
+          bar.innerHTML = data.collections.map(c => `
+            <button onclick="setMongoCol('${c.name}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold ${activeMongoCol === c.name ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'}">
+              ${c.name} (${c.count})
+            </button>
+          `).join('');
         }
-        const data = await res.json();
-        authToken = data.access_token;
-        localStorage.setItem('drive_auth_token', authToken);
-        closeLoginModal();
-        updateAuthUI();
-      } catch (err) {
-        errBox.innerText = err.message;
-        errBox.classList.remove('hidden');
+      } catch (e) {}
+    }
+
+    async function fetchMongoDocs(colName) {
+      activeMongoCol = colName;
+      fetchMongoStats();
+      const container = document.getElementById('mongo-docs-container');
+      container.innerHTML = '<div class="py-8 text-center text-slate-500">Loading collection...</div>';
+      try {
+        const res = await fetch(`/api/db/collections/${colName}`, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          mongoDocs = data.documents || [];
+          document.getElementById('mongo-total-info').innerText = `Total in ${colName}: ${data.total} documents`;
+          renderMongoDocs();
+        }
+      } catch (e) {
+        container.innerHTML = `<div class="py-8 text-center text-red-400">Failed to load: ${e.message}</div>`;
       }
     }
 
-    function handleLogout() {
-      authToken = null;
-      localStorage.removeItem('drive_auth_token');
-      updateAuthUI();
+    function setMongoCol(name) {
+      activeMongoCol = name;
+      fetchMongoDocs(name);
     }
+
+    function renderMongoDocs() {
+      const q = (document.getElementById('mongo-search-input').value || '').toLowerCase();
+      const filtered = mongoDocs.filter(d => !q || JSON.stringify(d).toLowerCase().includes(q));
+      const container = document.getElementById('mongo-docs-container');
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="py-8 text-center text-slate-500">No documents found matching criteria</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(doc => {
+        const docId = doc.video_id || doc.username;
+        return `
+          <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 relative space-y-2">
+            <div class="flex justify-between items-center text-slate-400 border-b border-slate-800/80 pb-2">
+              <span class="text-emerald-400 font-bold">${escapeHtml(doc.title || doc.username || doc.video_id)}</span>
+              <button onclick="deleteMongoDoc('${docId}')" class="text-slate-500 hover:text-red-400"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+            </div>
+            <pre class="overflow-x-auto text-[11px] text-slate-300 leading-relaxed">${escapeHtml(JSON.stringify(doc, null, 2))}</pre>
+          </div>
+        `;
+      }).join('');
+      updateIcons();
+    }
+
+    async function deleteMongoDoc(id) {
+      if (!confirm(`Delete document ${id}?`)) return;
+      await fetch(`/api/db/collections/${activeMongoCol}/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+      fetchMongoDocs(activeMongoCol);
+    }
+
+    // Modal triggers
+    function openSyncModal() { document.getElementById('sync-modal').classList.remove('hidden'); document.getElementById('sync-modal').classList.add('flex'); }
+    function closeSyncModal() { document.getElementById('sync-modal').classList.add('hidden'); document.getElementById('sync-modal').classList.remove('flex'); }
+    function openUrlModal() { document.getElementById('url-modal').classList.remove('hidden'); document.getElementById('url-modal').classList.add('flex'); }
+    function closeUrlModal() { document.getElementById('url-modal').classList.add('hidden'); document.getElementById('url-modal').classList.remove('flex'); }
 
     async function triggerSync() {
       const folder = document.getElementById('sync-folder-input').value.trim();
@@ -1015,14 +808,10 @@
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ folder_id: folder || null })
         });
-        if (res.status === 401) {
-          closeSyncModal();
-          openLoginModal();
-          return;
-        }
+        if (res.status === 401) { handleLogout(); return; }
         const data = await res.json();
         status.innerText = `Success: Cataloged ${data.total_cataloged} items!`;
-        fetchVideos();
+        fetchAllData();
         setTimeout(closeSyncModal, 1500);
       } catch (e) {
         status.innerText = `Error: ${e.message}`;
@@ -1041,36 +830,31 @@
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ url, title: title || null })
       });
-      if (res.status === 401) {
-        closeUrlModal();
-        openLoginModal();
-        return;
-      }
+      if (res.status === 401) { handleLogout(); return; }
       closeUrlModal();
-      fetchVideos();
+      fetchAllData();
     }
 
-    // Keyboard Escape listener (UI-09)
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closePlayerModal();
+        closeMongoModal();
         closeSyncModal();
         closeUrlModal();
-        closeLoginModal();
       }
     });
 
-    // WebSocket Telemetry
+    // Authenticated WebSocket Telemetry
     function initWebSocket() {
+      if (!authToken) return;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/transfers`);
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/transfers?token=${encodeURIComponent(authToken)}`);
 
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.event === 'TRANSFER_UPDATE') {
           transfers[msg.video_id] = msg;
           renderTransfers();
-          if (!latestMetrics) fallbackMetricsFromLocal();
 
           if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
             const bar = document.getElementById('modal-transfer-bar');
@@ -1083,7 +867,7 @@
             if (msg.status === 'DOWNLOAD_COMPLETE') {
               activeVideoModal.status = 'LOCAL_READY';
               openPlayerModal(activeVideoModal);
-              fetchVideos();
+              fetchAllData();
             }
           }
         } else if (msg.event === 'PROCESSING_COMPLETE') {
@@ -1092,11 +876,13 @@
             activeVideoModal.preview_url = msg.metadata.preview_url;
             openPlayerModal(activeVideoModal);
           }
-          fetchVideos();
+          fetchAllData();
         }
       };
 
-      ws.onclose = () => setTimeout(initWebSocket, 3000);
+      ws.onclose = () => {
+        if (authToken) setTimeout(initWebSocket, 3000);
+      };
     }
 
     function renderTransfers() {
@@ -1127,14 +913,11 @@
       `).join('');
     }
 
-    // Startup
-    updateAuthUI();
-    fetchStorage();
-    fetchVideos();
-    fetchMetrics();
-    initWebSocket();
-    setInterval(fetchMetrics, 3000);
-    setInterval(fetchStorage, 10000);
+    // Startup Execution
+    checkAuthWall();
+    setInterval(() => {
+      if (authToken) fetchMetrics();
+    }, 3000);
   </script>
 </body>
 </html>

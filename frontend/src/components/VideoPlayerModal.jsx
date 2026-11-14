@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Plyr from 'plyr';
 import { X, DownloadCloud, Activity, CheckCircle, Film } from 'lucide-react';
 
-export default function VideoPlayerModal({ video, activeTransfer, onClose, onTriggerDownload }) {
+export default function VideoPlayerModal({ video, token, activeTransfer, onClose, onTriggerDownload }) {
   const playerContainerRef = useRef(null);
   const plyrInstanceRef = useRef(null);
   const [downloadStarted, setDownloadStarted] = useState(false);
@@ -30,7 +30,7 @@ export default function VideoPlayerModal({ video, activeTransfer, onClose, onTri
     }
   }, [video, downloadStarted, onTriggerDownload]);
 
-  // UI-02: Stable Plyr initialization (only recreate if video_id changes, not on vtt_url updates)
+  // Stable Plyr initialization (only recreate if video_id changes)
   useEffect(() => {
     if (isLocal && playerContainerRef.current) {
       if (currentVideoIdRef.current !== video.video_id) {
@@ -41,7 +41,10 @@ export default function VideoPlayerModal({ video, activeTransfer, onClose, onTri
           plyrInstanceRef.current = null;
         }
 
-        const streamUrl = `/api/stream/${video.video_id}`;
+        // Pass authenticated JWT token in stream query parameter
+        const streamUrl = token 
+          ? `/api/stream/${video.video_id}?token=${encodeURIComponent(token)}`
+          : `/api/stream/${video.video_id}`;
         const vttUrl = video.vtt_url || `/metadata/${video.video_id}/thumbnails.vtt`;
 
         const options = {
@@ -81,7 +84,7 @@ export default function VideoPlayerModal({ video, activeTransfer, onClose, onTri
         currentVideoIdRef.current = null;
       }
     };
-  }, [isLocal, video.video_id]);
+  }, [isLocal, video.video_id, token]);
 
   return (
     <div
@@ -120,7 +123,6 @@ export default function VideoPlayerModal({ video, activeTransfer, onClose, onTri
               className="w-full h-full object-contain"
             />
           ) : (
-            /* On-Demand High Speed Transfer HUD */
             <div className="flex flex-col items-center justify-center p-8 max-w-md w-full text-center space-y-6">
               <div className="relative">
                 <div className="w-20 h-20 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
