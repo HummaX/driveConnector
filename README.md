@@ -195,3 +195,31 @@ Whenever a new release or update is approved, update your live server with:
 ```bash
 sudo bash update.sh
 ```
+
+---
+
+## 🤖 Automated PR Review & CI Pipeline
+
+Every Pull Request can be automatically reviewed and pushed using the automated PR tool (`scripts/auto_pr.py`) and GitHub Actions CI (`ci/auto-review.yml`):
+
+1. **Pre-flight Syntax & Security Checks**: Compiles Python bytecode and audits for syntax errors before pushing.
+2. **Automated Remote Push & PR Creation**: Automatically pushes the feature branch and creates the Pull Request on GitHub with a comprehensive description.
+3. **Automated Code Review Generation**: Automatically submits a structured security and quality checklist review comment on the PR.
+4. **Auto-Merge Capability**: Automatically merges verified PRs into `main` via squash merge when `--auto-merge` is passed.
+
+### Quick Auto-PR Utility
+
+To automatically review, push, and open a Pull Request with an automated review report:
+
+```bash
+# Push branch, open PR, and generate automated review:
+python scripts/auto_pr.py --title "feat: descriptive title" --body "Summary of changes"
+
+# Push, review, and auto-merge in one step:
+python scripts/auto_pr.py --title "feat: descriptive title" --auto-merge
+```
+
+### GitHub Actions CI Workflow
+
+The workflow template in `ci/auto-review.yml` can be placed into `.github/workflows/auto-review.yml` for automatic cloud-based Bandit security audits, Flake8 linting, and Vite frontend builds on every GitHub pull request.
+
