@@ -30,17 +30,24 @@ export default function VideoPlayerModal({
   const [resumeNotice, setResumeNotice] = useState(null);
   const [isTranscodingModalOpen, setIsTranscodingModalOpen] = useState(false);
   const [replaceOriginal, setReplaceOriginal] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [bufferedPercent, setBufferedPercent] = useState(0);
 
   const isLocal = video.status === 'LOCAL_READY';
   const isDownloading = video.status === 'DOWNLOADING' || (activeTransfer && activeTransfer.status === 'DOWNLOADING');
   const activeProc = processingJob || video.processing_info;
   const isProcessing = video.status === 'PROCESSING' || Boolean(activeProc);
 
-  // Format seconds to mm:ss
+  // Format seconds to h:mm:ss or mm:ss
   const formatTime = (secs) => {
     if (!secs || isNaN(secs)) return '0:00';
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
+    const totalSecs = Math.floor(secs);
+    const h = Math.floor(totalSecs / 3600);
+    const m = Math.floor((totalSecs % 3600) / 60);
+    const s = totalSecs % 60;
+    if (h > 0) {
+      return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+    }
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
@@ -209,23 +216,159 @@ export default function VideoPlayerModal({
         tracks
       };
 
+      const calculateBufferedPercent = () => {
+        if (!videoEl || !videoEl.duration || !isFinite(videoEl.duration) || videoEl.duration <= 0) return 0;
+        const dur = videoEl.duration;
+        const buf = videoEl.buffered;
+        if (!buf || buf.length === 0) return 0;
+        let total = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const start = buf.start(i);
+          const end = buf.end(i);
+          if (end > start) total += (end - start);
+        }
+        const pct = Math.min(100, Math.max(0, Math.round((total / dur) * 100)));
+        return isNaN(pct) ? 0 : pct;
+      };
+
+      const updateBufferMetrics = () => {
+        const pct = calculateBufferedPercent();
+        setBufferedPercent(pct);
+
+        // Update Plyr native progress buffer tooltip and timeline badge
+        if (plyr.elements?.progress) {
+          const bufBar = plyr.elements.progress.querySelector('.plyr__progress__buffer');
+          if (bufBar) {
+            bufBar.setAttribute('title', `Buffered: ${pct}%`);
+          }
+          const badge = plyr.elements.progress.querySelector('.plyr__buffer-live-badge');
+          if (badge) {
+            badge.textContent = `Buffered: ${pct}%`;
+          }
+        }
+
+        // Update full-screen overlay text if present
+        if (plyr.elements?.container) {
+          const fsTxt = plyr.elements.container.querySelector('.dc-fs-buffer-text');
+          if (fsTxt) {
+            fsTxt.textContent = `Buffered: ${pct}%`;
+          }
+        }
+      };
+
+      const setBufferingActive = (buffering) => {
+        setIsBuffering(buffering);
+        if (plyr.elements?.container) {
+          const fsOverlay = plyr.elements.container.querySelector('.dc-plyr-fs-buffering');
+          if (fsOverlay) {
+            if (buffering) {
+              fsOverlay.classList.remove('hidden');
+              fsOverlay.classList.add('flex');
+            } else {
+              fsOverlay.classList.add('hidden');
+              fsOverlay.classList.remove('flex');
+            }
+          }
+        }
+      };
+
       plyr.on('ready', () => {
         if (initialTime > 0) {
           plyr.currentTime = initialTime;
         }
         plyr.speed = playbackSpeed;
         initAudioBooster(videoEl);
+
+        // Inject timeline buffer badge into Plyr progress element
+        if (plyr.elements?.progress) {
+          let badge = plyr.elements.progress.querySelector('.plyr__buffer-live-badge');
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'plyr__buffer-live-badge absolute right-2 -top-6 text-[10px] font-mono px-2 py-0.5 rounded bg-[#0d1117]/90 border border-sky-500/30 text-sky-400 pointer-events-none shadow-md backdrop-blur-sm transition-opacity duration-200';
+            badge.textContent = 'Buffered: 0%';
+            plyr.elements.progress.style.position = 'relative';
+            plyr.elements.progress.appendChild(badge);
+          }
+        }
+
+        // Fullscreen buffering indicator overlay inside Plyr root container
+        if (plyr.elements?.container) {
+          let fsOverlay = plyr.elements.container.querySelector('.dc-plyr-fs-buffering');
+          if (!fsOverlay) {
+            fsOverlay = document.createElement('div');
+            fsOverlay.className = 'dc-plyr-fs-buffering absolute inset-0 z-40 hidden items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200';
+            fsOverlay.innerHTML = `
+              <div class="flex flex-col items-center space-y-3 px-6 py-4 rounded-2xl bg-[#0d1117]/90 border border-sky-500/30 shadow-2xl backdrop-blur-md">
+                <div class="relative flex items-center justify-center">
+                  <div class="w-12 h-12 rounded-full border-2 border-sky-500/20 border-t-sky-400 animate-spin"></div>
+                  <div class="absolute w-6 h-6 rounded-full bg-sky-500/20 animate-ping"></div>
+                </div>
+                <div class="flex flex-col items-center space-y-1 text-center font-mono">
+                  <div class="flex items-center space-x-1.5 text-xs font-semibold text-white">
+                    <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+                    <span>Buffering Stream...</span>
+                  </div>
+                  <span class="dc-fs-buffer-text text-[11px] text-sky-400 font-bold font-mono">Buffered: 0%</span>
+                </div>
+              </div>
+            `;
+            plyr.elements.container.appendChild(fsOverlay);
+          }
+        }
+
+        updateBufferMetrics();
       });
 
-      plyr.on('play', () => {
+      plyr.on('waiting', () => {
+        setBufferingActive(true);
+        updateBufferMetrics();
+      });
+
+      plyr.on('seeking', () => {
+        setBufferingActive(true);
+        updateBufferMetrics();
+      });
+
+      plyr.on('loadstart', () => {
+        setBufferingActive(true);
+        updateBufferMetrics();
+      });
+
+      plyr.on('playing', () => {
+        setBufferingActive(false);
+        updateBufferMetrics();
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
           audioContextRef.current.resume().catch(() => {});
         }
       });
 
+      plyr.on('canplay', () => {
+        setBufferingActive(false);
+        updateBufferMetrics();
+      });
+
+      plyr.on('canplaythrough', () => {
+        setBufferingActive(false);
+        updateBufferMetrics();
+      });
+
+      plyr.on('seeked', () => {
+        setBufferingActive(false);
+        updateBufferMetrics();
+      });
+
+      plyr.on('pause', () => {
+        setBufferingActive(false);
+      });
+
+      plyr.on('progress', () => {
+        updateBufferMetrics();
+      });
+
       // Watch Position Memory Throttled Save
       let lastSave = 0;
       plyr.on('timeupdate', () => {
+        updateBufferMetrics();
         const now = Date.now();
         if (now - lastSave > 2000) {
           lastSave = now;
@@ -239,14 +382,34 @@ export default function VideoPlayerModal({
         }
       });
 
+      const bufferInterval = setInterval(updateBufferMetrics, 500);
+
       plyrInstanceRef.current = plyr;
       currentVideoIdRef.current = video.video_id;
+
+      return () => {
+        clearInterval(bufferInterval);
+        if (plyrInstanceRef.current) {
+          plyrInstanceRef.current.destroy();
+          plyrInstanceRef.current = null;
+        }
+        if (audioContextRef.current) {
+          try { audioContextRef.current.close(); } catch(e) {}
+          audioContextRef.current = null;
+          gainNodeRef.current = null;
+        }
+      };
     }
 
     return () => {
       if (plyrInstanceRef.current) {
         plyrInstanceRef.current.destroy();
         plyrInstanceRef.current = null;
+      }
+      if (audioContextRef.current) {
+        try { audioContextRef.current.close(); } catch(e) {}
+        audioContextRef.current = null;
+        gainNodeRef.current = null;
       }
     };
   }, [isLocal, video.video_id, selectedQuality, video.vtt_url, video.subtitles_url, token, initAudioBooster]);
@@ -349,12 +512,32 @@ export default function VideoPlayerModal({
         {/* Player Viewport */}
         <div className="relative flex-1 min-h-[300px] bg-black flex items-center justify-center overflow-hidden">
           {isLocal ? (
-            <video
-              ref={playerContainerRef}
-              playsInline
-              crossOrigin="anonymous"
-              className="w-full h-full object-contain"
-            />
+            <div className="relative w-full h-full flex items-center justify-center">
+              <video
+                ref={playerContainerRef}
+                playsInline
+                crossOrigin="anonymous"
+                className="w-full h-full object-contain"
+              />
+              {/* Buffering Loading Indicator Overlay */}
+              {isBuffering && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200">
+                  <div className="flex flex-col items-center space-y-3 px-6 py-4 rounded-2xl bg-[#0d1117]/90 border border-sky-500/30 shadow-2xl backdrop-blur-md">
+                    <div className="relative flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-full border-2 border-sky-500/20 border-t-sky-400 animate-spin" />
+                      <div className="absolute w-6 h-6 rounded-full bg-sky-500/20 animate-ping" />
+                    </div>
+                    <div className="flex flex-col items-center space-y-1 text-center font-mono">
+                      <div className="flex items-center space-x-1.5 text-xs font-semibold text-white">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                        <span>Buffering Stream...</span>
+                      </div>
+                      <span className="text-[11px] text-sky-400 font-bold">Buffered: {bufferedPercent}%</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center p-8 max-w-md w-full text-center space-y-6">
               <div className="relative">
@@ -449,6 +632,25 @@ export default function VideoPlayerModal({
                   </button>
                 ))}
               </div>
+
+              {/* Pre-loaded Buffer Range & Indicator */}
+              <div
+                className="flex items-center space-x-2 bg-[#0d1117] px-3 py-1.5 rounded-lg border border-[#30363d]"
+                title="Media pre-loaded into memory buffer"
+              >
+                <div className="relative flex items-center justify-center">
+                  <div className={`w-2 h-2 rounded-full ${isBuffering ? 'bg-amber-400 animate-ping' : 'bg-sky-400'}`} />
+                  <div className={`absolute w-2 h-2 rounded-full ${isBuffering ? 'bg-amber-400' : 'bg-sky-400'}`} />
+                </div>
+                <span className="text-[11px] font-mono text-slate-400">Buffered:</span>
+                <span className="text-[11px] font-mono font-bold text-sky-400">{bufferedPercent}%</span>
+                <div className="w-14 bg-[#21262d] h-1.5 rounded-full overflow-hidden ml-1 hidden sm:block">
+                  <div
+                    className="bg-gradient-to-r from-sky-500 to-cyan-400 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${bufferedPercent}%` }}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Right Controls: Multi-Resolution & AI Subtitles */}
@@ -513,6 +715,10 @@ export default function VideoPlayerModal({
                 <span>Hover Scrub Previews Active</span>
               </span>
             )}
+            <span className="flex items-center space-x-1 text-sky-400 font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+              <span>Buffered: {bufferedPercent}%</span>
+            </span>
           </div>
           <div className="flex items-center space-x-3 text-slate-500">
             <span>Shortcuts: Space/K Play • J/L ±10s • F Fullscreen • Esc Close</span>

@@ -4,9 +4,14 @@ import shutil
 import asyncio
 import time
 import platform
+import mimetypes
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
+
+# Ensure text/vtt MIME type is globally recognized for HTML5 captions & Plyr on all platforms
+mimetypes.add_type("text/vtt", ".vtt")
+mimetypes.add_type("video/mp4", ".mp4")
 
 from fastapi import (
     FastAPI, HTTPException, Request, Response, BackgroundTasks,
@@ -403,6 +408,12 @@ async def trigger_video_transcode(
     if quality not in ["720p", "480p", "360p"]:
         raise HTTPException(status_code=400, detail=f"Unsupported quality '{quality}'. Allowed: 720p, 480p, 360p.")
 
+    if valid_id in active_processing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Video is currently being processed ({active_processing[valid_id].get('stage_name', 'in progress')})."
+        )
+
     background_tasks.add_task(transcode_video, valid_id, quality, payload.replace_original or False)
     return {
         "status": "queued",
@@ -427,6 +438,12 @@ async def trigger_video_transcription(
     if video.get("status") != "LOCAL_READY":
         raise HTTPException(status_code=400, detail="Video must be stored locally before transcribing.")
 
+    if valid_id in active_processing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Video is currently being processed ({active_processing[valid_id].get('stage_name', 'in progress')})."
+        )
+
     background_tasks.add_task(transcribe_video, valid_id)
     return {
         "status": "queued",
@@ -435,6 +452,8 @@ async def trigger_video_transcription(
     }
 
 # ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
+ALLOWED_STREAM_QUALITIES = {"720p", "480p", "360p", "1080p", "original", "source"}
+
 @app.get("/api/stream/{video_id}")
 async def stream_video(
     video_id: str,
@@ -455,12 +474,19 @@ async def stream_video(
 
     video_path = settings.videos_dir / f"{valid_id}.mp4"
 
-    # Multi-resolution quality selection
-    if quality and quality.lower() not in ["original", "1080p", "source", ""]:
+    # Multi-resolution quality selection with strict whitelist validation
+    if quality:
         clean_q = quality.lower().strip()
-        rendition_file = settings.videos_dir / f"{valid_id}_{clean_q}.mp4"
-        if rendition_file.exists():
-            video_path = rendition_file
+        if clean_q not in ALLOWED_STREAM_QUALITIES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported quality '{quality}'")
+
+        if clean_q not in ["original", "1080p", "source"]:
+            custom_path = video.get("renditions", {}).get(clean_q, {}).get("path")
+            rendition_file = settings.videos_dir / f"{valid_id}_{clean_q}.mp4"
+            if custom_path and Path(custom_path).exists():
+                video_path = Path(custom_path)
+            elif rendition_file.exists():
+                video_path = rendition_file
 
     if not video_path.exists() or video.get("status") == "REMOTE_ONLY":
         raise HTTPException(

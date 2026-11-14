@@ -19,6 +19,23 @@
     ::-webkit-scrollbar-thumb:hover { background: #30363d; }
     .plyr--video { border-radius: 0.75rem; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
     .plyr--full-ui input[type=range] { color: #0ea5e9; }
+    /* High-visibility Buffer Progress Bar */
+    .plyr--video .plyr__progress__buffer,
+    .plyr__progress__buffer {
+      color: rgba(56, 189, 248, 0.4) !important;
+      opacity: 0.9;
+      border-radius: 9999px;
+    }
+    .plyr--video .plyr__progress__buffer::-webkit-progress-value {
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.6)) !important;
+      border-radius: 9999px;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+    }
+    .plyr--video .plyr__progress__buffer::-moz-progress-bar {
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(14, 165, 233, 0.6)) !important;
+      border-radius: 9999px;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+    }
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
       20% { transform: translateX(-8px); }
@@ -541,7 +558,26 @@
         </div>
       </div>
 
-      <div id="player-container" class="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden"></div>
+      <!-- Player Viewport & Buffering Overlay -->
+      <div class="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden">
+        <div id="player-container" class="w-full h-full flex items-center justify-center"></div>
+        <!-- Buffering Loading Indicator Overlay -->
+        <div id="player-buffering-overlay" class="absolute inset-0 z-30 hidden items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200">
+          <div class="flex flex-col items-center space-y-3 px-6 py-4 rounded-2xl bg-[#0d1117]/90 border border-sky-500/30 shadow-2xl backdrop-blur-md">
+            <div class="relative flex items-center justify-center">
+              <div class="w-12 h-12 rounded-full border-2 border-sky-500/20 border-t-sky-400 animate-spin"></div>
+              <div class="absolute w-6 h-6 rounded-full bg-sky-500/20 animate-ping"></div>
+            </div>
+            <div class="flex flex-col items-center space-y-1 text-center font-mono">
+              <div class="flex items-center space-x-1.5 text-xs font-semibold text-white">
+                <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+                <span>Buffering Stream...</span>
+              </div>
+              <span id="player-buffering-overlay-pct" class="text-[11px] text-sky-400 font-bold font-mono">Buffered: 0%</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Supercharged Toolbar -->
       <div id="player-supercharged-toolbar" class="px-5 py-2.5 bg-[#161b22] border-t border-[#30363d] flex flex-wrap items-center justify-between gap-2.5 text-xs">
@@ -568,6 +604,18 @@
             <button onclick="setPlayerSpeed(1.25)" data-speed="1.25" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white">1.25x</button>
             <button onclick="setPlayerSpeed(1.5)" data-speed="1.5" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white">1.5x</button>
             <button onclick="setPlayerSpeed(2.0)" data-speed="2.0" class="speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white">2x</button>
+          </div>
+
+          <!-- Buffer Progress HUD -->
+          <div id="player-buffer-hud" class="flex items-center space-x-2 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]" title="Pre-loaded video memory buffer">
+            <div class="relative flex items-center justify-center">
+              <div id="player-buffer-beacon" class="w-2 h-2 rounded-full bg-sky-400"></div>
+            </div>
+            <span class="text-[11px] font-mono text-slate-400">Buffered:</span>
+            <span id="player-buffer-pct" class="text-[11px] font-mono font-bold text-sky-400">0%</span>
+            <div class="w-14 bg-[#21262d] h-1.5 rounded-full overflow-hidden ml-1 hidden sm:block">
+              <div id="player-buffer-bar" class="bg-gradient-to-r from-sky-500 to-cyan-400 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
           </div>
         </div>
 
@@ -599,7 +647,10 @@
       </div>
 
       <div class="px-5 py-2.5 bg-[#0d1117] flex items-center justify-between text-xs text-slate-400 border-t border-[#30363d]/80 font-mono">
-        <span id="player-footer-path" class="font-mono text-[11px]"></span>
+        <div class="flex items-center space-x-3">
+          <span id="player-footer-path" class="font-mono text-[11px]"></span>
+          <span id="player-footer-buffer" class="text-[11px] text-sky-400 font-mono hidden"></span>
+        </div>
         <div class="flex items-center space-x-3 text-slate-500 text-[11px]">
           <span>Space/K Play • J/L ±10s • F Fullscreen</span>
           <span id="player-footer-status" class="uppercase font-mono text-[11px] text-white"></span>
@@ -1403,8 +1454,8 @@
                 </div>
               </div>
               <div class="flex items-center justify-between pt-2 border-t border-[#30363d]/60 text-xs">
-                <div>
-                  ${isCloud ? `<button type="button" class="fetch-btn flex items-center space-x-1 text-sky-400 hover:text-white font-medium py-1 px-2.5 rounded-md bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/25 text-[11px] transition"><i data-lucide="download" class="w-3 h-3"></i><span>Fetch to Server</span></button>` : `<span class="text-[10px] font-mono text-emerald-400/90 flex items-center space-x-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Instant Stream</span></span>`}
+                <div class="flex items-center space-x-1.5">
+                  ${isCloud ? `<button type="button" class="fetch-btn flex items-center space-x-1 text-sky-400 hover:text-white font-medium py-1 px-2.5 rounded-md bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/25 text-[11px] transition"><i data-lucide="download" class="w-3 h-3"></i><span>Fetch to Server</span></button>` : `<span class="text-[10px] font-mono text-emerald-400/90 flex items-center space-x-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Instant Stream</span></span><button type="button" class="opt-btn p-1 rounded text-slate-400 hover:text-white hover:bg-[#21262d] transition" title="Transcode / Options"><i data-lucide="sliders" class="w-3.5 h-3.5"></i></button>`}
                 </div>
                 <button type="button" class="delete-btn text-slate-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-500/10 transition" title="Delete Video">
                   <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
@@ -1412,6 +1463,14 @@
               </div>
             </div>
           `;
+
+          const optBtn = card.querySelector('.opt-btn');
+          if (optBtn) {
+            optBtn.onclick = (e) => {
+              e.stopPropagation();
+              openTranscodeModal(v);
+            };
+          }
 
           const fetchBtn = card.querySelector('.fetch-btn');
           if (fetchBtn) {
@@ -1548,14 +1607,18 @@
     function setupAudioBooster(videoEl) {
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (AudioCtx && !audioCtx && videoEl) {
-          audioCtx = new AudioCtx();
-          const source = audioCtx.createMediaElementSource(videoEl);
-          gainNode = audioCtx.createGain();
-          gainNode.gain.value = currentGain / 100;
-          source.connect(gainNode);
-          gainNode.connect(audioCtx.destination);
+        if (!AudioCtx || !videoEl) return;
+        if (audioCtx) {
+          try { audioCtx.close(); } catch (e) {}
+          audioCtx = null;
+          gainNode = null;
         }
+        audioCtx = new AudioCtx();
+        const source = audioCtx.createMediaElementSource(videoEl);
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = currentGain / 100;
+        source.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
       } catch (err) {}
     }
 
@@ -1582,6 +1645,86 @@
           b.className = "speed-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white";
         }
       });
+    }
+
+    let bufferMonitorInterval = null;
+
+    function getBufferedPercent(videoEl) {
+      if (!videoEl || !videoEl.duration || !isFinite(videoEl.duration) || videoEl.duration <= 0) return 0;
+      const dur = videoEl.duration;
+      const buf = videoEl.buffered;
+      if (!buf || buf.length === 0) return 0;
+      let total = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const start = buf.start(i);
+        const end = buf.end(i);
+        if (end > start) total += (end - start);
+      }
+      const pct = Math.min(100, Math.max(0, Math.round((total / dur) * 100)));
+      return isNaN(pct) ? 0 : pct;
+    }
+
+    function updatePlayerBufferUI(videoEl) {
+      const pct = getBufferedPercent(videoEl);
+      const pctEl = document.getElementById('player-buffer-pct');
+      if (pctEl) pctEl.innerText = `${pct}%`;
+      const barEl = document.getElementById('player-buffer-bar');
+      if (barEl) barEl.style.width = `${pct}%`;
+
+      const overlayPctEl = document.getElementById('player-buffering-overlay-pct');
+      if (overlayPctEl) overlayPctEl.innerText = `Buffered: ${pct}%`;
+
+      const footerBuf = document.getElementById('player-footer-buffer');
+      if (footerBuf) {
+        footerBuf.innerText = `• Buffered: ${pct}%`;
+        footerBuf.classList.remove('hidden');
+      }
+
+      if (activePlayer && activePlayer.elements) {
+        if (activePlayer.elements.progress) {
+          const buf = activePlayer.elements.progress.querySelector('.plyr__progress__buffer');
+          if (buf) buf.setAttribute('title', `Buffered: ${pct}%`);
+          const badge = activePlayer.elements.progress.querySelector('.plyr__buffer-live-badge');
+          if (badge) badge.innerText = `Buffered: ${pct}%`;
+        }
+        if (activePlayer.elements.container) {
+          const fsTxt = activePlayer.elements.container.querySelector('.dc-fs-buffer-text');
+          if (fsTxt) fsTxt.innerText = `Buffered: ${pct}%`;
+        }
+      }
+    }
+
+    function showBufferingIndicator(show) {
+      const overlay = document.getElementById('player-buffering-overlay');
+      const beacon = document.getElementById('player-buffer-beacon');
+      if (overlay) {
+        if (show) {
+          overlay.classList.remove('hidden');
+          overlay.classList.add('flex');
+        } else {
+          overlay.classList.add('hidden');
+          overlay.classList.remove('flex');
+        }
+      }
+      if (beacon) {
+        if (show) {
+          beacon.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+        } else {
+          beacon.className = 'w-2 h-2 rounded-full bg-sky-400';
+        }
+      }
+      if (activePlayer && activePlayer.elements && activePlayer.elements.container) {
+        const fsOverlay = activePlayer.elements.container.querySelector('.dc-plyr-fs-buffering');
+        if (fsOverlay) {
+          if (show) {
+            fsOverlay.classList.remove('hidden');
+            fsOverlay.classList.add('flex');
+          } else {
+            fsOverlay.classList.add('hidden');
+            fsOverlay.classList.remove('flex');
+          }
+        }
+      }
     }
 
     function changePlayerQuality(q) {
@@ -1616,7 +1759,8 @@
       });
     }
 
-    function openTranscodeModal() {
+    function openTranscodeModal(v) {
+      if (v) activeVideoModal = v;
       const modal = document.getElementById('transcode-modal');
       if (modal) {
         modal.classList.remove('hidden');
@@ -1726,7 +1870,9 @@
         qSelect.value = currentSelectedQuality;
       }
 
+      let initialTime = 0;
       if (activePlayer) {
+        try { initialTime = activePlayer.currentTime || 0; } catch (e) {}
         activePlayer.destroy();
         activePlayer = null;
       }
@@ -1786,8 +1932,9 @@
         });
 
         activePlayer.on('ready', () => {
-          if (savedPos > 5) {
-            activePlayer.currentTime = savedPos;
+          const restorePos = initialTime > 0 ? initialTime : (savedPos > 5 ? savedPos : 0);
+          if (restorePos > 0) {
+            activePlayer.currentTime = restorePos;
           }
           activePlayer.speed = currentPlaybackSpeed;
           setupAudioBooster(videoEl);
@@ -1859,6 +2006,11 @@
       if (activePlayer) {
         activePlayer.destroy();
         activePlayer = null;
+      }
+      if (audioCtx) {
+        try { audioCtx.close(); } catch (e) {}
+        audioCtx = null;
+        gainNode = null;
       }
       activeVideoModal = null;
       closeTranscodeModal();
