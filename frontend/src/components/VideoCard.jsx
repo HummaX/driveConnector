@@ -113,13 +113,13 @@ export default function VideoCard({
             <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/30 text-purple-200 border border-purple-500/40 backdrop-blur-md shadow-sm animate-pulse truncate">
               <Loader2 className="w-3 h-3 animate-spin shrink-0" />
               <span className="truncate">
-                {activeProc.stage_name || 'Processing'}: {activeProc.percent}% {activeProc.eta_seconds > 0 ? `(${activeProc.eta_seconds}s left)` : ''}
+                {activeProc.stage_name || 'Generating Sprites'}: {activeProc.stage_percent || activeProc.percent}% {activeProc.eta_seconds > 0 ? `(${activeProc.eta_seconds}s left)` : ''}
               </span>
             </span>
           ) : isProcessing ? (
             <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse">
               <Loader2 className="w-3 h-3 animate-spin" />
-              <span>Generating Sprites</span>
+              <span>Generating Sprites (in progress)</span>
             </span>
           ) : isLocal ? (
             <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#238636]/30 text-[#3fb950] border border-[#238636]/50 backdrop-blur-md shadow-sm">
@@ -176,11 +176,11 @@ export default function VideoCard({
         </div>
 
         {/* Processing Progress Bar on Card Media */}
-        {isProcessing && activeProc && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#21262d] overflow-hidden">
+        {isProcessing && (
+          <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-[#21262d] z-20 overflow-hidden">
             <div
-              className="bg-purple-500 h-full transition-all duration-300"
-              style={{ width: `${activeProc.percent || 0}%` }}
+              className="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full"
+              style={{ width: `${activeProc?.stage_percent || activeProc?.percent || 20}%` }}
             />
           </div>
         )}

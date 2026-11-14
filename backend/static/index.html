@@ -1438,8 +1438,8 @@
               ${isLocal && safePreview ? `<video src="${safePreview}" loop muted playsinline preload="none" class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></video>` : ''}
               
               <div class="absolute top-2 left-2 z-10 max-w-[85%] truncate">
-                ${proc ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/30 text-purple-200 border border-purple-500/40 backdrop-blur-md shadow-sm animate-pulse truncate"><i data-lucide="loader-2" class="w-3 h-3 animate-spin shrink-0"></i><span class="truncate">${proc.stage_name || 'Processing'}: ${proc.percent}% ${proc.eta_seconds > 0 ? `(${proc.eta_seconds}s left)` : ''}</span></span>` : ''}
-                ${!proc && isProcessing ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Generating Sprites</span></span>` : ''}
+                ${proc ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/30 text-purple-200 border border-purple-500/40 backdrop-blur-md shadow-sm animate-pulse truncate"><i data-lucide="loader-2" class="w-3 h-3 animate-spin shrink-0"></i><span class="truncate">${escapeHtml(proc.stage_name || 'Generating Sprites')}: ${proc.stage_percent || proc.percent}% ${proc.eta_seconds > 0 ? `(${proc.eta_seconds}s left)` : ''}</span></span>` : ''}
+                ${!proc && isProcessing ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Generating Sprites (in progress)</span></span>` : ''}
                 ${!proc && isLocal ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#238636]/30 text-[#3fb950] border border-[#238636]/50 backdrop-blur-md shadow-sm"><i data-lucide="check-circle-2" class="w-3 h-3"></i><span>Saved on Server</span></span>` : ''}
                 ${!proc && isCloud ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 backdrop-blur-md shadow-sm"><i data-lucide="cloud" class="w-3 h-3"></i><span>Cloud Remote</span></span>` : ''}
                 ${!proc && isDownloading ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-sky-500/20 text-sky-300 border border-sky-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="download" class="w-3 h-3 animate-bounce"></i><span>Downloading...</span></span>` : ''}
@@ -1462,7 +1462,7 @@
                 </div>
               </div>
 
-              ${proc ? `<div class="absolute bottom-0 left-0 right-0 h-1 bg-[#21262d] overflow-hidden"><div class="bg-purple-500 h-full transition-all duration-300" style="width: ${proc.percent || 0}%"></div></div>` : ''}
+              ${isProcessing ? `<div class="absolute bottom-0 left-0 right-0 h-1.5 bg-[#21262d] z-20 overflow-hidden"><div class="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full" style="width: ${proc ? (proc.stage_percent || proc.percent) : 20}%"></div></div>` : ''}
             </div>
             <div class="p-3 flex flex-col flex-1 justify-between gap-3">
               <div>
@@ -1534,6 +1534,8 @@
         const tbody = tableCard.querySelector('#video-table-body');
         filtered.forEach(v => {
           const isLocal = v.status === 'LOCAL_READY';
+          const proc = processingJobs[v.video_id] || v.processing_info;
+          const isProcessing = v.status === 'PROCESSING' || Boolean(proc);
           const durationStr = v.duration_seconds > 0 
             ? `${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}` 
             : null;
@@ -1545,7 +1547,26 @@
               ${escapeHtml(v.title)}
             </td>
             <td class="px-4 py-3 font-mono text-[11px]">
-              ${isLocal ? `<span class="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Saved on Server</span>` : `<span class="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">Cloud Remote</span>`}
+              ${proc ? `
+                <div class="space-y-1 max-w-[200px]">
+                  <span class="inline-flex items-center space-x-1.5 text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 text-[10px]">
+                    <i data-lucide="loader-2" class="w-3 h-3 animate-spin text-purple-400 shrink-0"></i>
+                    <span class="truncate">${escapeHtml(proc.stage_name || 'Generating Sprites')}: ${proc.stage_percent || proc.percent}% ${proc.eta_seconds > 0 ? `(${proc.eta_seconds}s left)` : ''}</span>
+                  </span>
+                  <div class="w-full bg-[#21262d] h-1 rounded-full overflow-hidden">
+                    <div class="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full" style="width: ${proc.stage_percent || proc.percent}%"></div>
+                  </div>
+                </div>
+              ` : isProcessing ? `
+                <span class="inline-flex items-center space-x-1.5 text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 text-[10px]">
+                  <i data-lucide="loader-2" class="w-3 h-3 animate-spin text-purple-400 shrink-0"></i>
+                  <span>Generating Sprites (in progress)</span>
+                </span>
+              ` : isLocal ? `
+                <span class="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Saved on Server</span>
+              ` : `
+                <span class="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">Cloud Remote</span>
+              `}
             </td>
             <td class="px-4 py-3 text-slate-400 font-mono text-[11px]">
               ${v.source === 'GDRIVE' ? 'Google Drive' : 'Direct Link'}
@@ -2730,15 +2751,15 @@
       const procHtml = procList.map(p => `
         <div class="bg-[#010409] p-2.5 rounded-lg border border-purple-500/30 space-y-1.5">
           <div class="flex justify-between font-medium text-white truncate text-xs">
-            <span class="truncate flex items-center space-x-1"><i data-lucide="activity" class="w-3 h-3 text-purple-400 animate-spin"></i><span>${escapeHtml(p.stage_name || 'Processing')}</span></span>
-            <span class="text-purple-400 font-mono font-bold">${p.percent}%</span>
+            <span class="truncate flex items-center space-x-1"><i data-lucide="activity" class="w-3 h-3 text-purple-400 animate-spin"></i><span>${escapeHtml(p.stage_name || 'Generating Sprites')}</span></span>
+            <span class="text-purple-400 font-mono font-bold">${p.stage_percent || p.percent}%</span>
           </div>
           <div class="w-full bg-[#21262d] h-1.5 rounded-full overflow-hidden">
-            <div class="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full" style="width: ${p.percent}%"></div>
+            <div class="bg-gradient-to-r from-purple-500 to-indigo-500 h-full transition-all duration-300 rounded-full" style="width: ${p.stage_percent || p.percent}%"></div>
           </div>
           <div class="flex justify-between text-[10px] text-slate-400 font-mono">
-            <span class="text-purple-300">${escapeHtml(p.details || '')}</span>
-            <span>${p.eta_seconds > 0 ? `ETA ${p.eta_seconds}s` : ''}</span>
+            <span class="text-purple-300 truncate max-w-[200px]">${escapeHtml(p.details || '')}</span>
+            <span class="text-purple-300 font-semibold shrink-0">${p.eta_seconds > 0 ? `${p.eta_seconds}s left` : ''}</span>
           </div>
         </div>
       `).join('');
