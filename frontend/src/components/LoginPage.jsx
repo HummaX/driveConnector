@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Lock, User, PlaySquare, Shield, AlertCircle, Loader2, ArrowRight, Globe, Server, Database, Zap } from 'lucide-react';
+import BrandLogo from './BrandLogo';
+import { Lock, User, Shield, AlertCircle, Loader2, ArrowRight, Globe, Server, Database, Zap } from 'lucide-react';
 
 // ─── Animated Network Graph Background (GitHub-style constellation) ───
 function NetworkCanvas() {
@@ -263,9 +264,7 @@ export default function LoginPage({ onLoginSuccess }) {
       {/* Top Navigation Bar */}
       <nav className="relative z-10 w-full px-6 py-4 flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
-          <div className="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20">
-            <PlaySquare className="w-5 h-5 text-sky-400 fill-sky-400" />
-          </div>
+          <BrandLogo size="sm" />
           <span className="text-sm font-semibold text-white tracking-tight">DriveConnector</span>
         </div>
         <div className="flex items-center space-x-4 text-[11px] text-slate-500">

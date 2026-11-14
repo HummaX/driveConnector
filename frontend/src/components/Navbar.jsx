@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import BrandLogo from './BrandLogo';
 import { 
-  PlaySquare, Cloud, Plus, RefreshCw, LogOut, Shield, 
+  Cloud, Plus, RefreshCw, LogOut, Shield, 
   Cpu, HardDrive, ArrowDownRight, ArrowUpRight, Activity, Database
 } from 'lucide-react';
 
@@ -40,9 +41,7 @@ export default function Navbar({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
         {/* Brand */}
         <div className="flex items-center space-x-3 shrink-0">
-          <div className="p-2 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white shadow-md shadow-sky-500/20 border border-sky-400/20">
-            <PlaySquare className="w-5 h-5 fill-white" />
-          </div>
+          <BrandLogo size="md" />
           <div className="flex flex-col">
             <div className="flex items-center space-x-2">
               <span className="text-base font-bold text-white tracking-tight">DriveConnector</span>

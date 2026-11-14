@@ -778,6 +778,70 @@ def test_deployment_and_mongo_express_ux():
     print("✅ Deployment scripts, Compose v2 cleanup, and Mongo Express UI UX fully verified.")
     return True
 
+def test_favicons_and_brand_assets():
+    static_dir = REPO_DIR / "backend/static"
+    public_dir = REPO_DIR / "frontend/public"
+
+    required_assets = [
+        "favicon.svg", "favicon.ico", "site.webmanifest",
+        "favicon-16.png", "favicon-32.png", "favicon-48.png",
+        "apple-touch-icon.png", "icon-192.png", "icon-512.png"
+    ]
+    for asset in required_assets:
+        if not (static_dir / asset).exists():
+            print(f"❌ backend/static missing required brand asset: {asset}")
+            return False
+        if not (public_dir / asset).exists():
+            print(f"❌ frontend/public missing required brand asset: {asset}")
+            return False
+
+    # Check HTML linkages
+    fe_html = (REPO_DIR / "frontend/index.html").read_text(encoding="utf-8")
+    if "/favicon.svg" not in fe_html or "/favicon.ico" not in fe_html:
+        print("❌ frontend/index.html missing favicon links!")
+        return False
+
+    be_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
+    if "/static/favicon.svg" not in be_html or "/static/favicon.ico" not in be_html:
+        print("❌ backend/static/index.html missing favicon links!")
+        return False
+
+    # Check React BrandLogo component
+    brand_logo = REPO_DIR / "frontend/src/components/BrandLogo.jsx"
+    if not brand_logo.exists():
+        print("❌ BrandLogo.jsx component missing!")
+        return False
+
+    navbar_jsx = (REPO_DIR / "frontend/src/components/Navbar.jsx").read_text(encoding="utf-8")
+    if "BrandLogo" not in navbar_jsx:
+        print("❌ Navbar.jsx not utilizing BrandLogo!")
+        return False
+
+    login_jsx = (REPO_DIR / "frontend/src/components/LoginPage.jsx").read_text(encoding="utf-8")
+    if "BrandLogo" not in login_jsx:
+        print("❌ LoginPage.jsx not utilizing BrandLogo!")
+        return False
+
+    # Verify FastAPI endpoint /favicon.ico returns HTTP 200
+    try:
+        backend_path = (REPO_DIR / "backend").resolve()
+        sys.path.insert(0, str(backend_path))
+        import main as backend_main
+        from starlette.testclient import TestClient
+        client = TestClient(backend_main.app)
+        res = client.get("/favicon.ico")
+        if res.status_code != 200:
+            print(f"❌ GET /favicon.ico returned status {res.status_code} instead of 200!")
+            return False
+        if "image/x-icon" not in res.headers.get("content-type", ""):
+            print(f"❌ GET /favicon.ico wrong content-type: {res.headers.get('content-type')}")
+            return False
+    finally:
+        sys.path.pop(0)
+
+    print("✅ High-definition favicons, PWA webmanifests, BrandLogo components, and /favicon.ico endpoint fully verified.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -798,7 +862,8 @@ if __name__ == "__main__":
         test_buffering_and_buffer_progress_features,
         test_transfer_completion_lifecycle_and_badge,
         test_sprites_live_progress_and_eta,
-        test_deployment_and_mongo_express_ux
+        test_deployment_and_mongo_express_ux,
+        test_favicons_and_brand_assets
     ]
     failed = False
     for t in tests:

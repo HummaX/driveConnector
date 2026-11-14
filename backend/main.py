@@ -158,6 +158,13 @@ async def serve_root():
         return FileResponse(str(index_file))
     return {"status": "ok", "message": "DriveConnector API running"}
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def serve_favicon():
+    favicon_file = static_ui_dir / "favicon.ico"
+    if favicon_file.exists():
+        return FileResponse(str(favicon_file), media_type="image/x-icon")
+    return Response(status_code=404)
+
 # ----------------- Authentication Endpoints -----------------
 @app.post("/api/auth/login")
 async def login(credentials: UserLogin):
