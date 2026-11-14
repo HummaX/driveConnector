@@ -306,6 +306,44 @@ def test_vtt_absolute_sprites_format():
     finally:
         sys.path.pop(0)
 
+def test_vtt_mimetype_and_time_format():
+    backend_path = (REPO_DIR / "backend").resolve()
+    sys.path.insert(0, str(backend_path))
+    try:
+        import mimetypes
+        import main
+        import ffmpeg_worker
+
+        # 1. Check MIME type text/vtt registration
+        vtt_type, _ = mimetypes.guess_type("thumbnails.vtt")
+        if vtt_type != "text/vtt":
+            print(f"❌ WebVTT MIME type is '{vtt_type}', expected 'text/vtt'!")
+            return False
+
+        # 2. Check format_vtt_time millisecond accuracy (strictly 3 digits, no .1000)
+        t_bound = ffmpeg_worker.format_vtt_time(0.9999)
+        if t_bound != "00:00:01.000":
+            print(f"❌ format_vtt_time(0.9999) returned '{t_bound}', expected '00:00:01.000'!")
+            return False
+
+        t_zero = ffmpeg_worker.format_vtt_time(0.0)
+        if t_zero != "00:00:00.000":
+            print(f"❌ format_vtt_time(0.0) returned '{t_zero}', expected '00:00:00.000'!")
+            return False
+
+        t_hour = ffmpeg_worker.format_vtt_time(3600.0)
+        if t_hour != "01:00:00.000":
+            print(f"❌ format_vtt_time(3600.0) returned '{t_hour}', expected '01:00:00.000'!")
+            return False
+
+        print("✅ WebVTT text/vtt MIME type and strict 3-digit millisecond time formatting verified.")
+        return True
+    except Exception as e:
+        print(f"❌ VTT MIME type & time format test failed: {e}")
+        return False
+    finally:
+        sys.path.pop(0)
+
 def test_transcode_and_transcribe_endpoints():
     backend_path = (REPO_DIR / "backend").resolve()
     sys.path.insert(0, str(backend_path))
@@ -340,13 +378,16 @@ def test_transcode_and_transcribe_endpoints():
         original_fw_update = ffmpeg_worker.update_video
         original_fw_run = ffmpeg_worker.run_cmd
 
+        dummy_video_file = REPO_DIR / "backend/test_fixture_video.mp4"
+        dummy_video_file.write_text("dummy video content", encoding="utf-8")
+
         async def mock_get_video_local(vid):
             if vid == "validvid123":
                 return {
                     "video_id": "validvid123",
                     "title": "Test Local Video",
                     "status": "LOCAL_READY",
-                    "local_path": str(REPO_DIR / "backend/static/index.html")
+                    "local_path": str(dummy_video_file)
                 }
             elif vid == "remotevid123":
                 return {
@@ -391,11 +432,25 @@ def test_transcode_and_transcribe_endpoints():
             print(f"❌ Transcoding with unsupported quality returned {res_inv_q.status_code} instead of 400")
             return False
 
+        # Concurrency guard: when video is actively processing, transcode/transcribe returns 409
+        ffmpeg_worker.active_processing["validvid123"] = {"stage": "TRANSCODE", "stage_name": "Transcoding 720p"}
+        res_conflict_tc = client.post("/api/videos/validvid123/transcode", json={"quality": "720p"})
+        if res_conflict_tc.status_code != 409:
+            print(f"❌ Concurrent transcode call did not return 409: {res_conflict_tc.status_code}")
+            return False
+        res_conflict_sub = client.post("/api/videos/validvid123/transcribe")
+        if res_conflict_sub.status_code != 409:
+            print(f"❌ Concurrent transcribe call did not return 409: {res_conflict_sub.status_code}")
+            return False
+        ffmpeg_worker.active_processing.pop("validvid123", None)
+
         # Valid transcode call queues successfully
         res_valid_tc = client.post("/api/videos/validvid123/transcode", json={"quality": "720p"})
         if res_valid_tc.status_code != 200 or res_valid_tc.json().get("status") != "queued":
             print(f"❌ Valid transcode call failed: {res_valid_tc.status_code} {res_valid_tc.text}")
             return False
+
+        ffmpeg_worker.active_processing.pop("validvid123", None)
 
         # Valid transcribe call queues successfully
         res_valid_sub = client.post("/api/videos/validvid123/transcribe")
@@ -414,15 +469,25 @@ def test_transcode_and_transcribe_endpoints():
         print(f"❌ Transcode/Transcribe API test failed: {e}")
         return False
     finally:
+        if dummy_video_file.exists():
+            try:
+                import os
+                os.remove(dummy_video_file)
+            except OSError:
+                pass
         sys.path.pop(0)
 
 def test_supercharged_player_features():
     player_jsx = (REPO_DIR / "frontend/src/components/VideoPlayerModal.jsx").read_text(encoding="utf-8")
     index_html = (REPO_DIR / "backend/static/index.html").read_text(encoding="utf-8")
 
-    # Audio booster check
+    # Audio booster check & AudioContext cleanup
     if "createGain" not in player_jsx or "createGain" not in index_html:
         print("❌ Web Audio API createGain (Audio Booster) missing from player!")
+        return False
+
+    if "audioCtx.close()" not in index_html or "audioContextRef.current.close()" not in player_jsx:
+        print("❌ AudioContext resource cleanup missing from player modal close/unmount!")
         return False
 
     # Theater mode check
@@ -458,6 +523,7 @@ if __name__ == "__main__":
         test_fastapi_serving,
         test_drive_api_endpoints,
         test_vtt_absolute_sprites_format,
+        test_vtt_mimetype_and_time_format,
         test_transcode_and_transcribe_endpoints,
         test_supercharged_player_features
     ]

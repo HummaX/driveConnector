@@ -17,11 +17,12 @@ ffmpeg_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_FFMPEG)
 active_processing: Dict[str, Dict[str, Any]] = {}
 
 def format_vtt_time(seconds: float) -> str:
-    """Format seconds into WebVTT timestamp: HH:MM:SS.mmm"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    milli = int(round((seconds - int(seconds)) * 1000))
+    """Format seconds into WebVTT timestamp: HH:MM:SS.mmm (strictly 3 ASCII digits for milliseconds)."""
+    total_ms = max(0, int(round(seconds * 1000)))
+    hours = total_ms // 3600000
+    minutes = (total_ms % 3600000) // 60000
+    secs = (total_ms % 60000) // 1000
+    milli = total_ms % 1000
     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milli:03d}"
 
 async def emit_processing_update(
@@ -81,20 +82,27 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
     ]
     code, stdout, _ = await run_cmd(cmd, timeout=30)
     if code != 0 or not stdout:
-        return {"duration": 0.0, "width": 1920, "height": 1080}
+        return {"duration": 0.0, "width": 1920, "height": 1080, "has_audio": True}
 
     try:
         data = json.loads(stdout)
         duration = float(data.get("format", {}).get("duration", 0.0))
-        video_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
+        streams = data.get("streams", [])
+        video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
+        audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
         width = int(video_stream.get("width", 1920))
         height = int(video_stream.get("height", 1080))
         if duration == 0.0:
             duration = float(video_stream.get("duration", 0.0))
-        return {"duration": duration, "width": width, "height": height}
+        return {
+            "duration": duration,
+            "width": width,
+            "height": height,
+            "has_audio": audio_stream is not None
+        }
     except Exception as e:
         print(f"[FFmpeg] Error parsing ffprobe output: {e}")
-        return {"duration": 0.0, "width": 1920, "height": 1080}
+        return {"duration": 0.0, "width": 1920, "height": 1080, "has_audio": True}
 
 async def generate_poster_if_needed(video_path: Path, poster_path: Path, duration: float):
     """Generates a high-quality static poster thumbnail at 10% of duration if not already present."""
@@ -328,10 +336,17 @@ async def process_video_background(video_id: str):
         except Exception as e:
             print(f"[FFmpeg] Pipeline error processing {video_id}: {e}")
             active_processing.pop(video_id, None)
-            await update_video(video_id, {
+            fallback_data = {
                 "status": "LOCAL_READY",
                 "duration_seconds": 0.0,
                 "processing_info": None
+            }
+            await update_video(video_id, fallback_data)
+            await manager.broadcast({
+                "event": "PROCESSING_COMPLETE",
+                "video_id": video_id,
+                "status": "LOCAL_READY",
+                "metadata": fallback_data
             })
 
 QUALITY_PRESETS = {
@@ -402,14 +417,23 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
             if code != 0 or not temp_rendition.exists():
                 print(f"[FFmpeg] Transcode failed: {err}")
                 active_processing.pop(video_id, None)
-                await emit_processing_update(
-                    video_id=video_id,
-                    stage="TRANSCODE",
-                    stage_name=f"Transcoding {target_quality}",
-                    percent=0.0,
-                    eta_seconds=0,
-                    details=f"Transcoding to {target_quality} failed."
-                )
+                if temp_rendition.exists():
+                    try:
+                        os.remove(temp_rendition)
+                    except OSError:
+                        pass
+                await update_video(video_id, {
+                    "processing_info": None,
+                    "status": "LOCAL_READY"
+                })
+                await manager.broadcast({
+                    "event": "PROCESSING_COMPLETE",
+                    "video_id": video_id,
+                    "status": "LOCAL_READY",
+                    "action": "TRANSCODE_FAILED",
+                    "quality": target_quality,
+                    "error": "Transcoding failed or timed out"
+                })
                 return
 
             if dest_rendition.exists():
@@ -480,6 +504,18 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                     os.remove(temp_rendition)
                 except OSError:
                     pass
+            await update_video(video_id, {
+                "processing_info": None,
+                "status": "LOCAL_READY"
+            })
+            await manager.broadcast({
+                "event": "PROCESSING_COMPLETE",
+                "video_id": video_id,
+                "status": "LOCAL_READY",
+                "action": "TRANSCODE_FAILED",
+                "quality": target_quality,
+                "error": str(e)
+            })
 
 def run_whisper_transcription(audio_path: Path) -> Optional[List[Dict[str, Any]]]:
     """Runs local speech-to-text inference using faster-whisper on CPU with int8 precision."""
@@ -528,33 +564,36 @@ async def transcribe_video(video_id: str):
                 details="Extracting 16kHz audio stream via FFmpeg..."
             )
 
-            # Extract 16kHz mono audio for Whisper model
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", str(video_path),
-                "-vn",
-                "-acodec", "pcm_s16le",
-                "-ar", "16000",
-                "-ac", "1",
-                str(audio_path)
-            ]
-            code, _, err = await run_cmd(cmd, timeout=90)
-            if code != 0 or not audio_path.exists():
-                print(f"[Whisper] Audio extraction error: {err}")
-                active_processing.pop(video_id, None)
-                return
+            # Probe audio stream existence first
+            probe_info = await probe_video(video_path)
+            has_audio = probe_info.get("has_audio", True)
 
-            await emit_processing_update(
-                video_id=video_id,
-                stage="TRANSCRIBE",
-                stage_name="Generating AI Subtitles",
-                percent=45.0,
-                eta_seconds=12,
-                details="Running local Whisper AI speech-to-text..."
-            )
-
-            # Execute transcription in background thread pool to avoid blocking async event loop
-            segments = await asyncio.to_thread(run_whisper_transcription, audio_path)
+            segments = None
+            if has_audio:
+                # Extract 16kHz mono audio for Whisper model
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", str(video_path),
+                    "-vn",
+                    "-acodec", "pcm_s16le",
+                    "-ar", "16000",
+                    "-ac", "1",
+                    str(audio_path)
+                ]
+                code, _, err = await run_cmd(cmd, timeout=90)
+                if code == 0 and audio_path.exists():
+                    await emit_processing_update(
+                        video_id=video_id,
+                        stage="TRANSCRIBE",
+                        stage_name="Generating AI Subtitles",
+                        percent=45.0,
+                        eta_seconds=12,
+                        details="Running local Whisper AI speech-to-text..."
+                    )
+                    # Execute transcription in background thread pool to avoid blocking async event loop
+                    segments = await asyncio.to_thread(run_whisper_transcription, audio_path)
+                else:
+                    print(f"[Whisper] Audio extraction notice (proceeding to fallback): {err}")
 
             await emit_processing_update(
                 video_id=video_id,
@@ -577,7 +616,7 @@ async def transcribe_video(video_id: str):
                         vtt_lines.append(f"{text}\n")
             else:
                 # Graceful fallback: produce valid WebVTT cues based on video duration
-                dur = float(video.get("duration_seconds") or 10.0)
+                dur = float(video.get("duration_seconds") or probe_info.get("duration") or 10.0)
                 vtt_lines.append(f"{format_vtt_time(0.0)} --> {format_vtt_time(min(5.0, dur))}")
                 vtt_lines.append(f"[AI Subtitles: Audio track analyzed - no speech detected]\n")
 
@@ -617,3 +656,14 @@ async def transcribe_video(video_id: str):
                     os.remove(audio_path)
                 except OSError:
                     pass
+            await update_video(video_id, {
+                "processing_info": None,
+                "status": "LOCAL_READY"
+            })
+            await manager.broadcast({
+                "event": "PROCESSING_COMPLETE",
+                "video_id": video_id,
+                "status": "LOCAL_READY",
+                "action": "TRANSCRIBE_FAILED",
+                "error": str(e)
+            })
