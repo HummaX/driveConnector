@@ -84,7 +84,7 @@ export default function VideoPlayerModal({ video, token, activeTransfer, onClose
         currentVideoIdRef.current = null;
       }
     };
-  }, [isLocal, video.video_id, token]);
+  }, [isLocal, video.video_id, token, video.title, video.vtt_url]);
 
   return (
     <div
@@ -93,12 +93,12 @@ export default function VideoPlayerModal({ video, token, activeTransfer, onClose
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+        className="relative w-full max-w-5xl bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-950/80 border-b border-slate-800">
+        <div className="flex items-center justify-between px-6 py-4 bg-[#161b22] border-b border-[#30363d]">
           <div className="flex items-center space-x-3 truncate mr-4">
-            <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400">
+            <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
               <Film className="w-5 h-5" />
             </div>
             <h3 className="text-base font-semibold text-white truncate" title={video.title}>
@@ -107,7 +107,7 @@ export default function VideoPlayerModal({ video, token, activeTransfer, onClose
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition"
+            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-[#21262d] transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -142,8 +142,8 @@ export default function VideoPlayerModal({ video, token, activeTransfer, onClose
               </div>
 
               {activeTransfer ? (
-                <div className="w-full space-y-3 bg-slate-950/80 border border-slate-800 p-4 rounded-xl font-mono text-xs">
-                  <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div className="w-full space-y-3 bg-[#010409] border border-[#30363d] p-4 rounded-xl font-mono text-xs">
+                  <div className="w-full bg-[#21262d] h-2 rounded-full overflow-hidden">
                     <div
                       className="bg-gradient-to-r from-sky-500 to-indigo-500 h-full transition-all duration-300 rounded-full"
                       style={{ width: `${activeTransfer.percentage || 0}%` }}
@@ -158,13 +158,13 @@ export default function VideoPlayerModal({ video, token, activeTransfer, onClose
                     <span>{activeTransfer.downloaded_str} / {activeTransfer.total_str}</span>
                   </div>
 
-                  <div className="flex justify-between items-center text-[11px] text-slate-500 pt-1 border-t border-slate-800/80">
+                  <div className="flex justify-between items-center text-[11px] text-slate-500 pt-1 border-t border-[#30363d]/80">
                     <span>Source: {activeTransfer.source}</span>
                     <span>ETA: {activeTransfer.eta_seconds}s</span>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center space-x-2 text-xs text-slate-400 bg-slate-950/60 px-4 py-2 rounded-lg border border-slate-800">
+                <div className="flex items-center space-x-2 text-xs text-slate-400 bg-[#010409] px-4 py-2 rounded-lg border border-[#30363d]">
                   <Activity className="w-4 h-4 text-sky-400 animate-spin" />
                   <span>Requesting download stream...</span>
                 </div>
@@ -174,9 +174,9 @@ export default function VideoPlayerModal({ video, token, activeTransfer, onClose
         </div>
 
         {/* Modal Footer Info */}
-        <div className="px-6 py-3 bg-slate-950 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800">
+        <div className="px-6 py-3 bg-[#161b22] flex items-center justify-between text-xs text-slate-400 border-t border-[#30363d]">
           <div className="flex items-center space-x-3">
-            <span>Storage: <strong className="text-slate-300">/mnt/storage/videos/{video.video_id}.mp4</strong></span>
+            <span>Storage: <strong className="text-slate-300 font-mono">/mnt/storage/videos/{video.video_id}.mp4</strong></span>
             {video.vtt_url && (
               <span className="flex items-center space-x-1 text-emerald-400">
                 <CheckCircle className="w-3.5 h-3.5" />
@@ -185,7 +185,7 @@ export default function VideoPlayerModal({ video, token, activeTransfer, onClose
             )}
           </div>
           <div>
-            Status: <strong className="text-white uppercase">{video.status}</strong>
+            Status: <strong className="text-white uppercase font-mono">{video.status}</strong>
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowDownCircle, ChevronDown, ChevronUp, Activity, CheckCircle, AlertTriangle, Radio } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckCircle, AlertTriangle, Download } from 'lucide-react';
 
 export default function TransfersDrawer({ transfers = {} }) {
   const [isOpen, setIsOpen] = useState(true);
@@ -8,6 +8,11 @@ export default function TransfersDrawer({ transfers = {} }) {
   if (transferList.length === 0) return null;
 
   const activeCount = transferList.filter(t => t.status === 'DOWNLOADING').length;
+  // Compute overall average percentage of active transfers for minimized bar
+  const activeTransfers = transferList.filter(t => t.status === 'DOWNLOADING');
+  const avgPct = activeTransfers.length > 0 
+    ? Math.round(activeTransfers.reduce((acc, t) => acc + (t.percentage || 0), 0) / activeTransfers.length)
+    : 100;
 
   return (
     <div className="fixed bottom-4 right-4 z-40 w-96 max-w-[calc(100vw-2rem)] bg-[#0d1117]/95 border border-[#30363d] rounded-xl shadow-2xl backdrop-blur-xl overflow-hidden transition-all animate-slide-up">
@@ -29,15 +34,28 @@ export default function TransfersDrawer({ transfers = {} }) {
           </span>
           <span className="text-xs font-semibold text-white tracking-tight flex items-center space-x-1.5">
             <span>Active Transfers</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
               {transferList.length}
             </span>
           </span>
         </div>
-        <div className="text-slate-400 hover:text-white transition">
+        <div className="flex items-center space-x-2 text-slate-400 hover:text-white transition">
+          {!isOpen && activeCount > 0 && (
+            <span className="text-[10px] font-mono text-sky-400 font-semibold">{avgPct}%</span>
+          )}
           {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
         </div>
       </div>
+
+      {/* Minimized Progress Stripe */}
+      {!isOpen && activeCount > 0 && (
+        <div className="w-full bg-[#21262d] h-1 overflow-hidden">
+          <div
+            className="bg-sky-500 h-full transition-all duration-300"
+            style={{ width: `${avgPct}%` }}
+          />
+        </div>
+      )}
 
       {/* Content */}
       {isOpen && (

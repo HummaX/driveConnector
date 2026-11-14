@@ -42,10 +42,10 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-6">
+      <div className="relative w-full max-w-md bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl p-6">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+          className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#161b22] transition"
         >
           <X className="w-5 h-5" />
         </button>
@@ -71,7 +71,7 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
               onChange={(e) => setFolderId(e.target.value)}
               placeholder="e.g. 1A2b3C4d... (Leave blank for root/all)"
               disabled={syncing}
-              className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition disabled:opacity-50"
+              className="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition disabled:opacity-50"
             />
             <p className="text-[11px] text-slate-500 mt-1">
               Videos will appear immediately with their posters with status <strong>REMOTE_ONLY</strong>.
@@ -100,18 +100,18 @@ export default function DriveSyncModal({ isOpen, onClose, onSyncComplete, authHe
               type="button"
               onClick={onClose}
               disabled={syncing}
-              className="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 transition"
+              className="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22] border border-transparent transition"
             >
-              Close
+              Cancel
             </button>
             <button
               type="submit"
               disabled={syncing}
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-medium bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/20 transition disabled:opacity-50"
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50 transition disabled:opacity-50"
             >
               {syncing ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Scanning Drive...</span>
                 </>
               ) : (
