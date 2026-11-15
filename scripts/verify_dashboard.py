@@ -995,6 +995,31 @@ def test_multiple_downloads_and_jdownloader_integration():
     print("✅ Multiple downloads batching, 2nd download duplicate null key fix, JDownloader 2 container, and Scan Storage fully verified.")
     return True
 
+def test_nonblocking_video_playback_during_processing():
+    """Verifies that background video processing (hover preview, sprites, transcode) never blocks video playback."""
+    backend_dir = Path(__file__).resolve().parent.parent / "backend"
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+
+    # 1. Check index.html isPlayable logic allows PROCESSING and local_path
+    index_html = (backend_dir / "static" / "index.html").read_text(encoding="utf-8")
+    if "isPlayable = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path)" not in index_html:
+        print("❌ index.html does not include PROCESSING or local_path in isPlayable check!")
+        return False
+
+    # 2. Check index.html does not destroy player on PROCESSING_COMPLETE
+    if "openPlayerModal(activeVideoModal);" in index_html.split("PROCESSING_COMPLETE")[1].split("fetchAllData()")[0]:
+        print("❌ index.html calls openPlayerModal on PROCESSING_COMPLETE, which interrupts active playback!")
+        return False
+
+    # 3. Check React VideoPlayerModal.jsx allows playback when processing
+    player_jsx = (frontend_dir / "src" / "components" / "VideoPlayerModal.jsx").read_text(encoding="utf-8")
+    if "isLocal = video.status === 'LOCAL_READY' || video.status === 'PROCESSING' || Boolean(video.local_path)" not in player_jsx:
+        print("❌ VideoPlayerModal.jsx does not recognize PROCESSING or local_path as isLocal!")
+        return False
+
+    print("✅ Non-blocking video playback during background processing fully verified across React and standalone HTML.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -1019,7 +1044,8 @@ if __name__ == "__main__":
         test_favicons_and_brand_assets,
         test_cpu_core_reservation_and_governance,
         test_direct_stream_and_mkv_support,
-        test_multiple_downloads_and_jdownloader_integration
+        test_multiple_downloads_and_jdownloader_integration,
+        test_nonblocking_video_playback_during_processing
     ]
     failed = False
     for t in tests:

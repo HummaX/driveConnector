@@ -33,14 +33,14 @@ export default function VideoPlayerModal({
   const [isBuffering, setIsBuffering] = useState(true);
   const [bufferedPercent, setBufferedPercent] = useState(0);
 
-  const isLocal = video.status === 'LOCAL_READY';
+  const isLocal = video.status === 'LOCAL_READY' || video.status === 'PROCESSING' || Boolean(video.local_path);
   const isTransferDone = Boolean(activeTransfer && (
     (activeTransfer.percentage || 0) >= 100 ||
     activeTransfer.status === 'DOWNLOAD_COMPLETE' ||
     activeTransfer.status === 'LOCAL_READY' ||
     activeTransfer.status === 'DONE'
   ));
-  const isReadyToPlay = isLocal || isTransferDone || (video.status === 'PROCESSING' && Boolean(video.local_path));
+  const isReadyToPlay = isLocal || isTransferDone;
   const isDownloading = !isTransferDone && (video.status === 'DOWNLOADING' || (activeTransfer && activeTransfer.status === 'DOWNLOADING'));
   const activeProc = processingJob || video.processing_info;
   const isProcessing = video.status === 'PROCESSING' || Boolean(activeProc);
@@ -467,7 +467,7 @@ export default function VideoPlayerModal({
         gainNodeRef.current = null;
       }
     };
-  }, [isReadyToPlay, video.video_id, selectedQuality, video.vtt_url, video.subtitles_url, token, initAudioBooster]);
+  }, [isReadyToPlay, video.video_id, selectedQuality, video.subtitles_url, token, initAudioBooster]);
 
   // Handle Quality Change
   const handleQualitySelect = (q) => {

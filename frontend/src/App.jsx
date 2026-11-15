@@ -384,7 +384,7 @@ export default function App() {
     let result = videos.filter((video) => {
       const matchesSearch = (video.title || '').toLowerCase().includes(searchQuery.toLowerCase());
       if (!matchesSearch) return false;
-      if (activeFilter === 'LOCAL') return video.status === 'LOCAL_READY';
+      if (activeFilter === 'LOCAL') return video.status === 'LOCAL_READY' || video.status === 'PROCESSING' || Boolean(video.local_path);
       if (activeFilter === 'CLOUD') return video.status === 'REMOTE_ONLY';
       return true;
     });
@@ -422,7 +422,7 @@ export default function App() {
 
     return {
       all: videos.length,
-      local: videos.filter((v) => v.status === 'LOCAL_READY').length,
+      local: videos.filter((v) => v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path)).length,
       cloud: videos.filter((v) => v.status === 'REMOTE_ONLY').length,
       processing: videos.filter((v) => v.status === 'PROCESSING').length,
       active: activeDownloads + activeProcessing
@@ -640,7 +640,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-[#30363d]/60 font-sans">
                     {filteredVideos.map((v) => {
-                      const isLocal = v.status === 'LOCAL_READY';
+                      const isLocal = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
                       const proc = processingJobs[v.video_id] || v.processing_info;
                       const isProcessing = v.status === 'PROCESSING' || Boolean(proc);
                       return (

@@ -19,8 +19,8 @@ export default function VideoCard({
   const videoRef = useRef(null);
 
   const activeProc = processingJob || video.processing_info;
-  const isLocal = video.status === 'LOCAL_READY';
-  const isCloud = video.status === 'REMOTE_ONLY';
+  const isLocal = video.status === 'LOCAL_READY' || video.status === 'PROCESSING' || Boolean(video.local_path);
+  const isCloud = video.status === 'REMOTE_ONLY' && !video.local_path;
   const isDownloading = video.status === 'DOWNLOADING';
   const isProcessing = video.status === 'PROCESSING' || Boolean(activeProc);
 

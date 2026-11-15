@@ -1534,7 +1534,7 @@
       let filtered = videos.filter(v => {
         const matchTitle = (v.title || '').toLowerCase().includes(query);
         if (!matchTitle) return false;
-        if (currentFilter === 'LOCAL') return v.status === 'LOCAL_READY';
+        if (currentFilter === 'LOCAL') return v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
         if (currentFilter === 'CLOUD') return v.status === 'REMOTE_ONLY';
         return true;
       });
@@ -1555,7 +1555,7 @@
 
       // Update counters
       document.getElementById('count-all').innerText = videos.length;
-      document.getElementById('count-local').innerText = videos.filter(v => v.status === 'LOCAL_READY').length;
+      document.getElementById('count-local').innerText = videos.filter(v => v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path)).length;
       document.getElementById('count-cloud').innerText = videos.filter(v => v.status === 'REMOTE_ONLY').length;
 
       const container = document.getElementById('video-catalog-container');
@@ -1591,8 +1591,8 @@
         grid.className = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4";
 
         filtered.forEach(v => {
-          const isLocal = v.status === 'LOCAL_READY';
-          const isCloud = v.status === 'REMOTE_ONLY';
+          const isLocal = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
+          const isCloud = v.status === 'REMOTE_ONLY' && !v.local_path;
           const isDownloading = v.status === 'DOWNLOADING';
           const proc = processingJobs[v.video_id] || v.processing_info;
           const isProcessing = v.status === 'PROCESSING' || Boolean(proc);
@@ -1728,7 +1728,7 @@
         `;
         const tbody = tableCard.querySelector('#video-table-body');
         filtered.forEach(v => {
-          const isLocal = v.status === 'LOCAL_READY';
+          const isLocal = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
           const proc = processingJobs[v.video_id] || v.processing_info;
           const isProcessing = v.status === 'PROCESSING' || Boolean(proc);
           const durationStr = v.duration_seconds > 0 
@@ -2154,7 +2154,9 @@
       const container = document.getElementById('player-container');
       container.innerHTML = '';
 
-      if (v.status === 'LOCAL_READY') {
+      const isPlayable = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
+
+      if (isPlayable) {
         showBufferingIndicator(true);
         const videoEl = document.createElement('video');
         videoEl.id = 'video-stream-element';
@@ -2381,7 +2383,9 @@
           </div>
         `;
         updateIcons();
-        fetch(`/api/videos/${v.video_id}/download`, { method: 'POST', headers: getAuthHeaders() });
+        if (v.status === 'REMOTE_ONLY' && !v.local_path) {
+          fetch(`/api/videos/${v.video_id}/download`, { method: 'POST', headers: getAuthHeaders() });
+        }
       }
       updateIcons();
     }
@@ -3302,13 +3306,15 @@
                 procHud.classList.add('hidden');
                 procHud.classList.remove('flex');
               }
+              const footerStatus = document.getElementById('player-footer-status');
+              if (footerStatus) footerStatus.innerText = 'LOCAL_READY';
+              activeVideoModal.status = 'LOCAL_READY';
               if (msg.metadata) {
                 if (msg.metadata.vtt_url) activeVideoModal.vtt_url = msg.metadata.vtt_url;
                 if (msg.metadata.subtitles_url) activeVideoModal.subtitles_url = msg.metadata.subtitles_url;
                 if (msg.metadata.renditions) activeVideoModal.renditions = msg.metadata.renditions;
                 if (msg.metadata.preview_url) activeVideoModal.preview_url = msg.metadata.preview_url;
               }
-              openPlayerModal(activeVideoModal);
             }
             fetchAllData();
           }
