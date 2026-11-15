@@ -241,14 +241,14 @@ def get_drive_service(custom_config: Optional[Dict[str, Any]] = None):
     oauth_token = cfg.get("oauth_token") or ""
 
     # Check API Key
-    if auth_type == "api_key" or (api_key and not sa_json):
+    if auth_type == "api_key" or (auth_type in (None, "none", "") and api_key and not sa_json):
         if api_key:
             return build('drive', 'v3', developerKey=api_key, cache_discovery=False)
         if settings.GOOGLE_API_KEY and settings.GOOGLE_API_KEY.strip():
             return build('drive', 'v3', developerKey=settings.GOOGLE_API_KEY.strip(), cache_discovery=False)
 
     # Check Service Account JSON in memory/config
-    if auth_type == "service_account" or sa_json:
+    if auth_type == "service_account" or (auth_type in (None, "none", "") and sa_json):
         if sa_json:
             try:
                 sa_dict = json.loads(sa_json) if isinstance(sa_json, str) else sa_json

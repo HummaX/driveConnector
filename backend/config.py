@@ -19,11 +19,11 @@ class Settings(BaseSettings):
     STORAGE_DIR: str = "/mnt/storage"
 
     # Authentication & JWT
-    JWT_SECRET_KEY: str = "drive-connector-super-secret-key-2026-prod"
+    JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     ADMIN_USERNAME: str = "admin"
-    ADMIN_DEFAULT_PASSWORD: str = "Admin@Drive2026!"
+    ADMIN_DEFAULT_PASSWORD: str = ""
 
     # Process Governance & CPU Core Reservation
     MAX_CONCURRENT_FFMPEG: int = 4
@@ -49,7 +49,10 @@ class Settings(BaseSettings):
     DOWNLOAD_CHUNK_SIZE_BYTES: int = 8 * 1024 * 1024   # 8 MB download stream chunks (accelerates Google Drive / URL downloads)
 
     # CORS
-    CORS_ORIGINS: List[str] = ["*"]
+    CORS_ORIGINS: List[str] = []
+
+    # External URL engines are opt-in; they can follow links beyond initial validation.
+    ENABLE_EXTERNAL_URLS: bool = False
 
     # Google Drive API Config
     GOOGLE_API_KEY: str = ""
@@ -110,7 +113,7 @@ class Settings(BaseSettings):
             total = os.cpu_count() or 1
         except Exception:
             total = 1
-        return max(1, total - self.RESERVED_CPU_CORES)
+        return max(1, (total - self.RESERVED_CPU_CORES) // max(1, self.MAX_CONCURRENT_FFMPEG))
 
     @property
     def whisper_worker_threads(self) -> int:
@@ -123,7 +126,7 @@ class Settings(BaseSettings):
             total = os.cpu_count() or 1
         except Exception:
             total = 1
-        return max(1, int(round(total * self.WHISPER_CPU_RATIO)))
+        return max(1, min(total - self.RESERVED_CPU_CORES, int(round(total * self.WHISPER_CPU_RATIO))) // max(1, self.MAX_CONCURRENT_FFMPEG))
 
     @property
     def total_ram_bytes(self) -> int:

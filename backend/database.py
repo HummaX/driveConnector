@@ -95,22 +95,6 @@ async def init_db():
     await videos_col.create_index("status")
     await videos_col.create_index("created_at")
 
-    # Auto-unstick videos that have local files but got stuck in PROCESSING
-    try:
-        await videos_col.update_many(
-            {
-                "status": "PROCESSING",
-                "$or": [
-                    {"local_path": {"$ne": None}},
-                    {"file_size_bytes": {"$gt": 0}},
-                    {"poster_url": {"$ne": None}}
-                ]
-            },
-            {"$set": {"status": "LOCAL_READY", "processing_info": None}}
-        )
-    except Exception:
-        pass
-
     # Users index
     users_col = db["users"]
     await users_col.create_index("username", unique=True)
@@ -130,7 +114,7 @@ async def list_videos(status: Optional[str] = None, search: Optional[str] = None
         query["title"] = {"$regex": safe_search, "$options": "i"}
 
     cursor = get_videos_collection().find(query, {"_id": 0}).sort("created_at", -1)
-    return await cursor.to_list(length=1000)
+    return await cursor.to_list(length=None)
 
 async def get_video(video_id: str) -> Optional[Dict[str, Any]]:
     return await get_videos_collection().find_one({"video_id": video_id}, {"_id": 0})
@@ -234,17 +218,22 @@ async def delete_video(video_id: str) -> bool:
     return res.deleted_count > 0
 
 async def reconcile_stale_jobs():
-    """
-    On server startup, checks for any jobs left in PROCESSING or with stale processing_info
-    from a previous crashed or restarted server run, and safely resets them to LOCAL_READY.
-    """
+    """Mark interrupted jobs ready only when their local media exists within storage."""
     try:
         col = get_videos_collection()
-        res = await col.update_many(
-            {"status": "PROCESSING"},
-            {"$set": {"status": "LOCAL_READY", "processing_info": None, "updated_at": datetime.utcnow()}}
-        )
-        if res.modified_count > 0:
-            print(f"[Database] Reconciled {res.modified_count} stale PROCESSING jobs to LOCAL_READY on startup.")
+        storage_root = Path(settings.STORAGE_DIR).resolve()
+        async for video in col.find({"status": {"$in": ["PROCESSING", "DOWNLOADING"]}}):
+            local = video.get("local_path")
+            path_ok = False
+            if local:
+                resolved = Path(local).resolve()
+                path_ok = resolved.is_file() and (resolved == storage_root or storage_root in resolved.parents)
+            if path_ok:
+                new_status = "LOCAL_READY"
+            elif video.get("source") == "GDRIVE":
+                new_status = "REMOTE_ONLY"
+            else:
+                new_status = "FAILED"
+            await col.update_one({"_id": video["_id"]}, {"$set": {"status": new_status, "processing_info": None, "updated_at": datetime.utcnow()}})
     except Exception as e:
-        print(f"[Database] Notice: reconcile_stale_jobs: {e}")
+        print(f"[Database] Could not reconcile interrupted jobs: {e}")

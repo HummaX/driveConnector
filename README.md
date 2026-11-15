@@ -1,278 +1,55 @@
-# DriveConnector - Self-Hosted Media Streaming & On-Demand Ingestion Platform
+# DriveConnector — experimental rebuild
 
-A hardened, high-performance self-hosted video streaming and on-demand ingestion web application designed for OVHcloud Linux servers with attached 1TB+ Block Storage volumes (`/mnt/storage`).
+A self-hosted media library for an Ubuntu server, using FastAPI, MongoDB, Google Drive, FFmpeg, JDownloader and an HTTP-only Nginx reverse proxy. The new canonical interface is the static frontend in `frontend/index.html`, `frontend/login.html`, `frontend/css/app.css` and `frontend/js/`. No frontend build or external JavaScript CDN is required.
 
----
+> **This is an experimental candidate, not a production-ready release.** It was developed offline using the existing local source. The frontend is new; the original downloader, Drive catalog and FFmpeg engines have been retained and selectively refactored, not rewritten completely. Live Docker, MongoDB, Google Drive, JDownloader and browser-to-server tests have not been run. Keep a full backup and test on a disposable staging server before considering deployment.
 
-## 📊 System Architecture & Data Flow Chart
+## What changed
 
-```text
-========================================================================================================
-                          DRIVECONNECTOR END-TO-END SYSTEM DATA FLOW
-========================================================================================================
+The library now centers the actual media catalog, provides search, filters, sorting, Drive connection, storage scanning, transfers, a native browser player, thumbnail-sprite scrubbing, alternate audio, subtitles, a quality selector and Web Audio gain. Processing completion updates the active player without automatically resuming or recreating it. The original React application and the second built-in HTML UI are intentionally not included.
 
- [ CLIENT BROWSER ]
-   │
-   ├── [ Web UI (React + Tailwind) ]
-   ├── [ Plyr Video Player ]
-   └── [ Real-Time Telemetry HUD Overlay ]
-         │                                              ▲
-         │ (1) User Actions                             │ (4) Live MB/s & ETA Telemetry
-         ▼                                              │
- ┌──────────────────────────────────────────────────────┴─────────────────────────────────────────────┐
- │ FASTAPI BACKEND SERVER (Port 8000)                                                                 │
- │                                                                                                    │
- │   • JWT Authentication / RBAC (admin / Admin@Drive2026!)                                           │
- │   • Drive Catalog Sync Engine  ──────────────┐                                                     │
- │   • High-Speed Downloader Engine (yt-dlp) ───┼──────────┐                                          │
- │   • WebSocket Broadcaster (/ws/transfers) ───┤          │                                          │
- │   • HTTP 206 Partial Content Range Streamer  │          │                                          │
- └───────┬──────────────────────────────────────┼──────────┼──────────────────────────────────┬───────┘
-         │                                      │          │                                  │
-         │ (2) Scan Metadata Only               │          │ (3) High-Speed Stream            │
-         ▼                                      │          ▼                                  │
-   ┌───────────────────────────┐                │    ┌──────────────────────────┐             │
-   │ GOOGLE DRIVE (API v3)     │                │    │ EXTERNAL SOURCES         │             │
-   │ Remote Videos & Posters   │                │    │ YouTube, Direct MP4 links│             │
-   └───────────────────────────┘                │    └──────────────────────────┘             │
-                                                ▼                                             ▼
- ┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
- │ OVHCLOUD 1TB BLOCK STORAGE (/mnt/storage)                                                          │
- │                                                                                                    │
- │   ├── /mnt/storage/mongodb/             <── Persistent MongoDB 7.0 Database Layer                  │
- │   │     └── videos collection           (Stores status: REMOTE_ONLY -> DOWNLOADING -> LOCAL_READY) │
- │   │                                                                                                │
- │   ├── /mnt/storage/videos/              <── Local Video Payloads ({video_id}.mp4)                  │
- │   │     └── Downloaded directly on-demand; streamed via HTTP 206 Partial Content Range            │
- │   │                                                                                                │
- │   └── /mnt/storage/metadata/{video_id}/ <── Generated Assets (FFmpeg Pipeline)                     │
- │         ├── poster.jpg                  (High-res poster from Drive / 10% frame)                   │
- │         ├── preview.mp4                 (4-second muted looping card hover preview)                │
- │         ├── sprites.jpg                 (10-column tiled scrub sheet)                              │
- │         └── thumbnails.vtt              (WebVTT timestamp mapping #xywh=x,y,w,h)                   │
- └──────────────────────────────────────────────────────▲─────────────────────────────────────────────┘
-                                                        │
-                                                        │ (5) Background Process Job
-                                          ┌─────────────┴───────────────┐
-                                          │ ASYNC FFMPEG WORKER PIPELINE│
-                                          │ Throttled Concurrency (x2)  │
-                                          │ Timeout Guarded (180s)      │
-                                          └─────────────────────────────┘
+The backend retains the existing database model and most API paths. Authentication supports an HttpOnly, SameSite cookie for the new UI and retains bearer authorization for API clients. Media metadata requires authentication. The 206 streaming code shares a byte-range parser, handles suffix ranges correctly and does not log tokens in Nginx URLs. The installer no longer formats disks or resets Git, and replacement of original media during transcoding is disabled.
+
+The supplied MongoDB and JDownloader web interfaces are bound to localhost on ports 8081 and 5800. The backend is bound to localhost on port 8000 and Nginx listens on port 80. An explicit disk mount is required by the setup script.
+
+## Security boundaries
+
+* **HTTP is unencrypted.** Passwords, cookies and media can be intercepted on the network. Use the app only via a trusted network, VPN or SSH tunnel. The server intentionally has no SSL or custom-domain setup.
+* External URL ingestion is **disabled by default** (`ENABLE_EXTERNAL_URLS=false`). The retained external engines may follow redirects, resolve destinations again, or fetch secondary URLs. Initial URL checks alone do not prevent SSRF or DNS rebinding. Do not enable this until outbound network isolation is implemented and verified; the Add video dialog will report that the feature is disabled.
+* Existing MongoDB volumes do **not** change their root credentials when `.env` changes. The initial application admin password is used only when creating a new admin record; changing the environment variable later does not reset an existing account. Changing the JWT key invalidates existing tokens.
+* Drive API keys, OAuth credentials and service-account JSON are still stored in the MongoDB settings collection. Protect the database and its backups. Logout removes the browser cookie; already issued bearer tokens are not immediately revoked.
+* Authentication, metadata access, egress controls, account recovery, dependency versions and the FFmpeg pipeline still need a full security review and live integration tests. Use this build only in a staging environment.
+
+## Staging setup
+
+1. Back up the database, application configuration and `/mnt/storage`; test restoration. Preserve the current `.env` separately. Do not copy a staging database over production.
+2. Install Docker Engine and Docker Compose on Ubuntu 24.04. Mount the intended block device at `/mnt/storage` **before** running setup. The script never formats or mounts a disk.
+3. For a new isolated deployment, run `./setup.sh`. If `.env` is absent it generates unique credentials, stored in `.env` (file permissions 0600); the initial admin password is the `ADMIN_DEFAULT_PASSWORD` value in that file. Review the values privately. If `.env` already exists, it is not regenerated.
+4. For an existing database, reconcile `.env` with its real MongoDB credentials first and provide a unique `JWT_SECRET_KEY` of at least 32 characters. Percent-encode MongoDB credentials containing URL-reserved characters or use generated hexadecimal passwords. Do not assume a changed admin environment value resets a MongoDB user.
+5. Check volume permissions, run `docker compose config`, then on **staging only** run `docker compose up -d --build`. Open `http://<server-ip>/` through a trusted network. The stack intentionally does not configure TLS.
+
+To access local-only administration tools, establish tunnels from your own computer using your actual server username and address:
+
+```sh
+ssh -L 8081:127.0.0.1:8081 -L 5800:127.0.0.1:5800 user@server
 ```
 
----
+Then visit `http://127.0.0.1:8081/` or `http://127.0.0.1:5800/` locally. `update.sh` only rebuilds the currently checked-out files; it does not fetch, reset or merge Git branches.
 
-## 🔀 Git Versioning & Pull Request Approval Protocol
+## Resource limits
 
-```text
-========================================================================================================
-                          GIT VERSIONING & PR APPROVAL PROTOCOL
-========================================================================================================
+Compose sets conservative per-container memory limits totaling about 25.75 GiB for the five services. This can leave headroom on a 32 GB host, but it is **not a guaranteed 10% reservation**: host memory, page cache, the exact available RAM, cgroup enforcement and other processes all matter. Confirm actual cgroup values and measure peak usage on the target host. FFmpeg and Whisper calculate a per-job thread budget from visible CPUs, a reserved-core setting and the configured worker concurrency. This is a soft concurrency policy, not CPU pinning or a hard reservation; FFmpeg libraries and concurrent non-worker workloads can use additional threads. A separate worker service with cgroups/CPU affinity and load testing is still needed for a strict N−1 budget.
 
-  [ 1. DEVELOP ]
-       User Request / Bug Report
-                  │
-                  ▼
-       git checkout -b <type>/<description> (feat/ or fix/)
-                  │
-                  ▼
-       Write Clean Code + Verify Local Syntax & Tests
-                  │
-                  ▼
-       git commit -m "feat/fix: descriptive summary"
+## Verification
 
-  [ 2. REVIEW GATE ]
-                  │
-                  ▼
-       git push -u origin <branch-name>
-                  │
-                  ▼
-       Open GitHub Pull Request (PR)
-                  │
-                  ▼
-         ┌─────────────────────────────────┐
-         │     USER APPROVAL GATE          │
-         │  (Reviewed & approved in chat)  │
-         └────────────────┬────────────────┘
-                          │
-            Approved? ────┴──── No ──> Revise on Branch
-            │ (Yes)
-            ▼
-  [ 3. RELEASE ]
-       Merge Pull Request into 'main'
-                  │
-                  ▼
-       Tag Semantic Version (e.g. v1.1.0, v1.2.0, v1.2.1)
-                  │
-                  ▼
-       Publish Official GitHub Release
-                  │
-                  ▼
-       Deploy on OVHcloud Server: sudo bash update.sh
-========================================================================================================
+```sh
+python3 scripts/verify_dashboard.py
 ```
 
----
+The rewritten verifier tests the canonical UI rather than the removed legacy UI. It runs Python unit tests for byte ranges, response body handling, progress and job isolation; a mocked frontend smoke test for catalog rendering and paused-playback continuity; JavaScript syntax checks; and shell syntax checks. It does **not** establish full compatibility with every old feature or substitute for the original legacy-specific verification suite. The old suite referenced the removed React and standalone HTML implementations, so it was not retained unchanged.
 
-## 🔑 Default Admin Credentials
+Before any release, install the actual application dependencies and add/run integration tests covering authentication and cookies, metadata authorization, real FastAPI 200/206/416 and HEAD responses, all Drive authentication methods, storage migration, the JDownloader folder watcher, real ffmpeg/ffprobe processing, subtitle generation, browser codecs, seek/scrub/track switching, restart recovery, concurrent downloads, 32 GB resource limits and load while playing video.
 
-When the system boots for the first time, an administrator account is automatically created in MongoDB:
+## Git workflow
 
-- **Username**: `admin`
-- **Password**: `Admin@Drive2026!`
-- **Role**: `admin`
-
-*(You can customize these defaults anytime in `.env` via `ADMIN_USERNAME` and `ADMIN_DEFAULT_PASSWORD`)*.
-
----
-
-## 5 Core Features
-
-1. **Database & Storage Architecture (MongoDB + Mongo Express UI + 1TB Block Storage)**:
-   - Persistent database stored directly on `/mnt/storage/mongodb`.
-   - Web-based MongoDB Admin UI on port `8081` via Mongo Express.
-   - High-bitrate videos stored in `/mnt/storage/videos`.
-   - Asset thumbnails, previews, and sprite sheets stored in `/mnt/storage/metadata/{video_id}/`.
-
-2. **Lightweight Google Drive Catalog Sync (0 GB Disk Used Upfront)**:
-   - Scans Google Drive for video files via Google Drive API v3.
-   - Fetches file metadata and high-definition poster thumbnails (upgraded to 1280px).
-   - Inserts records into MongoDB with `status: "REMOTE_ONLY"` without downloading video payloads.
-
-3. **On-Demand Click-to-Download & External Link Ingestion with Live Progress**:
-   - Clicking "Play" on a `REMOTE_ONLY` video triggers high-speed stream download directly into `/mnt/storage/videos/{video_id}.mp4`.
-   - External URL Downloader supports direct MP4 links, YouTube, Vimeo, and custom video streams via `yt-dlp`.
-   - Live telemetry via WebSockets (`/ws/transfers`): Speed (MB/s), MB/GB remaining, ETA, and percentage.
-   - Auto-plays in the video player as soon as download completes.
-
-4. **Automated FFmpeg Video Processing Pipeline**:
-   - `poster.jpg`: High-quality frame extracted at 10% duration.
-   - `preview.mp4`: 4-second muted, low-bitrate looping MP4 compiled from 4 cross-video clips for instant hover cards.
-   - `sprites.jpg` & `thumbnails.vtt`: 1 frame every 5s scaled to 160x90 tiled in a 10-column sprite sheet with pixel-perfect `#xywh=` coordinates.
-
-5. **Streaming UI & Seekbar Scrubbing Player**:
-   - Video Grid with card hover video preview loops.
-   - Video player with HTTP 206 Partial Content Range streaming.
-   - Seekbar hover scrubbing powered by WebVTT sprites.
-   - Live disk usage gauge for the 1TB Block Storage volume.
-
----
-
-## Quick Start on OVHcloud Linux Server
-
-### Option A: One-Command Automated Setup (Recommended)
-
-Run this single command inside the cloned `driveConnector` directory. It automatically installs Docker, configures storage permissions, sets up `.env`, pulls the latest code, and boots the entire platform:
-
-```bash
-sudo bash setup.sh
-```
-
-*(Or without cloning first)*:
-```bash
-curl -fsSL https://raw.githubusercontent.com/HummaX/driveConnector/main/setup.sh | sudo bash
-```
-
-### Option B: Manual Setup
-
-```bash
-# 1. Mount & prepare 1TB block storage
-sudo mkdir -p /mnt/storage/mongodb /mnt/storage/videos /mnt/storage/metadata
-sudo chown -R 999:999 /mnt/storage/mongodb
-sudo chown -R 1000:1000 /mnt/storage/videos /mnt/storage/metadata
-
-# 2. Configure environment
-cp .env.example .env
-
-# 3. Launch stack
-docker compose up -d --build
-```
-
-### Updating the Server
-
-Whenever a new release or update is approved, update your live server with:
-
-```bash
-sudo bash update.sh
-```
-
----
-
-## ☁️ Connecting Google Drive via UI
-
-DriveConnector allows you to connect your Google Drive directly from your web browser without touching server configuration files.
-
-### Option 1: Google Drive API Key (Fastest & Free — 2 Minutes)
-Best for public or shared Google Drive folders (**Anyone with the link can view**).
-
-1. Go to **[Google Cloud Console](https://console.cloud.google.com/)**.
-2. Create a new project (e.g. `DriveConnector`) or select an existing one.
-3. In the search bar, search for **Google Drive API** and click **Enable**.
-4. In the left navigation, go to **APIs & Services > Credentials**.
-5. Click **+ CREATE CREDENTIALS** at the top and choose **API key**.
-6. Copy your API Key (`AIzaSy...`).
-7. In Google Drive, open the folder containing your videos, right-click > **Share** > set General access to **Anyone with the link** (Viewer).
-8. In DriveConnector UI, click **Sync Drive** in the navbar:
-   - Paste your **API Key**.
-   - Paste your **Folder Link or ID** (Required for API Key since it queries public folders; subfolders inside are automatically traversed).
-   - Click **Test Connection** to verify live connectivity and folder accessibility.
-   - Click **Start Sync** to catalog all video metadata and poster thumbnails!
-
-### Option 2: Service Account JSON (For Private Drives)
-For private corporate or personal Google Drive folders:
-1. In Google Cloud Console, navigate to **IAM & Admin > Service Accounts**.
-2. Click **Create Service Account**, name it, and click Done.
-3. Click on the newly created Service Account > **Keys** tab > **Add Key > Create new key > JSON**.
-4. In Google Drive, share your target folder with the Service Account's email address (`xxx@project.iam.gserviceaccount.com`).
-5. In DriveConnector UI, click **Sync Drive** > switch to the **Service Account JSON** tab:
-   - Paste the JSON key (or click **Upload .json**).
-   - Click **Test Connection** and **Start Sync**.
-
----
-
-## 🚀 High-Throughput Streaming & Security Architecture
-
-### Edge Reverse Proxy (Port 80 HTTP-Only)
-DriveConnector includes an HTTP-only Nginx reverse proxy running on **Port 80** that routes directly to FastAPI on **Port 8000**:
-- **Zero SSL / Zero Certbot**: Strictly plain HTTP on the OVHcloud server IP (`http://<SERVER_IP>/`).
-- **Proxy Buffering Disabled (`proxy_buffering off`)**: Media streaming (`/api/stream/`) and real-time WebSocket telemetry (`/ws/transfers`) bypass proxy buffers for zero-latency chunk delivery.
-- **1MB Progressive Range Streaming**: Video and audio streams use 1MB HTTP 206 Partial Content burst chunking for instant playback start.
-
-### High-Speed Ingestion
-- **Multi-Stream Rclone**: Saturates Google Drive downloads using `--multi-thread-streams 8 --buffer-size 64M`.
-- **16-Connection Aria2c**: Segments direct HTTP/HTTPS media downloads across 16 parallel connections (`-x 16 -s 16 -k 1M`).
-- **FastStart Video Encoding**: All transcode and preview jobs enforce `-movflags +faststart` and `-preset veryfast`.
-
-### Production Security Hardening
-- **Login Rate Limiting**: In-memory sliding-window limiter blocks brute-force login attempts (maximum 10 failed attempts per client IP per 5 minutes -> HTTP 429).
-- **Path Traversal Protection**: Enforces `os.path.realpath` checks verifying that all video and metadata operations strictly reside within `/mnt/storage`.
-- **SSRF & DNS Rebind Defense**: Blocks private IPv4/IPv6 ranges (`::1`, `fc00::/7`, `fe80::/10`, `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and cloud metadata services (`169.254.169.254`).
-- **Automated UFW Firewall**: `setup.sh` automatically configures UFW rules allowing only ports 22, 80, and 8000.
-
----
-
-## 🤖 Automated PR Review & CI Pipeline
-
-Every Pull Request can be automatically reviewed and pushed using the automated PR tool (`scripts/auto_pr.py`) and GitHub Actions CI (`ci/auto-review.yml`):
-
-1. **Pre-flight Syntax & Security Checks**: Compiles Python bytecode and audits for syntax errors before pushing.
-2. **Automated Remote Push & PR Creation**: Automatically pushes the feature branch and creates the Pull Request on GitHub with a comprehensive description.
-3. **Automated Code Review Generation**: Automatically submits a structured security and quality checklist review comment on the PR.
-4. **Auto-Merge Capability**: Automatically merges verified PRs into `main` via squash merge when `--auto-merge` is passed.
-
-### Quick Auto-PR Utility
-
-To automatically review, push, and open a Pull Request with an automated review report:
-
-```bash
-# Push branch, open PR, and generate automated review:
-python scripts/auto_pr.py --title "feat: descriptive title" --body "Summary of changes"
-
-# Push, review, and auto-merge in one step:
-python scripts/auto_pr.py --title "feat: descriptive title" --auto-merge
-```
-
-### GitHub Actions CI Workflow
-
-The workflow template in `ci/auto-review.yml` can be placed into `.github/workflows/auto-review.yml` for automatic cloud-based Bandit security audits, Flake8 linting, and Vite frontend builds on every GitHub pull request.
-
+This archive contains no `.git` directory and is not pushed anywhere. Apply changes only after inspection and preserve existing uncommitted work. Use the project's `claude` branch and obtain approval before merging to `main`.

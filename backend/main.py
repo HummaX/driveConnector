@@ -23,6 +23,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from range_http import parse_byte_range, RangeNotSatisfiable, MultipleRanges
 from bson import ObjectId
 
 import psutil
@@ -529,6 +530,9 @@ network_tracker = NetworkTelemetryTracker()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Never start with a predictable signing key. Existing installations must configure a unique key.
+    if len(settings.JWT_SECRET_KEY) < 32 or settings.JWT_SECRET_KEY == "drive-connector-super-secret-key-2026-prod":
+        raise RuntimeError("JWT_SECRET_KEY must be a unique secret of at least 32 characters.")
     # Startup: Initialize MongoDB, ensure directories exist, seed admin user, prime network counters
     await init_db()
     await init_admin_user()
@@ -567,99 +571,58 @@ app.add_middleware(
 )
 
 @app.middleware("http")
-async def track_network_traffic(request: Request, call_next):
-    path = request.url.path
-    if request.method != "OPTIONS" and (path == "/" or path.rstrip("/") == "/api/videos"):
-        network_tracker.update_server_ip(request)
-        ip = get_client_ip(request)
-        client_override = None
-        c_country = request.headers.get("x-client-country")
-        c_city = request.headers.get("x-client-city")
-        c_lat = request.headers.get("x-client-lat")
-        c_lng = request.headers.get("x-client-lng")
-        if c_country and c_lat and c_lng:
-            try:
-                client_override = {
-                    "country": c_country,
-                    "city": c_city or "Visitor",
-                    "country_code": request.headers.get("x-client-country-code") or "UN",
-                    "lat": float(c_lat),
-                    "lng": float(c_lng)
-                }
-            except Exception:
-                pass
-        try:
-            asyncio.create_task(network_tracker.register_hit(ip, path, client_override))
-        except Exception:
-            pass
-    return await call_next(request)
+async def security_headers_and_origin(request: Request, call_next):
+    # Cookies are SameSite=Strict; additionally reject cross-origin state-changing requests.
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.cookies.get("access_token") and not request.headers.get("authorization"):
+        origin = request.headers.get("origin")
+        host = request.headers.get("host", "")
+        allowed_origin = f"{request.url.scheme}://{host}"
+        if request.headers.get("sec-fetch-site") == "cross-site" or (origin and origin != allowed_origin):
+            return JSONResponse({"detail": "Cross-origin request rejected."}, status_code=403)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    return response
 
-# WebVTT scrubber cue fallback route (eliminates 404 console errors while sprites generate)
-@app.get("/metadata/{video_id}/thumbnails.vtt")
-async def get_video_thumbnails_vtt(video_id: str):
-    """
-    Serves WebVTT thumbnail cues for scrub bars.
-    Returns HTTP 200 with valid empty WebVTT if sprites have not finished generating,
-    eliminating 404 console errors in HTML5 / Video.js / Plyr players.
-    """
+# Only the browser-facing media assets are served, and all require authentication.
+@app.get("/metadata/{video_id}/{filename}")
+async def get_metadata_asset(video_id: str, filename: str, current_user: Dict[str, Any] = Depends(get_current_user_flexible)):
     valid_id = validate_video_id(video_id)
-    vtt_path = settings.get_video_metadata_dir(valid_id) / "thumbnails.vtt"
-    if vtt_path.exists() and vtt_path.stat().st_size > 10:
-        return FileResponse(vtt_path, media_type="text/vtt")
-    return Response(
-        content="WEBVTT\n\n",
-        media_type="text/vtt",
-        headers={"Cache-Control": "no-cache"}
-    )
+    allowed = {"poster.jpg", "preview.mp4", "sprites.jpg", "thumbnails.vtt", "subtitles.vtt"}
+    if filename not in allowed and not re.fullmatch(r"(?:audio_track_\d+\.m4a|sub_\d+_[A-Za-z0-9_-]{1,40}\.vtt)", filename):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    metadata_root = (Path(settings.STORAGE_DIR) / "metadata").resolve()
+    video_dir = (metadata_root / valid_id).resolve()
+    candidate = (video_dir / filename).resolve()
+    if video_dir.parent != metadata_root or candidate.parent != video_dir:
+        raise HTTPException(status_code=403, detail="Invalid asset path")
+    if filename == "thumbnails.vtt" and not candidate.is_file():
+        return Response(content="WEBVTT\n\n", media_type="text/vtt", headers={"Cache-Control": "private, no-store"})
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return FileResponse(candidate, headers={"Cache-Control": "private, no-store"})
 
-# Mount static asset directory
-app.mount("/metadata", StaticFiles(directory=str(settings.metadata_dir)), name="metadata")
-
-# Mount built-in single-page Web UI
-static_ui_dir = Path(__file__).parent / "static"
-if static_ui_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_ui_dir)), name="static")
-
-# Mount frontend assets
+# The only UI source of truth is the mounted/bundled frontend directory.
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 frontend_css_dir = frontend_dir / "css"
 frontend_js_dir = frontend_dir / "js"
-try:
-    frontend_css_dir.mkdir(parents=True, exist_ok=True)
-    frontend_js_dir.mkdir(parents=True, exist_ok=True)
-except OSError:
-    pass
-
 app.mount("/css", StaticFiles(directory=str(frontend_css_dir)), name="css")
 app.mount("/js", StaticFiles(directory=str(frontend_js_dir)), name="js")
 
 @app.get("/login", include_in_schema=False)
 @app.get("/login.html", include_in_schema=False)
 async def serve_login():
-    login_file = frontend_dir / "login.html"
-    if login_file.exists():
-        return FileResponse(str(login_file))
-    return Response(status_code=404)
+    return FileResponse(frontend_dir / "login.html")
 
 @app.get("/", include_in_schema=False)
 async def serve_root():
-    frontend_index = frontend_dir / "index.html"
-    if frontend_index.exists():
-        return FileResponse(str(frontend_index))
-    dist_index = frontend_dir / "dist" / "index.html"
-    if dist_index.exists():
-        return FileResponse(str(dist_index))
-    index_file = static_ui_dir / "index.html"
-    if index_file.exists():
-        return FileResponse(str(index_file))
-    return {"status": "ok", "message": "DriveConnector API running"}
+    return FileResponse(frontend_dir / "index.html")
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def serve_favicon():
-    favicon_file = static_ui_dir / "favicon.ico"
-    if favicon_file.exists():
-        return FileResponse(str(favicon_file), media_type="image/x-icon")
-    return Response(status_code=404)
+    return FileResponse(frontend_dir / "public" / "favicon.ico", media_type="image/x-icon")
 
 # ----------------- Real-Time Global Network & GeoIP Telemetry -----------------
 class ClientGeoRegistration(BaseModel):
@@ -732,7 +695,7 @@ async def record_login_success(client_ip: str):
 @app.post("/api/login")
 async def login(credentials: UserLogin, request: Request):
     """Authenticates credentials and returns a signed JWT access token with brute-force rate limiting."""
-    client_ip = get_client_ip(request)
+    client_ip = request.client.host if request.client else "unknown"
     await check_login_rate_limit(client_ip)
 
     try:
@@ -740,7 +703,7 @@ async def login(credentials: UserLogin, request: Request):
     except Exception:
         user = None
 
-    if not user or not verify_password(credentials.password, user["password_hash"]):
+    if not user or not await asyncio.to_thread(verify_password, credentials.password, user["password_hash"]):
         await record_login_failure(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -749,12 +712,17 @@ async def login(credentials: UserLogin, request: Request):
     
     await record_login_success(client_ip)
     token = create_access_token({"sub": user["username"], "role": user.get("role", "admin")})
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "username": user["username"],
-        "role": user.get("role", "admin")
-    }
+    response = JSONResponse({"access_token": token, "token_type": "bearer", "username": user["username"], "role": user.get("role", "admin")})
+    response.set_cookie("access_token", token, max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60, httponly=True, samesite="strict", secure=False, path="/")
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+@app.post("/api/auth/logout")
+async def logout():
+    response = JSONResponse({"status": "signed_out"})
+    response.delete_cookie("access_token", path="/", samesite="strict")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 @app.get("/api/auth/me")
 async def get_my_profile(current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -802,7 +770,7 @@ class TranscodeRequest(BaseModel):
 @app.websocket("/ws/transfers")
 async def websocket_transfers_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
     """Strictly authenticated real-time transfer telemetry socket."""
-    user = await validate_ws_token(token)
+    user = await validate_ws_token(token or websocket.cookies.get("access_token"))
     if not user:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -918,13 +886,24 @@ async def trigger_drive_download(
     background_tasks.add_task(download_drive_video, valid_id)
     return {"message": "Download started", "video_id": valid_id, "status": "DOWNLOADING"}
 
+URL_DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
+
+async def _run_url_download(video_id: str, url: str, engine: str):
+    async with URL_DOWNLOAD_SEMAPHORE:
+        await download_external_url(video_id, url, engine)
+
+async def _run_url_batch(jobs):
+    await asyncio.gather(*(_run_url_download(*job) for job in jobs))
+
 @app.post("/api/videos/download-url")
 async def trigger_url_download(
     payload: DownloadUrlRequest,
     background_tasks: BackgroundTasks,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Downloads external URL link(s) with SSRF protection and multi-URL queueing (Requires Authentication)."""
+    """Queues external links only when the operator explicitly opts in."""
+    if not settings.ENABLE_EXTERNAL_URLS:
+        raise HTTPException(status_code=403, detail="External URL downloads are disabled. See the security notes before enabling them.")
     raw_urls: List[str] = []
     if payload.urls:
         for u in payload.urls:
@@ -941,6 +920,7 @@ async def trigger_url_download(
         raise HTTPException(status_code=400, detail="No valid URL provided. Enter one or more video URLs.")
 
     queued_videos = []
+    queued_jobs = []
     errors = []
     req_engine = (payload.engine or "auto").lower().strip()
 
@@ -953,7 +933,7 @@ async def trigger_url_download(
             item_title = payload.title if len(raw_urls) == 1 else None
             video = await create_url_video(url=clean_url, title=item_title)
             video_id = video["video_id"]
-            background_tasks.add_task(download_external_url, video_id, clean_url, req_engine)
+            queued_jobs.append((video_id, clean_url, req_engine))
             queued_videos.append(video)
         except Exception as e:
             if len(raw_urls) == 1:
@@ -964,6 +944,8 @@ async def trigger_url_download(
     if not queued_videos and errors:
         raise HTTPException(status_code=400, detail=f"Failed to queue downloads: {errors[0]['error']}")
 
+    if queued_jobs:
+        background_tasks.add_task(_run_url_batch, queued_jobs)
     return {
         "message": f"Queued {len(queued_videos)} download(s)",
         "count": len(queued_videos),
@@ -1086,6 +1068,9 @@ async def trigger_video_transcode(
         raise HTTPException(status_code=400, detail="Video must be stored locally before transcoding.")
 
     quality = payload.quality.lower().strip()
+    if payload.replace_original:
+        raise HTTPException(status_code=400, detail="Replacing the original is disabled to protect audio and subtitle tracks.")
+
     if quality not in ["720p", "480p", "360p"]:
         raise HTTPException(status_code=400, detail=f"Unsupported quality '{quality}'. Allowed: 720p, 480p, 360p.")
 
@@ -1211,236 +1196,79 @@ async def probe_and_extract_tracks(
         "video": updated
     }
 
-STREAM_BURST_CHUNK_SIZE_BYTES: int = 16 * 1024 * 1024  # 16MB burst chunk for responsive HTTP 206 progressive start & open-ended Range: bytes=start- requests
-
-@app.get("/api/videos/{video_id}/audio/{track_index}")
-async def stream_audio_track(
-    video_id: str,
-    track_index: int,
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user_flexible)
-):
-    """
-    RFC 7233 Range Streaming for a specific audio track extracted to AAC format.
-    Allows browsers to switch and play alternate audio tracks (e.g. Hindi, English, Spanish).
-    """
-    valid_id = validate_video_id(video_id)
-    video = await get_video(valid_id)
-    if not video:
-        raise HTTPException(status_code=404, detail="Video not found in catalog")
-    if video.get("status") == "REMOTE_ONLY":
-        raise HTTPException(status_code=409, detail="Video is stored in cloud. Download locally to stream alternate audio tracks.")
-
-    audio_path = await extract_audio_track(valid_id, track_index)
-    if not audio_path or not audio_path.exists():
-        raise HTTPException(status_code=404, detail=f"Audio track {track_index} not found or extraction failed")
-    audio_path = validate_storage_path(audio_path)
-
-    file_size = audio_path.stat().st_size
+def make_media_response(path: Path, request: Request, content_type: str):
+    """Bounded-memory 200/206 response. Multiple ranges are ignored with a full 200."""
+    file_size = path.stat().st_size
     range_header = request.headers.get("range")
-    content_type = "audio/mp4"
-
-    if not range_header:
-        headers = {
-            "Content-Length": str(file_size),
-            "Content-Type": content_type,
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=86400",
-        }
-        def full_audio_iterator():
-            with open(audio_path, "rb") as f:
-                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
-                    yield chunk
-        return StreamingResponse(full_audio_iterator(), headers=headers)
-
-    range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
-    if not range_match:
-        raise HTTPException(status_code=416, detail="Invalid Range Header format")
-
-    raw_start, raw_end = range_match.groups()
-    if raw_start == "" and raw_end == "":
-        raise HTTPException(status_code=416, detail="Invalid Range parameters")
-
-    if raw_start == "":
-        suffix_length = int(raw_end)
-        start = max(0, file_size - suffix_length)
-        end = file_size - 1
-    elif raw_end == "":
-        start = int(raw_start)
-        end = file_size - 1
-    else:
-        start = int(raw_start)
-        end = min(int(raw_end), file_size - 1)
-
-    if start >= file_size or start > end:
-        raise HTTPException(
-            status_code=416,
-            detail="Requested range not satisfiable",
-            headers={"Content-Range": f"bytes */{file_size}"}
-        )
-
-    # Responsive 16MB HTTP 206 Partial Content byte-range burst cap
-    max_chunk = STREAM_BURST_CHUNK_SIZE_BYTES
-    if (end - start + 1) > max_chunk:
-        end = start + max_chunk - 1
-
-    content_length = end - start + 1
-    def audio_range_stream():
-        with open(audio_path, "rb") as f:
-            f.seek(start)
-            remaining = content_length
-            while remaining > 0:
-                chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)
-                data = f.read(chunk_size)
+    selected = None
+    if range_header:
+        try:
+            selected = parse_byte_range(range_header, file_size, settings.STREAM_BURST_CHUNK_SIZE_BYTES)
+        except MultipleRanges:
+            # RFC 9110 permits ignoring a Range header instead of multipart support.
+            selected = None
+        except RangeNotSatisfiable:
+            raise HTTPException(status_code=416, detail="Requested range not satisfiable", headers={"Content-Range": f"bytes */{file_size}"})
+    start = selected.start if selected else 0
+    length = selected.length if selected else file_size
+    headers = {"Content-Type": content_type, "Content-Length": str(length), "Accept-Ranges": "bytes", "Cache-Control": "private, no-store"}
+    if selected:
+        headers["Content-Range"] = f"bytes {selected.start}-{selected.end}/{file_size}"
+    status_code = 206 if selected else 200
+    if request.method == "HEAD":
+        return Response(status_code=status_code, headers=headers)
+    def chunks():
+        with open(path, "rb") as media:
+            media.seek(start)
+            remaining = length
+            while remaining:
+                data = media.read(min(remaining, max(1, settings.STREAM_CHUNK_SIZE_BYTES)))
                 if not data:
                     break
                 remaining -= len(data)
                 yield data
+    return StreamingResponse(chunks(), status_code=status_code, headers=headers)
 
-    headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(content_length),
-        "Content-Type": content_type,
-        "Cache-Control": "public, max-age=86400",
-    }
-    return StreamingResponse(audio_range_stream(), status_code=206, headers=headers)
+@app.get("/api/videos/{video_id}/audio/{track_index}")
+@app.head("/api/videos/{video_id}/audio/{track_index}")
+async def stream_audio_track(video_id: str, track_index: int, request: Request, current_user: Dict[str, Any] = Depends(get_current_user_flexible)):
+    valid_id = validate_video_id(video_id)
+    if track_index < 0:
+        raise HTTPException(status_code=400, detail="Invalid track index")
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if video.get("status") == "REMOTE_ONLY":
+        raise HTTPException(status_code=409, detail="Video must be downloaded first")
+    audio_path = await extract_audio_track(valid_id, track_index)
+    if not audio_path or not audio_path.is_file():
+        raise HTTPException(status_code=404, detail="Audio track not available")
+    return make_media_response(validate_storage_path(audio_path), request, "audio/mp4")
 
-# ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
 ALLOWED_STREAM_QUALITIES = {"720p", "480p", "360p", "1080p", "original", "source"}
 
 @app.get("/api/stream/{video_id}")
-async def stream_video(
-    video_id: str,
-    request: Request,
-    quality: Optional[str] = Query(None),
-    current_user: Dict[str, Any] = Depends(get_current_user_flexible)
-):
-    """
-    Authenticated HTTP Range Request Streaming Engine.
-    Accepts Authorization Header, ?token= parameter, or cookie.
-    Accepts ?quality=720p, ?quality=480p, ?quality=360p for adaptive downscaled playback.
-    Unauthorized users cannot stream video content.
-    """
+@app.head("/api/stream/{video_id}")
+async def stream_video(video_id: str, request: Request, quality: Optional[str] = Query(None), current_user: Dict[str, Any] = Depends(get_current_user_flexible)):
     valid_id = validate_video_id(video_id)
     video = await get_video(valid_id)
     if not video:
-        raise HTTPException(status_code=404, detail="Video not found in catalog")
-
-    video_path = resolve_video_file_path(video)
-    if not video_path or not video_path.exists():
-        video_path = settings.videos_dir / f"{valid_id}.mp4"
-
-    # Multi-resolution quality selection with strict whitelist validation
+        raise HTTPException(status_code=404, detail="Video not found")
+    video_path = resolve_video_file_path(video) or (settings.videos_dir / f"{valid_id}.mp4")
     if quality:
         clean_q = quality.lower().strip()
         if clean_q not in ALLOWED_STREAM_QUALITIES:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported quality '{quality}'")
-
-        if clean_q not in ["original", "1080p", "source"]:
-            custom_path = video.get("renditions", {}).get(clean_q, {}).get("path")
-            rendition_file = settings.videos_dir / f"{valid_id}_{clean_q}.mp4"
-            if custom_path and Path(custom_path).exists():
-                video_path = Path(custom_path)
-            elif rendition_file.exists():
-                video_path = rendition_file
-
+            raise HTTPException(status_code=400, detail="Unsupported quality")
+        if clean_q not in {"original", "1080p", "source"}:
+            custom_path = (video.get("renditions") or {}).get(clean_q, {}).get("path")
+            candidate = Path(custom_path) if custom_path else settings.videos_dir / f"{valid_id}_{clean_q}.mp4"
+            if candidate.is_file():
+                video_path = candidate
     video_path = validate_storage_path(video_path)
-
-    if not video_path.exists() or video.get("status") == "REMOTE_ONLY":
-        raise HTTPException(
-            status_code=409,
-            detail={"error": "VIDEO_REMOTE_ONLY", "message": "Video is stored on cloud. Click to fetch locally."}
-        )
-
-    file_size = video_path.stat().st_size
-    range_header = request.headers.get("range")
-
-    suffix = video_path.suffix.lower()
-    content_type_map = {
-        ".mp4": "video/mp4",
-        ".mkv": "video/x-matroska",
-        ".webm": "video/webm",
-        ".mov": "video/quicktime",
-        ".avi": "video/x-msvideo",
-        ".m4v": "video/x-m4v",
-        ".ts": "video/mp2t",
-        ".flv": "video/x-flv",
-    }
-    content_type = content_type_map.get(suffix, "video/mp4")
-
-    if not range_header:
-        def file_iterator():
-            with open(video_path, "rb") as f:
-                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
-                    yield chunk
-
-        headers = {
-            "Content-Type": content_type,
-            "Content-Length": str(file_size),
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=86400",
-        }
-        return StreamingResponse(file_iterator(), headers=headers)
-
-    range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
-    if not range_match:
-        raise HTTPException(status_code=416, detail="Invalid Range header format")
-
-    raw_start, raw_end = range_match.groups()
-
-    if raw_start == "" and raw_end == "":
-        raise HTTPException(status_code=416, detail="Invalid Range parameters")
-
-    if raw_start == "":
-        suffix_length = int(raw_end)
-        start = max(0, file_size - suffix_length)
-        end = file_size - 1
-    elif raw_end == "":
-        start = int(raw_start)
-        end = file_size - 1
-    else:
-        start = int(raw_start)
-        end = min(int(raw_end), file_size - 1)
-
-    if start >= file_size or start > end:
-        raise HTTPException(
-            status_code=416,
-            detail="Requested range not satisfiable",
-            headers={"Content-Range": f"bytes */{file_size}"}
-        )
-
-    max_chunk = STREAM_BURST_CHUNK_SIZE_BYTES
-    if (end - start + 1) > max_chunk:
-        end = start + max_chunk - 1
-
-    content_length = end - start + 1
-
-    def range_stream():
-        with open(video_path, "rb") as f:
-            f.seek(start)
-            remaining = content_length
-            while remaining > 0:
-                chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)
-                data = f.read(chunk_size)
-                if not data:
-                    break
-                remaining -= len(data)
-                yield data
-
-    headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(content_length),
-        "Content-Type": content_type,
-        "Cache-Control": "public, max-age=86400",
-    }
-
-    return StreamingResponse(
-        range_stream(),
-        status_code=206,
-        headers=headers
-    )
+    if not video_path.is_file() or video.get("status") == "REMOTE_ONLY":
+        raise HTTPException(status_code=409, detail={"error": "VIDEO_REMOTE_ONLY", "message": "Video is not available locally."})
+    content_type = {".mp4":"video/mp4", ".mkv":"video/x-matroska", ".webm":"video/webm", ".mov":"video/quicktime", ".avi":"video/x-msvideo", ".m4v":"video/x-m4v", ".ts":"video/mp2t", ".flv":"video/x-flv"}.get(video_path.suffix.lower(), "application/octet-stream")
+    return make_media_response(video_path, request, content_type)
 
 # ----------------- Hardware & Process Telemetry (Auth Guarded) -----------------
 @app.get("/api/system/metrics")
@@ -1451,7 +1279,7 @@ async def get_system_metrics(
     """Comprehensive Hardware & Operational Metrics (Requires Authentication)."""
     update_network_rates()
     client_ip = network_tracker.extract_client_ip(request)
-    geo_telemetry = await network_tracker.get_telemetry(client_ip)
+    geo_telemetry = {}  # No automatic external geolocation requests.
 
     # CPU metrics
     cpu_percent = 0.0
@@ -1627,8 +1455,6 @@ async def get_database_stats(
         "mongo_express_is_public": is_public,
         "mongo_express_url": f"http://{host_ip}:{settings.MONGO_EXPRESS_PORT}/" if is_public else f"http://127.0.0.1:{settings.MONGO_EXPRESS_PORT}/",
         "ssh_tunnel_cmd": f"ssh -L {settings.MONGO_EXPRESS_PORT}:127.0.0.1:{settings.MONGO_EXPRESS_PORT} ubuntu@{host_ip}",
-        "mongo_express_user": settings.MONGO_EXPRESS_USER,
-        "mongo_express_pass": settings.MONGO_EXPRESS_PASS,
     }
 
 @app.get("/api/db/collections/{collection_name}")

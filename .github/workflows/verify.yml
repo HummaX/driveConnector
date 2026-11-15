@@ -1,0 +1,20 @@
+name: Verify canonical application
+on:
+  pull_request:
+  push:
+    branches: [main, claude]
+permissions:
+  contents: read
+jobs:
+  offline-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run offline regression checks
+        run: python scripts/verify_dashboard.py

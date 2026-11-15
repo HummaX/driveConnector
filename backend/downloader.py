@@ -1,5 +1,6 @@
 import os
 import time
+import tempfile
 import json
 import shutil
 import socket
@@ -195,12 +196,17 @@ async def try_download_drive_via_rclone(
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
         )
         last_time = time.time()
         last_bytes = 0
+        deadline = time.monotonic() + 4 * 60 * 60
         while proc.returncode is None:
+            if time.monotonic() > deadline:
+                proc.kill()
+                await proc.wait()
+                break
             await asyncio.sleep(0.5)
             if proc.returncode is not None:
                 break
@@ -215,7 +221,7 @@ async def try_download_drive_via_rclone(
                         title=title,
                         source="Google Drive (rclone multi-stream)",
                         downloaded_bytes=cur_size,
-                        total_bytes=expected_size or cur_size,
+                        total_bytes=expected_size,
                         speed_bytes_sec=speed,
                         status="DOWNLOADING"
                     )
@@ -227,7 +233,7 @@ async def try_download_drive_via_rclone(
             print(f"[Downloader] rclone multi-stream completed successfully for {video_id}")
             return True
         else:
-            err_msg = stderr.decode("utf-8", errors="ignore")[:300]
+            err_msg = "No subprocess diagnostics captured"
             print(f"[Downloader] rclone exited with code {proc.returncode}: {err_msg}. Falling back to httpx stream.")
             if part_path.exists():
                 try:
@@ -284,13 +290,18 @@ async def try_download_direct_via_aria2(
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
         )
         last_time = time.time()
         last_bytes = 0
+        deadline = time.monotonic() + 4 * 60 * 60
 
         while proc.returncode is None:
+            if time.monotonic() > deadline:
+                proc.kill()
+                await proc.wait()
+                break
             await asyncio.sleep(0.5)
             if proc.returncode is not None:
                 break
@@ -305,7 +316,7 @@ async def try_download_direct_via_aria2(
                         title=title,
                         source="Direct Media (aria2c multi-connection)",
                         downloaded_bytes=cur_size,
-                        total_bytes=expected_size or cur_size,
+                        total_bytes=expected_size,
                         speed_bytes_sec=speed,
                         status="DOWNLOADING"
                     )
@@ -325,7 +336,7 @@ async def try_download_direct_via_aria2(
             print(f"[Downloader] aria2c download succeeded for {video_id} ({format_bytes(part_path.stat().st_size)})")
             return True
         else:
-            err_msg = stderr.decode("utf-8", errors="ignore")[:300]
+            err_msg = "No subprocess diagnostics captured"
             print(f"[Downloader] aria2c exited with code {proc.returncode}: {err_msg}. Falling back to httpx stream.")
             if part_path.exists():
                 try:
@@ -453,10 +464,9 @@ async def broadcast_progress(
 ):
     """Calculates telemetry metrics and broadcasts JSON payload to all connected WebSockets."""
     pct = round((downloaded_bytes / total_bytes * 100), 1) if total_bytes > 0 else 0.0
-    if pct >= 100.0 or (total_bytes > 0 and downloaded_bytes >= total_bytes):
-        pct = 100.0
-        if status == "DOWNLOADING":
-            status = "DOWNLOAD_COMPLETE"
+    # Bytes arriving are not proof that the file is complete and finalized.
+    if status == "DOWNLOADING":
+        pct = min(pct, 99.9)
 
     if status in ("DOWNLOAD_COMPLETE", "DONE", "LOCAL_READY"):
         pct = 100.0
@@ -504,8 +514,11 @@ async def download_drive_video(video_id: str):
 
     drive_file_id = video["drive_file_id"]
     title = video.get("title", f"Video {video_id}")
-    dest_path = settings.videos_dir / f"{video_id}.mp4"
-    part_path = settings.videos_dir / f"{video_id}.mp4.part"
+    extension = Path(title).suffix.lower()
+    if extension not in DIRECT_MEDIA_EXTS:
+        extension = ".mp4"
+    dest_path = settings.videos_dir / f"{video_id}{extension}"
+    part_path = settings.videos_dir / f"{video_id}{extension}.part"
 
     if dest_path.exists() and video.get("status") == "LOCAL_READY":
         active_downloads.pop(video_id, None)
@@ -657,7 +670,9 @@ async def download_direct_http_stream(video_id: str, url: str):
     total_bytes = int(video.get("file_size_bytes") or 0) if video else 0
 
     # High-speed multi-connection aria2c integration (-x 16 -s 16 -k 1M)
-    if shutil.which("aria2c"):
+    # Unknown-size direct links use the HTTP client, where response length is checked first.
+    if shutil.which("aria2c") and total_bytes > 0:
+        check_disk_space(total_bytes)
         aria2_ok = await try_download_direct_via_aria2(
             video_id=video_id,
             url=url,
@@ -810,7 +825,7 @@ async def download_direct_http_stream(video_id: str, url: str):
                                     title=title,
                                     source="Direct Stream",
                                     downloaded_bytes=downloaded_bytes,
-                                    total_bytes=total_bytes or downloaded_bytes,
+                                    total_bytes=total_bytes,
                                     speed_bytes_sec=speed,
                                     status="DOWNLOADING"
                                 )
@@ -980,7 +995,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         parsed_path = urlparse(url).path
         raw_filename = unquote(parsed_path.split("/")[-1]) if parsed_path else ""
         raw_title = Path(raw_filename).stem if raw_filename else f"Download_{video_id}"
-    clean_title = (raw_title or f"Download_{video_id}").strip()
+    clean_title = (raw_title or f"Download_{video_id}").replace("\r", " ").replace("\n", " ").strip()
 
     await update_video(video_id, {
         "status": "DOWNLOADING",
@@ -1004,10 +1019,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
     cfg_dir = jdownloader_dir / "cfg"
     folderwatch_dir.mkdir(parents=True, exist_ok=True)
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(folderwatch_dir, 0o777)
-    except Exception:
-        pass
+    # Folder permissions are provisioned by setup; do not make this directory world-writable.
 
     # Pre-seed FolderWatch and GeneralSettings if not present
     fw_ext = cfg_dir / "org.jdownloader.extensions.folderwatch.FolderWatchExtension.json"
@@ -1024,25 +1036,46 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         except Exception:
             pass
 
-    # 2. Snapshot current files in videos dir to detect the new arrival (recursive in case of package subfolders)
-    existing_files = {p.resolve() for p in settings.videos_dir.rglob("*") if p.is_file()}
+    # Each job has its own output directory; concurrent downloads cannot claim each other's files.
+    job_download_dir = settings.videos_dir / ".jobs" / video_id
+    job_download_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chown(job_download_dir, 1000, 1000)
+    except OSError as error:
+        if os.getuid() != 1000:
+            raise RuntimeError("Cannot set safe JDownloader directory ownership") from error
+    os.chmod(job_download_dir, 0o770)
+    existing_files = {p.resolve() for p in job_download_dir.rglob("*") if p.is_file()}
 
     # 3. Create .crawljob file
     job_file = folderwatch_dir / f"job_{video_id}.crawljob"
     crawljob_content = (
         f"text={url}\n"
         f"packageName={clean_title}\n"
-        f"downloadFolder=/output\n"
+        f"downloadFolder=/output/.jobs/{video_id}\n"
         f"autoStart=TRUE\n"
         f"autoConfirm=TRUE\n"
         f"forcedStart=TRUE\n"
         f"overwritePackagizerEnabled=true\n"
     )
-    job_file.write_text(crawljob_content, encoding="utf-8")
+    if job_file.exists():
+        raise RuntimeError("JDownloader job already exists")
+    # Atomically publish the completed job so the watcher cannot read a partial file.
+    temporary_job = None
     try:
-        os.chmod(job_file, 0o666)
-    except Exception:
-        pass
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folderwatch_dir, prefix=".pending-", delete=False) as file:
+            temporary_job = Path(file.name)
+            file.write(crawljob_content)
+        try:
+            os.chown(temporary_job, 1000, 1000)
+        except OSError as error:
+            if os.getuid() != 1000:
+                raise RuntimeError("Cannot set safe JDownloader job ownership") from error
+        os.chmod(temporary_job, 0o600)
+        temporary_job.replace(job_file)
+    finally:
+        if temporary_job and temporary_job.exists():
+            temporary_job.unlink()
     print(f"[JDownloader] Dispatched .crawljob for {video_id} to {job_file}")
 
     # 4. Monitor /output (${STORAGE_DIR}/videos) for download progress and completion
@@ -1056,7 +1089,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         await asyncio.sleep(4)
 
         try:
-            current_files = [p for p in settings.videos_dir.rglob("*") if p.is_file() and p.resolve() not in existing_files]
+            current_files = [p for p in job_download_dir.rglob("*") if p.is_file() and p.resolve() not in existing_files]
         except Exception:
             current_files = []
 
@@ -1072,7 +1105,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
                         title=clean_title,
                         source="JDownloader 2 (Downloading)",
                         downloaded_bytes=cur_size,
-                        total_bytes=cur_size,
+                        total_bytes=0,
                         speed_bytes_sec=speed,
                         status="DOWNLOADING"
                     )
@@ -1084,7 +1117,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
             if cand_ext in DIRECT_MEDIA_EXTS:
                 try:
                     s1 = cand.stat().st_size
-                    if s1 > 512 * 1024:  # At least 512 KB
+                    if s1 > 0:
                         if s1 == last_known_size:
                             stable_checks += 1
                             if stable_checks >= 2:
@@ -1100,14 +1133,18 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
             break
 
     if not discovered_file:
-        await update_video(video_id, {"status": "FAILED", "error": "JDownloader download timed out or did not complete."})
+        message = "JDownloader download timed out or did not complete."
+        await update_video(video_id, {"status": "FAILED", "error": message})
+        await broadcast_progress(video_id=video_id, title=clean_title, source="JDownloader 2", downloaded_bytes=0, total_bytes=0, speed_bytes_sec=0, status="FAILED", error_message=message)
         active_downloads.pop(video_id, None)
         return
 
     # Move out of subfolder if JDownloader placed it in a package subfolder
     if discovered_file.parent != settings.videos_dir:
-        dest_in_root = settings.videos_dir / discovered_file.name
+        dest_in_root = settings.videos_dir / f"{video_id}{discovered_file.suffix.lower()}"
         try:
+            if dest_in_root.exists():
+                raise RuntimeError("Destination already exists; refusing to overwrite.")
             shutil.move(str(discovered_file), str(dest_in_root))
             parent_dir = discovered_file.parent
             discovered_file = dest_in_root

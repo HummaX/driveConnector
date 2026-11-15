@@ -1,6 +1,7 @@
 import os
 import math
 import json
+import re
 import asyncio
 import time
 from pathlib import Path
@@ -160,19 +161,25 @@ async def run_cmd_with_progress(
         except Exception:
             pass
 
+    stderr_tail = bytearray()
+    async def drain_stderr():
+        while True:
+            chunk = await proc.stderr.read(8192)
+            if not chunk:
+                break
+            stderr_tail.extend(chunk)
+            if len(stderr_tail) > 65536:
+                del stderr_tail[:-65536]
+
     try:
-        await asyncio.wait_for(
-            asyncio.gather(monitor_stdout(), proc.wait()),
-            timeout=timeout
-        )
-        _, stderr_bytes = await proc.communicate()
-        stderr_text = stderr_bytes.decode(errors="ignore") if stderr_bytes else ""
-        return proc.returncode, "", stderr_text
+        await asyncio.wait_for(asyncio.gather(monitor_stdout(), drain_stderr(), proc.wait()), timeout=timeout)
+        return proc.returncode, "", bytes(stderr_tail).decode(errors="ignore")
     except asyncio.TimeoutError:
         print(f"[FFmpeg] Command timed out after {timeout}s: {' '.join(cmd[:3])}")
         try:
             proc.kill()
-        except OSError:
+            await proc.wait()
+        except ProcessLookupError:
             pass
         return -1, "", "Timeout"
     except Exception as e:
@@ -192,7 +199,8 @@ async def run_cmd(cmd: list, timeout: int = 180) -> tuple[int, str, str]:
         print(f"[FFmpeg] Command timed out after {timeout}s: {' '.join(cmd[:3])}")
         try:
             proc.kill()
-        except OSError:
+            await proc.wait()
+        except ProcessLookupError:
             pass
         return -1, "", "Timeout"
     except Exception as e:
@@ -211,6 +219,7 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
     code, stdout, _ = await run_cmd(cmd, timeout=45)
     if code != 0 or not stdout:
         return {
+            "probe_failed": True,
             "duration": 0.0,
             "width": 1920,
             "height": 1080,
@@ -260,7 +269,7 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
             ctype = s.get("codec_type")
             idx = s.get("index", 0)
             tags = s.get("tags") or {}
-            lang = (tags.get("language") or tags.get("lang") or "und").lower()
+            lang = re.sub(r"[^a-z0-9_-]", "", str(tags.get("language") or tags.get("lang") or "und").lower())[:40] or "und"
             title = (tags.get("title") or tags.get("handler_name") or "").strip()
             disp = s.get("disposition") or {}
             is_default = bool(disp.get("default", 0))
@@ -323,6 +332,7 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
     except Exception as e:
         print(f"[FFmpeg] Error parsing ffprobe output: {e}")
         return {
+            "probe_failed": True,
             "duration": 0.0,
             "width": 1920,
             "height": 1080,
@@ -667,8 +677,12 @@ async def process_video_background(video_id: str):
     vtt_path = meta_dir / "thumbnails.vtt"
 
     async with ffmpeg_semaphore:
+        video_validated = False
         try:
             info = await probe_video(video_path)
+            if info.get("probe_failed"):
+                raise RuntimeError("Could not read this file as a video.")
+            video_validated = True
             duration = info["duration"]
             audio_tracks = info.get("audio_tracks", [])
             raw_subtitles = info.get("subtitle_tracks", [])
@@ -773,15 +787,16 @@ async def process_video_background(video_id: str):
             active_processing.pop(video_id, None)
             active_downloads.pop(video_id, None)
             fallback_data = {
-                "status": "LOCAL_READY",
-                "duration_seconds": 0.0,
-                "processing_info": None
+                "status": "LOCAL_READY" if video_validated else "FAILED",
+                "processing_info": None,
+                "processing_error": str(e)
             }
             await update_video(video_id, fallback_data)
             await manager.broadcast({
-                "event": "PROCESSING_COMPLETE",
+                "event": "PROCESSING_COMPLETE" if video_validated else "PROCESSING_FAILED",
                 "video_id": video_id,
-                "status": "LOCAL_READY",
+                "status": fallback_data["status"],
+                "error": str(e),
                 "metadata": fallback_data
             })
 
@@ -796,6 +811,8 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
     Transcodes a video down to lower resolution (720p, 480p, 360p).
     If replace_original is True, replaces original source file to optimize disk storage.
     """
+    if replace_original:
+        raise ValueError("Replacing originals is disabled until multi-track preservation is verified.")
     preset = QUALITY_PRESETS.get(target_quality.lower())
     if not preset:
         print(f"[FFmpeg] Unknown transcode quality preset: {target_quality}")
@@ -999,7 +1016,9 @@ def run_whisper_transcription(audio_path: Path, total_duration: float = 60.0, pr
             total_frames = wf.getnframes()
             exact_duration = total_frames / float(framerate) if framerate > 0 else total_duration
             # Preload full audio into RAM pool to eliminate parallel disk I/O contention
-            if sampwidth == 2:
+            # Bound preloading; larger recordings are read chunk-by-chunk below.
+            max_preload = int(min(settings.whisper_ram_pool_gb * (1024 ** 3) * 0.25, 512 * 1024 * 1024))
+            if sampwidth == 2 and total_frames * nchannels * 6 <= max_preload:
                 raw_bytes_all = wf.readframes(total_frames)
                 full_audio = np.frombuffer(raw_bytes_all, dtype=np.int16).astype(np.float32) / 32768.0
                 if nchannels > 1:
@@ -1237,6 +1256,8 @@ async def transcribe_video(video_id: str):
                 details="Compiling WebVTT captions track..."
             )
 
+            if segments is None:
+                raise RuntimeError("Transcription failed or no usable audio track was found.")
             # Build WebVTT file content
             vtt_lines = ["WEBVTT\n"]
             if segments and len(segments) > 0:

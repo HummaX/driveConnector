@@ -1,120 +1,97 @@
 services:
   mongodb:
     image: mongo:7.0
-    container_name: media_mongodb
     restart: unless-stopped
-    command: ["mongod", "--wiredTigerCacheSizeGB", "4"]
-    ports:
-      # Restricted to localhost (127.0.0.1) to prevent public internet access on OVHcloud
-      - "127.0.0.1:27017:27017"
+    command: ["mongod", "--wiredTigerCacheSizeGB", "1"]
+    mem_limit: 3g
+    ports: ["127.0.0.1:27017:27017"]
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Set MONGO_INITDB_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set MONGO_INITDB_ROOT_PASSWORD in .env}
       MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-media_db}
     volumes:
-      # Persistent MongoDB data stored directly on the 1TB Block Storage volume
       - ${STORAGE_DIR:-/mnt/storage}/mongodb:/data/db
-    networks:
-      - media_net
+    networks: [media_net]
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
 
   mongo-express:
-    image: mongo-express:latest
-    container_name: media_mongo_express
+    image: mongo-express:1.0.2
     restart: unless-stopped
-    ports:
-      # Bound to MONGO_EXPRESS_BIND (defaults to 127.0.0.1 for SSH tunnel security; switch to 0.0.0.0 for public access)
-      - "${MONGO_EXPRESS_BIND:-127.0.0.1}:8081:8081"
+    mem_limit: 512m
+    ports: ["127.0.0.1:8081:8081"]
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Set database username}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set database password}
       ME_CONFIG_MONGODB_SERVER: mongodb
       ME_CONFIG_MONGODB_PORT: 27017
-      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER:-admin}
-      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASS:-expresspassword}
+      ME_CONFIG_BASICAUTH: "true"
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER:?Set Mongo Express username}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASS:?Set Mongo Express password}
       ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
     depends_on:
-      mongodb:
-        condition: service_healthy
-    networks:
-      - media_net
+      mongodb: {condition: service_healthy}
+    networks: [media_net]
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: media_backend
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
-    init: true
-    shm_size: 8g
-    ports:
-      - "8000:8000"
+    shm_size: 2g
+    mem_limit: 19g
+    ports: ["127.0.0.1:8000:8000"]
     environment:
-      - MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}@mongodb:27017/${MONGO_INITDB_DATABASE:-media_db}?authSource=admin
-      - STORAGE_DIR=${STORAGE_DIR:-/mnt/storage}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-drive-connector-super-secret-key-2026-prod}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_DEFAULT_PASSWORD=${ADMIN_DEFAULT_PASSWORD:-Admin@Drive2026!}
-      - GOOGLE_CREDENTIALS_FILE=${GOOGLE_CREDENTIALS_FILE:-/mnt/storage/config/credentials.json}
-      - GOOGLE_TOKEN_FILE=${GOOGLE_TOKEN_FILE:-/mnt/storage/config/token.json}
-      - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID:-}
-      - RESERVED_CPU_CORES=${RESERVED_CPU_CORES:-1}
-      - FFMPEG_THREADS=${FFMPEG_THREADS:-}
-      - TOTAL_RAM_GB=${TOTAL_RAM_GB:-32}
-      - RESERVED_RAM_RATIO=${RESERVED_RAM_RATIO:-0.10}
-      - CLOUD_PIPELINE_RAM_RATIO=${CLOUD_PIPELINE_RAM_RATIO:-0.90}
-      - MAX_CONCURRENT_FFMPEG=${MAX_CONCURRENT_FFMPEG:-4}
+      MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME:?Set database username}:${MONGO_INITDB_ROOT_PASSWORD:?Set database password}@mongodb:27017/${MONGO_INITDB_DATABASE:-media_db}?authSource=admin
+      DATABASE_NAME: ${MONGO_INITDB_DATABASE:-media_db}
+      STORAGE_DIR: ${STORAGE_DIR:-/mnt/storage}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:?Set ADMIN_DEFAULT_PASSWORD in .env}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_CREDENTIALS_FILE: ${STORAGE_DIR:-/mnt/storage}/config/credentials.json
+      GOOGLE_TOKEN_FILE: ${STORAGE_DIR:-/mnt/storage}/config/token.json
+      GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID:-}
+      RESERVED_CPU_CORES: ${RESERVED_CPU_CORES:-1}
+      FFMPEG_THREADS: ${FFMPEG_THREADS:-}
+      MAX_CONCURRENT_FFMPEG: ${MAX_CONCURRENT_FFMPEG:-2}
+      ENABLE_EXTERNAL_URLS: ${ENABLE_EXTERNAL_URLS:-false}
     volumes:
-      # Mount 1TB block storage for media, metadata, and database
       - ${STORAGE_DIR:-/mnt/storage}:${STORAGE_DIR:-/mnt/storage}
-      - ./backend:/app
       - ./frontend:/frontend:ro
     depends_on:
-      mongodb:
-        condition: service_healthy
-    networks:
-      - media_net
+      mongodb: {condition: service_healthy}
+    networks: [media_net]
 
   jdownloader:
     image: jlesage/jdownloader-2:latest
-    container_name: media_jdownloader
     restart: unless-stopped
-    shm_size: 4g
-    ports:
-      # Bound to JDOWNLOADER_BIND (defaults to 127.0.0.1 for SSH tunnel security; switch to 0.0.0.0 for direct browser access)
-      - "${JDOWNLOADER_BIND:-127.0.0.1}:5800:5800"
+    shm_size: 1g
+    mem_limit: 3g
+    ports: ["127.0.0.1:5800:5800"]
     environment:
-      - USER_ID=1000
-      - GROUP_ID=1000
-      - VNC_PASSWORD=${JDOWNLOADER_PASSWORD:-admin123}
-      - JVM_OPTIONS=-Xms1024m -Xmx4096m
+      USER_ID: 1000
+      GROUP_ID: 1000
+      VNC_PASSWORD: ${JDOWNLOADER_PASSWORD:?Set JDOWNLOADER_PASSWORD in .env}
+      JVM_OPTIONS: -Xms256m -Xmx2048m
     volumes:
-      # Persistent configuration & JDownloader settings on 1TB block storage
       - ${STORAGE_DIR:-/mnt/storage}/jdownloader:/config
-      # Dedicated Folder Watch volume for auto-crawling jobs
       - ${STORAGE_DIR:-/mnt/storage}/jdownloader/folderwatch:/watchfolder
-      # Downloads land directly in the video directory
       - ${STORAGE_DIR:-/mnt/storage}/videos:/output
-    networks:
-      - media_net
+    networks: [media_net]
 
   nginx:
-    image: nginx:alpine
-    container_name: media_nginx
+    image: nginx:1.27-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
+    mem_limit: 256m
+    ports: ["80:80"]
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - backend
-    networks:
-      - media_net
+    depends_on: [backend]
+    networks: [media_net]
 
 networks:
-  media_net:
-    driver: bridge
+  media_net: {driver: bridge}
