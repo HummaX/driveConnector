@@ -86,6 +86,8 @@ services:
     volumes:
       # Persistent configuration & JDownloader settings on 1TB block storage
       - ${STORAGE_DIR:-/mnt/storage}/jdownloader:/config
+      # Dedicated Folder Watch volume for auto-crawling jobs
+      - ${STORAGE_DIR:-/mnt/storage}/jdownloader/folderwatch:/watchfolder
       # Downloads land directly in the video directory
       - ${STORAGE_DIR:-/mnt/storage}/videos:/output
     networks:

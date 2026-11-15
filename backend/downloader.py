@@ -98,6 +98,45 @@ def format_bytes(bytes_count: int) -> str:
 
 DIRECT_MEDIA_EXTS = {".mkv", ".mp4", ".webm", ".avi", ".mov", ".m4v", ".ts", ".flv", ".3gp", ".m2ts"}
 
+JDOWNLOADER_HOSTERS = [
+    "gofile.io",
+    "mega.nz",
+    "mega.co.nz",
+    "1fichier.com",
+    "rapidgator.net",
+    "mediafire.com",
+    "terabox.com",
+    "teraboxapp.com",
+    "1024tera.com",
+    "pixeldrain.com",
+    "nitroflare.com",
+    "katfile.com",
+    "turbobit.net",
+    "filerio.in",
+    "dropgalaxy.com",
+    "uploadhaven.com",
+    "upstore.net",
+    "ddownload.com",
+    "streamtape.com",
+    "voe.sx",
+    "mixdrop.co",
+    "doodstream.com",
+    "krakenfiles.com",
+    "filefactory.com",
+    "uptobox.com",
+    "send.cm",
+    "buzzheavier.com"
+]
+
+def is_jdownloader_hoster(url: str) -> bool:
+    """Detects if a URL is hosted on a cyberlocker/file hoster requiring JDownloader 2 decrypter plugins."""
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        return any(h in hostname for h in JDOWNLOADER_HOSTERS)
+    except Exception:
+        return False
+
 def is_direct_media_url(url: str) -> bool:
     """Detects if a URL directly points to a media file container based on path or query parameters."""
     parsed = urlparse(url)
@@ -384,13 +423,13 @@ async def download_direct_http_stream(video_id: str, url: str):
                     # Validate that response is actual media and not an HTML landing/error page
                     ct = response.headers.get("content-type", "").lower()
                     if ct.startswith("text/html"):
-                        if "gofile.io" in url:
-                            raise ValueError(
-                                "Gofile web links require JavaScript execution and an interactive browser session to unlock the direct stream token. Please provide a direct CDN stream link or public video URL."
-                            )
-                        raise ValueError(
-                            f"The provided link returned an HTML webpage ({ct}) instead of a video stream. Please ensure the URL points directly to media content."
-                        )
+                        if part_path.exists():
+                            try:
+                                os.remove(part_path)
+                            except OSError:
+                                pass
+                        print(f"[Downloader] Link returned HTML webpage ({ct}). Auto-routing to JDownloader 2 engine...")
+                        return await download_via_jdownloader(video_id, url, title)
 
                     # Detect true extension from Content-Type if initial was generic
                     if ext == ".mp4" and ct:
@@ -607,10 +646,166 @@ async def download_via_ytdl(video_id: str, url: str):
     asyncio.create_task(process_video_background(video_id))
 
 
-async def download_external_url(video_id: str, url: str):
+async def download_via_jdownloader(video_id: str, url: str, custom_title: Optional[str] = None):
+    """
+    Automated JDownloader 2 integration for protected file hosters (Gofile, Mega, Rapidgator, etc.).
+    Writes a .crawljob into the shared folderwatch directory and monitors /output for download completion.
+    """
+    video = await get_video(video_id)
+    raw_title = custom_title or (video.get("title") if video else None)
+    if not raw_title or raw_title in ("External Video", "External URL Video", "Video"):
+        parsed_path = urlparse(url).path
+        raw_filename = unquote(parsed_path.split("/")[-1]) if parsed_path else ""
+        raw_title = Path(raw_filename).stem if raw_filename else f"Download_{video_id}"
+    clean_title = (raw_title or f"Download_{video_id}").strip()
+
+    await update_video(video_id, {
+        "status": "DOWNLOADING",
+        "title": clean_title,
+        "source": "JDOWNLOADER"
+    })
+
+    await broadcast_progress(
+        video_id=video_id,
+        title=clean_title,
+        source="JDownloader 2 (Auto)",
+        downloaded_bytes=0,
+        total_bytes=0,
+        speed_bytes_sec=0,
+        status="DOWNLOADING"
+    )
+
+    # 1. Ensure JDownloader directories and configuration exist
+    jdownloader_dir = settings.storage_dir / "jdownloader"
+    folderwatch_dir = jdownloader_dir / "folderwatch"
+    cfg_dir = jdownloader_dir / "cfg"
+    folderwatch_dir.mkdir(parents=True, exist_ok=True)
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pre-seed FolderWatch and GeneralSettings if not present
+    fw_ext = cfg_dir / "org.jdownloader.extensions.folderwatch.FolderWatchExtension.json"
+    if not fw_ext.exists():
+        try:
+            fw_ext.write_text('{\n  "enabled": true\n}\n', encoding="utf-8")
+        except Exception:
+            pass
+
+    gen_cfg = cfg_dir / "org.jdownloader.settings.GeneralSettings.json"
+    if not gen_cfg.exists():
+        try:
+            gen_cfg.write_text('{\n  "defaultdownloadfolder": "/output"\n}\n', encoding="utf-8")
+        except Exception:
+            pass
+
+    # 2. Snapshot current files in videos dir to detect the new arrival
+    existing_files = {p.resolve() for p in settings.videos_dir.iterdir() if p.is_file()}
+
+    # 3. Create .crawljob file
+    job_file = folderwatch_dir / f"job_{video_id}.crawljob"
+    crawljob_content = (
+        f"text={url}\n"
+        f"packageName={clean_title}\n"
+        f"downloadFolder=/output\n"
+        f"autoStart=TRUE\n"
+        f"autoConfirm=TRUE\n"
+        f"forcedStart=TRUE\n"
+        f"overwritePackagizerEnabled=true\n"
+    )
+    job_file.write_text(crawljob_content, encoding="utf-8")
+    print(f"[JDownloader] Dispatched .crawljob for {video_id} to {job_file}")
+
+    # 4. Monitor /output (${STORAGE_DIR}/videos) for download progress and completion
+    max_wait_seconds = 7200  # Up to 2 hours
+    start_time = time.time()
+    discovered_file: Optional[Path] = None
+    last_known_size = 0
+    stable_checks = 0
+
+    while time.time() - start_time < max_wait_seconds:
+        await asyncio.sleep(4)
+
+        try:
+            current_files = [p for p in settings.videos_dir.iterdir() if p.is_file() and p.resolve() not in existing_files]
+        except Exception:
+            current_files = []
+
+        for cand in current_files:
+            name_lower = cand.name.lower()
+            if name_lower.endswith(".part") or name_lower.endswith(".tmp") or name_lower.endswith(".download"):
+                try:
+                    cur_size = cand.stat().st_size
+                    speed = (cur_size - last_known_size) / 4.0 if cur_size > last_known_size else 0
+                    last_known_size = cur_size
+                    await broadcast_progress(
+                        video_id=video_id,
+                        title=clean_title,
+                        source="JDownloader 2 (Downloading)",
+                        downloaded_bytes=cur_size,
+                        total_bytes=cur_size,
+                        speed_bytes_sec=speed,
+                        status="DOWNLOADING"
+                    )
+                except OSError:
+                    pass
+                break
+
+            cand_ext = cand.suffix.lower()
+            if cand_ext in DIRECT_MEDIA_EXTS:
+                try:
+                    s1 = cand.stat().st_size
+                    if s1 > 512 * 1024:  # At least 512 KB
+                        if s1 == last_known_size:
+                            stable_checks += 1
+                            if stable_checks >= 2:
+                                discovered_file = cand
+                                break
+                        else:
+                            last_known_size = s1
+                            stable_checks = 0
+                except OSError:
+                    continue
+
+        if discovered_file:
+            break
+
+    if not discovered_file:
+        await update_video(video_id, {"status": "FAILED", "error": "JDownloader download timed out or did not complete."})
+        active_downloads.pop(video_id, None)
+        return
+
+    # 5. Success - register downloaded video
+    final_size = discovered_file.stat().st_size
+    final_title = discovered_file.stem if clean_title in ("External Video", "External URL Video", "Video") else clean_title
+
+    await update_video(video_id, {
+        "title": final_title,
+        "status": "PROCESSING",
+        "local_path": str(discovered_file),
+        "file_size_bytes": final_size
+    })
+
+    await broadcast_progress(
+        video_id=video_id,
+        title=final_title,
+        source="JDownloader 2",
+        downloaded_bytes=final_size,
+        total_bytes=final_size,
+        speed_bytes_sec=0,
+        status="DOWNLOAD_COMPLETE"
+    )
+
+    active_downloads.pop(video_id, None)
+
+    # 6. Trigger FFmpeg processing (poster, hover preview, sprites)
+    from ffmpeg_worker import process_video_background
+    asyncio.create_task(process_video_background(video_id))
+
+
+async def download_external_url(video_id: str, url: str, engine: str = "auto"):
     """
     Downloads media from external link with SSRF protection, concurrency guard, and disk safety.
     Routes direct media files (.mkv, .mp4, etc.) to high-speed chunked stream downloader with resume and retry,
+    cyberlockers and protected links (Gofile, Mega, Rapidgator, etc.) to JDownloader 2 automatically,
     and video platforms (YouTube, etc.) to yt-dlp with automatic fallback.
     """
     video = await get_video(video_id)
@@ -626,16 +821,16 @@ async def download_external_url(video_id: str, url: str):
         # Validate URL for SSRF before any network operations
         validate_external_url(url)
 
+        # Check explicit engine choice or hoster auto-detection
+        clean_engine = (engine or "auto").lower().strip()
+        if clean_engine == "jdownloader" or (clean_engine == "auto" and is_jdownloader_hoster(url)):
+            print(f"[Downloader] Routing {url} to JDownloader 2 engine...")
+            return await download_via_jdownloader(video_id, url, title)
+
         # Explicit warning if a raw Google Video stream chunk is submitted
         if ("googlevideo.com" in url and "videoplayback" in url) or ("&sig=" in url and "itag=" in url and "googlevideo" in url):
             raise ValueError(
                 "Direct Google Video CDN stream chunks (googlevideo.com/videoplayback) are cryptographically IP-bound to your personal browser and rejected with HTTP 403 Forbidden by Google servers. Please provide the public YouTube link (https://www.youtube.com/watch?v=... or https://youtu.be/...) instead."
-            )
-
-        # Explicit warning if Gofile interactive session link is submitted
-        if "gofile.io" in url and ("/download/web/" in url or "/d/" in url):
-            raise ValueError(
-                "Gofile links require an interactive browser session with JavaScript verification (wt.obf.js) to generate a temporary token and cannot be streamed server-to-server. Please open the link in your browser to download it, or use a direct media link (e.g., from mkvcdn, direct CDN, or Google Drive)."
             )
 
         if is_direct_media_url(url):
@@ -645,6 +840,10 @@ async def download_external_url(video_id: str, url: str):
                 await download_via_ytdl(video_id, url)
             except Exception as ytdl_err:
                 err_str = str(ytdl_err)
+                if is_jdownloader_hoster(url) or any(x in err_str.lower() for x in ["piracy", "unsupported", "extractor"]):
+                    print(f"[Downloader] yt-dlp unsupported platform ({err_str}), auto-routing to JDownloader 2: {url}")
+                    return await download_via_jdownloader(video_id, url, title)
+
                 # If yt-dlp failed due to 500 or generic extractor error, attempt direct HTTP streaming fallback
                 if any(x in err_str.lower() for x in ["500", "502", "503", "504", "generic", "extractorerror", "expected string or bytes-like object"]):
                     print(f"[Downloader] yt-dlp failed ({err_str}), falling back to direct HTTP stream...")

@@ -182,7 +182,21 @@ else
 fi
 
 # Ensure subdirectories and permission hierarchy
-mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader"
+mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader/cfg" "$STORAGE_DIR/jdownloader/folderwatch"
+if [ ! -f "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.extensions.folderwatch.FolderWatchExtension.json" ]; then
+    cat << 'EOF' > "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.extensions.folderwatch.FolderWatchExtension.json"
+{
+  "enabled" : true
+}
+EOF
+fi
+if [ ! -f "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.settings.GeneralSettings.json" ]; then
+    cat << 'EOF' > "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.settings.GeneralSettings.json"
+{
+  "defaultdownloadfolder" : "/output"
+}
+EOF
+fi
 chown -R 999:999 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 chmod 777 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader" 2>/dev/null || true

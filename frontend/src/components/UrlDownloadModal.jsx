@@ -3,6 +3,7 @@ import { DownloadCloud, X, Loader2, Link2, AlertCircle, AlertTriangle, Layers, F
 
 export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, onOpenJDownloader, authHeaders = {} }) {
   const [mode, setMode] = useState('single'); // 'single' or 'batch'
+  const [engine, setEngine] = useState('auto'); // 'auto', 'native', 'jdownloader'
   const [url, setUrl] = useState('');
   const [batchUrls, setBatchUrls] = useState('');
   const [title, setTitle] = useState('');
@@ -27,7 +28,7 @@ export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, o
     setError(null);
     setSuccessMsg(null);
 
-    const payload = {};
+    const payload = { engine };
     if (mode === 'single') {
       if (!url.trim()) return;
       payload.url = url.trim();
@@ -97,7 +98,7 @@ export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, o
         </div>
 
         {/* Mode Selector Toggle: Single vs Multi-URL Batch */}
-        <div className="flex rounded-lg bg-[#010409] p-1 border border-[#30363d] mb-4">
+        <div className="flex rounded-lg bg-[#010409] p-1 border border-[#30363d] mb-3">
           <button
             type="button"
             onClick={() => { setMode('single'); setError(null); }}
@@ -122,6 +123,51 @@ export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, o
             <Layers className="w-3.5 h-3.5" />
             <span>Multi-URL Batch Download</span>
           </button>
+        </div>
+
+        {/* Engine Selector */}
+        <div className="space-y-1 mb-4">
+          <label className="block text-xs font-medium text-slate-300">
+            Download Engine
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setEngine('auto')}
+              className={`py-2 px-2.5 rounded-lg text-xs font-medium text-left border transition ${
+                engine === 'auto'
+                  ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300 shadow-sm'
+                  : 'bg-[#010409] border-[#30363d] text-slate-400 hover:text-white hover:border-slate-600'
+              }`}
+            >
+              <div className="font-semibold text-white">⚡ Auto-Detect</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Direct vs JDownloader</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setEngine('native')}
+              className={`py-2 px-2.5 rounded-lg text-xs font-medium text-left border transition ${
+                engine === 'native'
+                  ? 'bg-sky-600/20 border-sky-500/50 text-sky-300 shadow-sm'
+                  : 'bg-[#010409] border-[#30363d] text-slate-400 hover:text-white hover:border-slate-600'
+              }`}
+            >
+              <div className="font-semibold text-white">🌐 Direct Stream</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">High-speed chunked</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setEngine('jdownloader')}
+              className={`py-2 px-2.5 rounded-lg text-xs font-medium text-left border transition ${
+                engine === 'jdownloader'
+                  ? 'bg-purple-600/20 border-purple-500/50 text-purple-300 shadow-sm'
+                  : 'bg-[#010409] border-[#30363d] text-slate-400 hover:text-white hover:border-slate-600'
+              }`}
+            >
+              <div className="font-semibold text-white">📥 JDownloader 2</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Hosters & decrypters</div>
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -185,22 +231,13 @@ export default function UrlDownloadModal({ isOpen, onClose, onDownloadStarted, o
 
           {/* Gofile / Protected hoster callout */}
           {isGofileLink && (
-            <div className="flex items-start space-x-2.5 p-3 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs">
-              <DownloadCloud className="w-4 h-4 mt-0.5 shrink-0 text-sky-400" />
+            <div className="flex items-start space-x-2.5 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs">
+              <DownloadCloud className="w-4 h-4 mt-0.5 shrink-0 text-indigo-400" />
               <div className="space-y-1">
-                <p className="font-semibold text-sky-200">Gofile / Protected Hoster Detected</p>
-                <p className="text-[11px] text-sky-300/90 leading-relaxed">
-                  Gofile uses interactive JavaScript verification (<code className="bg-black/40 px-1 py-0.5 rounded font-mono text-sky-200">wt.obf.js</code>). To download from Gofile or filehosters, use the built-in <strong>JDownloader 2 Web Desktop</strong> (Port 5800), which downloads straight into your storage.
+                <p className="font-semibold text-indigo-200">Gofile / File Hoster Detected</p>
+                <p className="text-[11px] text-indigo-300/90 leading-relaxed">
+                  DriveConnector's Auto-Engine will automatically dispatch this link to the <strong>JDownloader 2 Companion Service</strong> in the background, solve the dynamic tokens, download to storage, and auto-import into your library!
                 </p>
-                {onOpenJDownloader && (
-                  <button
-                    type="button"
-                    onClick={() => { onClose(); onOpenJDownloader(); }}
-                    className="inline-flex items-center space-x-1 mt-1 text-[11px] text-sky-400 hover:text-white underline font-medium"
-                  >
-                    <span>Open JDownloader 2 Desktop</span>
-                  </button>
-                )}
               </div>
             </div>
           )}

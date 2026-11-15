@@ -199,6 +199,7 @@ class DownloadUrlRequest(BaseModel):
     url: Optional[str] = None
     urls: Optional[List[str]] = None
     title: Optional[str] = None
+    engine: Optional[str] = "auto"
 
 class SyncDriveRequest(BaseModel):
     folder_id: Optional[str] = None
@@ -370,20 +371,18 @@ async def trigger_url_download(
 
     queued_videos = []
     errors = []
+    req_engine = (payload.engine or "auto").lower().strip()
 
     for idx, clean_url in enumerate(raw_urls):
         try:
             if ("googlevideo.com" in clean_url and "videoplayback" in clean_url) or ("&sig=" in clean_url and "itag=" in clean_url and "googlevideo" in clean_url):
                 raise ValueError("Direct Google Video CDN stream chunks (googlevideo.com/videoplayback) are IP-bound to personal browsers. Please provide the public YouTube link instead.")
 
-            if "gofile.io" in clean_url and ("/download/web/" in clean_url or "/d/" in clean_url):
-                raise ValueError("Gofile links require an interactive browser session with anti-bot verification (wt.obf.js). Please open in browser or use a direct media link.")
-
             # Assign custom title only if a single URL was submitted
             item_title = payload.title if len(raw_urls) == 1 else None
             video = await create_url_video(url=clean_url, title=item_title)
             video_id = video["video_id"]
-            background_tasks.add_task(download_external_url, video_id, clean_url)
+            background_tasks.add_task(download_external_url, video_id, clean_url, req_engine)
             queued_videos.append(video)
         except Exception as e:
             if len(raw_urls) == 1:

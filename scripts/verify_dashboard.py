@@ -991,8 +991,20 @@ def test_multiple_downloads_and_jdownloader_integration():
     if "jdownloader-modal" not in index_html or "triggerScanStorage" not in index_html:
         print("❌ index.html missing jdownloader-modal or triggerScanStorage!")
         return False
+    if "engine-btn-auto" not in index_html or "setDownloadEngine" not in index_html:
+        print("❌ index.html missing engine selector buttons or setDownloadEngine!")
+        return False
 
-    print("✅ Multiple downloads batching, 2nd download duplicate null key fix, JDownloader 2 container, and Scan Storage fully verified.")
+    # 6. Verify automated JDownloader decision engine in downloader.py
+    downloader_txt = (backend_dir / "downloader.py").read_text(encoding="utf-8")
+    if "is_jdownloader_hoster" not in downloader_txt or "download_via_jdownloader" not in downloader_txt:
+        print("❌ downloader.py missing is_jdownloader_hoster or download_via_jdownloader auto-router!")
+        return False
+    if "gofile.io" not in downloader_txt or "mega.nz" not in downloader_txt:
+        print("❌ downloader.py missing supported hosters list (gofile.io, mega.nz)!")
+        return False
+
+    print("✅ Multiple downloads batching, 2nd download duplicate null key fix, JDownloader 2 auto-decision engine, and Scan Storage fully verified.")
     return True
 
 def test_nonblocking_video_playback_during_processing():

@@ -966,13 +966,32 @@
       <p class="text-xs text-slate-400 mb-3">Direct MKV/MP4 CDN streams, YouTube, Vimeo, and Multi-URL Queueing</p>
 
       <!-- Mode Selector -->
-      <div class="flex rounded-lg bg-[#010409] p-1 border border-[#30363d] mb-4">
+      <div class="flex rounded-lg bg-[#010409] p-1 border border-[#30363d] mb-3">
         <button id="url-mode-single-btn" type="button" onclick="setUrlDownloadMode('single')" class="flex-1 py-1.5 text-xs font-semibold rounded-md bg-[#21262d] text-white shadow-sm border border-slate-600/50 transition">
           Single Video URL
         </button>
         <button id="url-mode-batch-btn" type="button" onclick="setUrlDownloadMode('batch')" class="flex-1 py-1.5 text-xs font-semibold rounded-md text-slate-400 hover:text-slate-200 transition">
           Multi-URL Batch Download
         </button>
+      </div>
+
+      <!-- Engine Selector -->
+      <div class="mb-3">
+        <label class="block text-xs font-medium text-slate-300 mb-1.5">Download Engine</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button id="engine-btn-auto" type="button" onclick="setDownloadEngine('auto')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-indigo-600/20 border-indigo-500/50 text-indigo-300 transition">
+            <div class="font-semibold text-white">⚡ Auto-Detect</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">Direct vs JDownloader</div>
+          </button>
+          <button id="engine-btn-native" type="button" onclick="setDownloadEngine('native')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition">
+            <div class="font-semibold text-white">🌐 Direct Stream</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">High-speed chunked</div>
+          </button>
+          <button id="engine-btn-jd" type="button" onclick="setDownloadEngine('jdownloader')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition">
+            <div class="font-semibold text-white">📥 JDownloader 2</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">Hosters & decrypters</div>
+          </button>
+        </div>
       </div>
 
       <div id="url-single-container">
@@ -997,15 +1016,14 @@
         </div>
       </div>
 
-      <div id="url-gofile-warning" class="hidden mb-3 p-3 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs">
+      <div id="url-gofile-warning" class="hidden mb-3 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs">
         <div class="flex items-start space-x-2">
-          <i data-lucide="download-cloud" class="w-4 h-4 mt-0.5 shrink-0 text-sky-400"></i>
+          <i data-lucide="download-cloud" class="w-4 h-4 mt-0.5 shrink-0 text-indigo-400"></i>
           <div class="space-y-1">
-            <p class="font-semibold text-sky-200">Gofile / Protected Hoster Detected</p>
-            <p class="text-[11px] text-sky-300/90 leading-relaxed">
-              Gofile links require an interactive browser session with anti-bot verification (wt.obf.js). Use our built-in <strong>JDownloader 2 Desktop</strong> (Port 5800) to download them straight to storage!
+            <p class="font-semibold text-indigo-200">Gofile / File Hoster Detected</p>
+            <p class="text-[11px] text-indigo-300/90 leading-relaxed">
+              Auto-Engine will automatically dispatch this link to the <strong>JDownloader 2 companion service</strong> in the background, bypass the anti-bot tokens, download directly to storage, and auto-import into your library!
             </p>
-            <button type="button" onclick="closeUrlModal(); openJDownloaderModal();" class="text-[11px] text-sky-400 hover:text-white underline font-semibold mt-1">Open JDownloader 2 Desktop</button>
           </div>
         </div>
       </div>
@@ -2966,12 +2984,35 @@
       }
     }
 
+    let currentDownloadEngine = 'auto';
+    function setDownloadEngine(eng) {
+      currentDownloadEngine = eng;
+      const bAuto = document.getElementById('engine-btn-auto');
+      const bNative = document.getElementById('engine-btn-native');
+      const bJd = document.getElementById('engine-btn-jd');
+      if (bAuto) {
+        bAuto.className = eng === 'auto'
+          ? 'py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-indigo-600/20 border-indigo-500/50 text-indigo-300 transition'
+          : 'py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition';
+      }
+      if (bNative) {
+        bNative.className = eng === 'native'
+          ? 'py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-sky-600/20 border-sky-500/50 text-sky-300 transition'
+          : 'py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition';
+      }
+      if (bJd) {
+        bJd.className = eng === 'jdownloader'
+          ? 'py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-purple-600/20 border-purple-500/50 text-purple-300 transition'
+          : 'py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition';
+      }
+    }
+
     async function triggerUrlDownload() {
       const errEl = document.getElementById('url-error-msg');
       const btn = document.getElementById('url-submit-btn');
       if (errEl) errEl.classList.add('hidden');
 
-      let payload = {};
+      let payload = { engine: currentDownloadEngine };
       if (urlDownloadMode === 'single') {
         const url = document.getElementById('url-input').value.trim();
         const title = document.getElementById('url-title-input').value.trim();
