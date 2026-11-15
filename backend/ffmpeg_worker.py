@@ -200,13 +200,14 @@ async def run_cmd(cmd: list, timeout: int = 180) -> tuple[int, str, str]:
         return -1, "", str(e)
 
 async def probe_video(video_path: Path) -> Dict[str, Any]:
-    """Runs ffprobe on the target video and returns parsed JSON format and stream info including all audio and subtitle tracks."""
+    """Runs ffprobe on the target video and returns parsed JSON format and stream info including all audio, subtitle tracks, and chapter markers."""
     cmd = [
         "ffprobe",
         "-v", "quiet",
         "-print_format", "json",
         "-show_format",
         "-show_streams",
+        "-show_chapters",
         str(video_path)
     ]
     code, stdout, _ = await run_cmd(cmd, timeout=45)
@@ -217,7 +218,8 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
             "height": 1080,
             "has_audio": True,
             "audio_tracks": [],
-            "subtitle_tracks": []
+            "subtitle_tracks": [],
+            "chapters": []
         }
 
     try:
@@ -313,13 +315,52 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
                 })
                 sub_idx += 1
 
+        raw_chapters = data.get("chapters", [])
+        chapters = []
+        for ch in raw_chapters:
+            ch_tags = ch.get("tags") or {}
+            start_sec = 0.0
+            end_sec = 0.0
+            try:
+                start_sec = float(ch.get("start_time", 0.0))
+            except (ValueError, TypeError):
+                tb = ch.get("time_base", "1/1000")
+                if "/" in str(tb):
+                    try:
+                        num, den = str(tb).split("/", 1)
+                        start_sec = float(ch.get("start", 0)) * float(num) / float(den)
+                    except Exception:
+                        start_sec = float(ch.get("start", 0.0))
+            try:
+                end_sec = float(ch.get("end_time", 0.0))
+            except (ValueError, TypeError):
+                tb = ch.get("time_base", "1/1000")
+                if "/" in str(tb):
+                    try:
+                        num, den = str(tb).split("/", 1)
+                        end_sec = float(ch.get("end", 0)) * float(num) / float(den)
+                    except Exception:
+                        end_sec = float(ch.get("end", 0.0))
+
+            title = ch_tags.get("title") or f"Chapter {ch.get('id', len(chapters) + 1)}"
+            chapters.append({
+                "id": ch.get("id", len(chapters)),
+                "start": start_sec,
+                "end": end_sec,
+                "start_time": start_sec,
+                "end_time": end_sec,
+                "title": title,
+                "tags": ch_tags
+            })
+
         return {
             "duration": duration,
             "width": width,
             "height": height,
             "has_audio": len(audio_tracks) > 0,
             "audio_tracks": audio_tracks,
-            "subtitle_tracks": subtitle_tracks
+            "subtitle_tracks": subtitle_tracks,
+            "chapters": chapters
         }
     except Exception as e:
         print(f"[FFmpeg] Error parsing ffprobe output: {e}")
@@ -329,7 +370,8 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
             "height": 1080,
             "has_audio": True,
             "audio_tracks": [],
-            "subtitle_tracks": []
+            "subtitle_tracks": [],
+            "chapters": []
         }
 
 async def extract_embedded_subtitles(
@@ -689,6 +731,7 @@ async def process_video_background(video_id: str):
             duration = info["duration"]
             audio_tracks = info.get("audio_tracks", [])
             raw_subtitles = info.get("subtitle_tracks", [])
+            chapters = info.get("chapters", [])
 
             # Extract embedded text subtitles to WebVTT
             extracted_subtitles = await extract_embedded_subtitles(
@@ -768,6 +811,7 @@ async def process_video_background(video_id: str):
                 "vtt_url": f"/metadata/{video_id}/thumbnails.vtt" if vtt_path.exists() else None,
                 "audio_tracks": audio_tracks,
                 "subtitle_tracks": extracted_subtitles,
+                "chapters": chapters,
                 "processing_info": None
             }
             if not video.get("subtitles_url"):

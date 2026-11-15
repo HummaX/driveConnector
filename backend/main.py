@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import asyncio
+import subprocess
 import time
 import platform
 import mimetypes
@@ -569,29 +570,47 @@ app.add_middleware(
 @app.middleware("http")
 async def track_network_traffic(request: Request, call_next):
     path = request.url.path
-    if request.method != "OPTIONS" and (path == "/" or path.rstrip("/") == "/api/videos"):
-        network_tracker.update_server_ip(request)
-        ip = get_client_ip(request)
-        client_override = None
-        c_country = request.headers.get("x-client-country")
-        c_city = request.headers.get("x-client-city")
-        c_lat = request.headers.get("x-client-lat")
-        c_lng = request.headers.get("x-client-lng")
-        if c_country and c_lat and c_lng:
+    if request.method != "OPTIONS":
+        # Skip static assets and metrics routes to reduce telemetry overhead
+        skip_prefixes = (
+            "/static", "/css", "/js", "/favicon", "/metadata",
+            "/metrics", "/api/system/metrics", "/api/network"
+        )
+        skip_extensions = (
+            ".css", ".js", ".png", ".jpg", ".jpeg", ".ico",
+            ".svg", ".vtt", ".map", ".woff", ".woff2", ".webmanifest"
+        )
+        if not (path.startswith(skip_prefixes) or any(path.endswith(ext) for ext in skip_extensions)):
+            # Cap _geo_cache at 500 entries
+            while len(network_tracker._geo_cache) > 500:
+                try:
+                    oldest_key = next(iter(network_tracker._geo_cache))
+                    del network_tracker._geo_cache[oldest_key]
+                except (StopIteration, KeyError):
+                    break
+
+            network_tracker.update_server_ip(request)
+            ip = get_client_ip(request)
+            client_override = None
+            c_country = request.headers.get("x-client-country")
+            c_city = request.headers.get("x-client-city")
+            c_lat = request.headers.get("x-client-lat")
+            c_lng = request.headers.get("x-client-lng")
+            if c_country and c_lat and c_lng:
+                try:
+                    client_override = {
+                        "country": c_country,
+                        "city": c_city or "Visitor",
+                        "country_code": request.headers.get("x-client-country-code") or "UN",
+                        "lat": float(c_lat),
+                        "lng": float(c_lng)
+                    }
+                except Exception:
+                    pass
             try:
-                client_override = {
-                    "country": c_country,
-                    "city": c_city or "Visitor",
-                    "country_code": request.headers.get("x-client-country-code") or "UN",
-                    "lat": float(c_lat),
-                    "lng": float(c_lng)
-                }
+                asyncio.create_task(network_tracker.register_hit(ip, path, client_override))
             except Exception:
                 pass
-        try:
-            asyncio.create_task(network_tracker.register_hit(ip, path, client_override))
-        except Exception:
-            pass
     return await call_next(request)
 
 # WebVTT scrubber cue fallback route (eliminates 404 console errors while sprites generate)
@@ -798,6 +817,13 @@ class TranscodeRequest(BaseModel):
     quality: str = "720p"
     replace_original: Optional[bool] = False
 
+class VideoClipRequest(BaseModel):
+    start_sec: float
+    end_sec: float
+
+class SetPosterRequest(BaseModel):
+    timestamp: float
+
 # ----------------- WebSocket Real-Time Telemetry (Auth Guarded) -----------------
 @app.websocket("/ws/transfers")
 async def websocket_transfers_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
@@ -835,6 +861,47 @@ async def get_all_videos(
 ):
     """Returns all cataloged videos (Strictly Requires Authentication)."""
     return await list_videos(status=status, search=search)
+
+@app.get("/api/videos/playlist.m3u")
+async def get_videos_playlist_m3u(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user_flexible)
+):
+    """
+    Scans LOCAL_READY videos in catalog and returns standard #EXTM3U playlist
+    with authenticated stream URLs (/api/stream/{id}?token=...) for VLC/Infuse/Apple TV.
+    """
+    username = current_user.get("username", settings.ADMIN_USERNAME)
+    stream_token = create_access_token(data={"sub": username})
+
+    try:
+        videos = await list_videos(status="LOCAL_READY")
+    except Exception as e:
+        print(f"[Playlist] Notice: Could not query database: {e}")
+        videos = []
+
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    base_url = f"{proto}://{host}".rstrip("/")
+
+    lines = ["#EXTM3U"]
+    for v in videos:
+        vid = v.get("video_id")
+        if not vid:
+            continue
+        title = v.get("title") or v.get("filename") or vid
+        dur_val = v.get("duration_seconds")
+        duration = int(float(dur_val)) if dur_val is not None else -1
+        stream_url = f"{base_url}/api/stream/{vid}?token={stream_token}"
+        lines.append(f"#EXTINF:{duration},{title}")
+        lines.append(stream_url)
+
+    content = "\n".join(lines) + "\n"
+    return Response(
+        content=content,
+        media_type="application/x-mpegurl",
+        headers={"Content-Disposition": 'inline; filename="playlist.m3u"'}
+    )
 
 @app.get("/api/videos/{video_id}")
 async def get_single_video(
@@ -1182,12 +1249,14 @@ async def probe_and_extract_tracks(
     info = await probe_video(video_path)
     audio_tracks = info.get("audio_tracks", [])
     raw_subs = info.get("subtitle_tracks", [])
+    chapters = info.get("chapters", [])
 
     extracted_subs = await extract_embedded_subtitles(valid_id, video_path, meta_dir, raw_subs)
 
     update_payload = {
         "audio_tracks": audio_tracks,
-        "subtitle_tracks": extracted_subs
+        "subtitle_tracks": extracted_subs,
+        "chapters": chapters
     }
     if not video.get("subtitles_url"):
         default_sub = next((s["url"] for s in extracted_subs if s.get("url") and s.get("language") in ("eng", "en")), None)
@@ -1208,7 +1277,202 @@ async def probe_and_extract_tracks(
         "status": "success",
         "audio_tracks": audio_tracks,
         "subtitle_tracks": extracted_subs,
+        "chapters": chapters,
         "video": updated
+    }
+
+@app.post("/api/videos/{video_id}/clip")
+async def clip_video_endpoint(
+    video_id: str,
+    payload: VideoClipRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user_flexible)
+):
+    """
+    Accepts JSON start_sec and end_sec, validates input, runs:
+    ffmpeg -y -ss {start_sec} -to {end_sec} -i {local_path} -c copy -movflags +faststart {output_clip}
+    in asyncio.to_thread, and returns FileResponse for instant lossless download.
+    """
+    valid_id = validate_video_id(video_id)
+    if payload.start_sec < 0:
+        raise HTTPException(status_code=400, detail="start_sec must be non-negative")
+    if payload.end_sec <= payload.start_sec:
+        raise HTTPException(status_code=400, detail="end_sec must be greater than start_sec")
+
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    local_path = resolve_video_file_path(video)
+    if not local_path or not local_path.exists():
+        raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
+    local_path = validate_storage_path(local_path)
+
+    meta_dir = validate_storage_path(settings.get_video_metadata_dir(valid_id))
+    output_clip = meta_dir / f"clip_{int(payload.start_sec)}_{int(payload.end_sec)}.mp4"
+
+    def run_ffmpeg_clip():
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(payload.start_sec),
+            "-to", str(payload.end_sec),
+            "-i", str(local_path),
+            "-c", "copy",
+            "-movflags", "+faststart",
+            str(output_clip)
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if proc.returncode != 0:
+            err = proc.stderr.decode("utf-8", errors="ignore")
+            raise RuntimeError(f"FFmpeg clipping failed: {err}")
+
+    try:
+        await asyncio.to_thread(run_ffmpeg_clip)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not output_clip.exists():
+        raise HTTPException(status_code=500, detail="Failed to produce clip file")
+
+    base_name = Path(video.get("filename") or video.get("title") or valid_id).stem
+    download_filename = f"{base_name}_clip_{int(payload.start_sec)}_{int(payload.end_sec)}.mp4"
+    return FileResponse(
+        path=str(output_clip),
+        media_type="video/mp4",
+        filename=download_filename
+    )
+
+@app.post("/api/videos/{video_id}/set-poster")
+async def set_video_poster_endpoint(
+    video_id: str,
+    payload: SetPosterRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Accepts JSON timestamp (seconds), runs:
+    ffmpeg -y -ss {timestamp} -i {local_path} -frames:v 1 -q:v 2 {poster_path}
+    and updates video document in MongoDB with custom_poster: True.
+    """
+    valid_id = validate_video_id(video_id)
+    if payload.timestamp < 0:
+        raise HTTPException(status_code=400, detail="timestamp must be non-negative")
+
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    local_path = resolve_video_file_path(video)
+    if not local_path or not local_path.exists():
+        raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
+    local_path = validate_storage_path(local_path)
+
+    meta_dir = validate_storage_path(settings.get_video_metadata_dir(valid_id))
+    poster_path = meta_dir / "poster.jpg"
+
+    def run_ffmpeg_poster():
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(payload.timestamp),
+            "-i", str(local_path),
+            "-frames:v", "1",
+            "-q:v", "2",
+            str(poster_path)
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if proc.returncode != 0:
+            err = proc.stderr.decode("utf-8", errors="ignore")
+            raise RuntimeError(f"FFmpeg poster extraction failed: {err}")
+
+    try:
+        await asyncio.to_thread(run_ffmpeg_poster)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    poster_url = f"/metadata/{valid_id}/poster.jpg"
+    update_data = {
+        "custom_poster": True,
+        "has_poster": True,
+        "poster_url": poster_url
+    }
+    updated = await update_video(valid_id, update_data)
+    await manager.broadcast({
+        "event": "POSTER_UPDATED",
+        "video_id": valid_id,
+        "custom_poster": True,
+        "poster_url": poster_url,
+        "metadata": updated
+    })
+
+    return {
+        "status": "success",
+        "video_id": valid_id,
+        "custom_poster": True,
+        "poster_url": poster_url
+    }
+
+@app.post("/api/videos/{video_id}/evict-local")
+async def evict_local_video(
+    video_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Deletes /mnt/storage/videos/{video_id}.*, resets Google Drive videos to status: "REMOTE_ONLY"
+    in MongoDB, and leaves metadata intact.
+    """
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    deleted_files = []
+    videos_dir = settings.videos_dir
+
+    # 1. Delete /mnt/storage/videos/{video_id}.*
+    for f in videos_dir.glob(f"{valid_id}.*"):
+        try:
+            if f.is_file():
+                f.unlink(missing_ok=True)
+                deleted_files.append(f.name)
+        except Exception as e:
+            print(f"[Evict] Error deleting {f}: {e}")
+
+    # Also delete if local_path points to a specific file inside videos_dir
+    local_p = video.get("local_path")
+    if local_p:
+        try:
+            p = Path(local_p)
+            if p.exists() and p.is_file() and str(videos_dir) in str(p.resolve()):
+                p.unlink(missing_ok=True)
+                if p.name not in deleted_files:
+                    deleted_files.append(p.name)
+        except Exception:
+            pass
+
+    # 2. Reset Google Drive videos to status: "REMOTE_ONLY" in MongoDB, clear local_path, preserve metadata
+    is_drive_video = bool(video.get("drive_file_id"))
+    update_data: Dict[str, Any] = {
+        "local_path": None
+    }
+    if is_drive_video:
+        update_data["status"] = "REMOTE_ONLY"
+
+    active_processing.pop(valid_id, None)
+    active_downloads.pop(valid_id, None)
+
+    updated = await update_video(valid_id, update_data)
+    await manager.broadcast({
+        "event": "VIDEO_EVICTED",
+        "video_id": valid_id,
+        "status": update_data.get("status", video.get("status")),
+        "metadata": updated
+    })
+
+    return {
+        "status": "success",
+        "video_id": valid_id,
+        "is_drive_video": is_drive_video,
+        "new_status": update_data.get("status", video.get("status")),
+        "deleted_files": deleted_files,
+        "message": f"Evicted local video files for {valid_id}."
     }
 
 STREAM_BURST_CHUNK_SIZE_BYTES: int = 16 * 1024 * 1024  # 16MB burst chunk for responsive HTTP 206 progressive start & open-ended Range: bytes=start- requests
