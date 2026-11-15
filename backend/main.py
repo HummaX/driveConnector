@@ -61,7 +61,8 @@ from ffmpeg_worker import (
     transcribe_video,
     probe_video,
     extract_embedded_subtitles,
-    extract_audio_track
+    extract_audio_track,
+    resolve_video_file_path
 )
 
 SAFE_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -189,6 +190,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# WebVTT scrubber cue fallback route (eliminates 404 console errors while sprites generate)
+@app.get("/metadata/{video_id}/thumbnails.vtt")
+async def get_video_thumbnails_vtt(video_id: str):
+    """
+    Serves WebVTT thumbnail cues for scrub bars.
+    Returns HTTP 200 with valid empty WebVTT if sprites have not finished generating,
+    eliminating 404 console errors in HTML5 / Video.js / Plyr players.
+    """
+    valid_id = validate_video_id(video_id)
+    vtt_path = settings.get_video_metadata_dir(valid_id) / "thumbnails.vtt"
+    if vtt_path.exists() and vtt_path.stat().st_size > 10:
+        return FileResponse(vtt_path, media_type="text/vtt")
+    return Response(
+        content="WEBVTT\n\n",
+        media_type="text/vtt",
+        headers={"Cache-Control": "no-cache"}
+    )
 
 # Mount static asset directory
 app.mount("/metadata", StaticFiles(directory=str(settings.metadata_dir)), name="metadata")
@@ -731,15 +750,9 @@ async def probe_and_extract_tracks(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    local_p = video.get("local_path")
-    if local_p and Path(local_p).exists():
-        video_path = Path(local_p)
-    else:
-        candidate = next((p for p in settings.videos_dir.glob(f"{valid_id}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
-        if candidate and candidate.exists():
-            video_path = candidate
-        else:
-            raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
+    video_path = resolve_video_file_path(video)
+    if not video_path or not video_path.exists():
+        raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
 
     video_path = validate_storage_path(video_path)
     meta_dir = validate_storage_path(settings.get_video_metadata_dir(valid_id))
@@ -790,6 +803,12 @@ async def stream_audio_track(
     Allows browsers to switch and play alternate audio tracks (e.g. Hindi, English, Spanish).
     """
     valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found in catalog")
+    if video.get("status") == "REMOTE_ONLY":
+        raise HTTPException(status_code=409, detail="Video is stored in cloud. Download locally to stream alternate audio tracks.")
+
     audio_path = await extract_audio_track(valid_id, track_index)
     if not audio_path or not audio_path.exists():
         raise HTTPException(status_code=404, detail=f"Audio track {track_index} not found or extraction failed")
@@ -886,15 +905,9 @@ async def stream_video(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found in catalog")
 
-    local_p = video.get("local_path")
-    if local_p and Path(local_p).exists():
-        video_path = Path(local_p)
-    else:
-        candidate = next((p for p in settings.videos_dir.glob(f"{valid_id}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
-        if candidate and candidate.exists():
-            video_path = candidate
-        else:
-            video_path = settings.videos_dir / f"{valid_id}.mp4"
+    video_path = resolve_video_file_path(video)
+    if not video_path or not video_path.exists():
+        video_path = settings.videos_dir / f"{valid_id}.mp4"
 
     # Multi-resolution quality selection with strict whitelist validation
     if quality:

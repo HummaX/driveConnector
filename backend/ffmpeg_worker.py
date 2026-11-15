@@ -16,6 +16,28 @@ ffmpeg_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_FFMPEG)
 # Active processing jobs dictionary for telemetry tracking
 active_processing: Dict[str, Dict[str, Any]] = {}
 
+def resolve_video_file_path(video: Dict[str, Any]) -> Optional[Path]:
+    """
+    Robustly resolves the on-disk file path for a video document.
+    Handles exact local_path, filename in settings.videos_dir, and {video_id}.* candidates.
+    """
+    if not video:
+        return None
+    local_p = video.get("local_path")
+    if local_p:
+        p = Path(local_p)
+        if p.exists():
+            return p
+        alt_p = settings.videos_dir / p.name
+        if alt_p.exists():
+            return alt_p
+    vid = video.get("video_id")
+    if vid:
+        candidate = next((p for p in settings.videos_dir.glob(f"{vid}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
+        if candidate and candidate.exists():
+            return candidate
+    return None
+
 def format_vtt_time(seconds: float) -> str:
     """Format seconds into WebVTT timestamp: HH:MM:SS.mmm (strictly 3 ASCII digits for milliseconds)."""
     total_ms = max(0, int(round(seconds * 1000)))
@@ -370,15 +392,9 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
     if not video:
         return None
 
-    local_p = video.get("local_path")
-    if local_p and Path(local_p).exists():
-        video_path = Path(local_p)
-    else:
-        candidate = next((p for p in settings.videos_dir.glob(f"{video_id}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
-        if candidate and candidate.exists():
-            video_path = candidate
-        else:
-            return None
+    video_path = resolve_video_file_path(video)
+    if not video_path or not video_path.exists():
+        return None
 
     meta_dir = settings.get_video_metadata_dir(video_id)
     meta_dir.mkdir(parents=True, exist_ok=True)
@@ -632,14 +648,14 @@ async def generate_vtt_sprites(video_id: str, video_path: Path, meta_dir: Path, 
 async def process_video_background(video_id: str):
     """Main background pipeline entrypoint executed once a video is stored locally."""
     video = await get_video(video_id)
-    if not video or not video.get("local_path"):
+    if not video:
         active_downloads.pop(video_id, None)
         active_processing.pop(video_id, None)
         return
 
-    video_path = Path(video["local_path"])
-    if not video_path.exists():
-        print(f"[FFmpeg] Error: local file not found at {video_path}")
+    video_path = resolve_video_file_path(video)
+    if not video_path or not video_path.exists():
+        print(f"[FFmpeg] Error: local file not found for video {video_id}")
         active_downloads.pop(video_id, None)
         active_processing.pop(video_id, None)
         await update_video(video_id, {"status": "FAILED"})
@@ -786,11 +802,11 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
         return
 
     video = await get_video(video_id)
-    if not video or not video.get("local_path"):
+    if not video:
         return
 
-    video_path = Path(video["local_path"])
-    if not video_path.exists():
+    video_path = resolve_video_file_path(video)
+    if not video_path or not video_path.exists():
         return
 
     dest_rendition = settings.videos_dir / f"{video_id}_{target_quality}.mp4"
@@ -1126,13 +1142,13 @@ async def transcribe_video(video_id: str):
     and produces subtitles.vtt with sentence/word timestamps for Plyr captions.
     """
     video = await get_video(video_id)
-    if not video or not video.get("local_path"):
+    if not video:
         active_downloads.pop(video_id, None)
         active_processing.pop(video_id, None)
         return
 
-    video_path = Path(video["local_path"])
-    if not video_path.exists():
+    video_path = resolve_video_file_path(video)
+    if not video_path or not video_path.exists():
         active_downloads.pop(video_id, None)
         active_processing.pop(video_id, None)
         return
