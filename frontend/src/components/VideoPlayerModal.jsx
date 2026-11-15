@@ -294,6 +294,14 @@ export default function VideoPlayerModal({
     const audioEl = companionAudioRef.current;
     if (!rawVideo || !audioEl) return;
 
+    if (initAudioBooster) {
+      initAudioBooster(rawVideo);
+    }
+
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(() => {});
+    }
+
     if (selectedAudioTrack === 0) {
       audioEl.pause();
       audioEl.removeAttribute('src');
@@ -303,27 +311,116 @@ export default function VideoPlayerModal({
     }
 
     rawVideo.muted = true;
-    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-    audioEl.src = `/api/videos/${video.video_id}/audio/${selectedAudioTrack}${tokenParam}`;
-    audioEl.currentTime = rawVideo.currentTime;
-    audioEl.playbackRate = rawVideo.playbackRate;
+    audioEl.crossOrigin = 'anonymous';
+    audioEl.preload = 'auto';
+    audioEl.muted = false;
     audioEl.volume = rawVideo.volume;
+    audioEl.playbackRate = rawVideo.playbackRate;
+
+    const effectiveToken = token || localStorage.getItem('drive_auth_token') || localStorage.getItem('token') || '';
+    const tokenParam = effectiveToken ? `?token=${encodeURIComponent(effectiveToken)}` : '';
+    const targetSrc = `/api/videos/${video.video_id}/audio/${selectedAudioTrack}${tokenParam}`;
+
+    if (audioEl.getAttribute('src') !== targetSrc && audioEl.src !== targetSrc) {
+      audioEl.src = targetSrc;
+      audioEl.load();
+    }
+
+    const syncAndPlay = () => {
+      try {
+        if (Math.abs(audioEl.currentTime - rawVideo.currentTime) > 0.15) {
+          audioEl.currentTime = rawVideo.currentTime;
+        }
+        audioEl.playbackRate = rawVideo.playbackRate;
+        audioEl.volume = rawVideo.volume;
+        audioEl.muted = false;
+        if (!rawVideo.paused) {
+          if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(() => {});
+          }
+          audioEl.play().catch((e) => console.warn('[CompanionAudio] play error:', e));
+        }
+      } catch (err) {}
+    };
+
+    audioEl.onloadedmetadata = () => {
+      syncAndPlay();
+    };
+    audioEl.oncanplay = () => {
+      if (!rawVideo.paused && audioEl.paused) {
+        syncAndPlay();
+      }
+    };
     audioEl.onerror = () => {
       console.warn(`[CompanionAudio] Audio track ${selectedAudioTrack} loading error:`, audioEl.error);
     };
-    if (!rawVideo.paused) {
-      audioEl.play().catch(() => {});
+
+    if (audioEl.readyState >= 1) {
+      syncAndPlay();
     }
 
-    const handlePlay = () => { if (selectedAudioTrack > 0 && audioEl.src) audioEl.play().catch(() => {}); };
-    const handlePause = () => { if (selectedAudioTrack > 0) audioEl.pause(); };
-    const handleSeeking = () => { if (selectedAudioTrack > 0) audioEl.currentTime = rawVideo.currentTime; };
-    const handleSeeked = () => { if (selectedAudioTrack > 0) audioEl.currentTime = rawVideo.currentTime; };
-    const handleRateChange = () => { if (selectedAudioTrack > 0) audioEl.playbackRate = rawVideo.playbackRate; };
-    const handleVolumeChange = () => { if (selectedAudioTrack > 0) audioEl.volume = rawVideo.volume; };
-    const handleTimeUpdate = () => {
-      if (selectedAudioTrack > 0 && Math.abs(audioEl.currentTime - rawVideo.currentTime) > 0.3) {
+    const handlePlay = () => {
+      if (selectedAudioTrack > 0 && audioEl.src) {
         audioEl.currentTime = rawVideo.currentTime;
+        audioEl.playbackRate = rawVideo.playbackRate;
+        audioEl.volume = rawVideo.volume;
+        audioEl.muted = false;
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume().catch(() => {});
+        }
+        audioEl.play().catch(() => {});
+      }
+    };
+    const handlePause = () => {
+      if (selectedAudioTrack > 0) audioEl.pause();
+    };
+    const handleSeeking = () => {
+      if (selectedAudioTrack > 0) audioEl.currentTime = rawVideo.currentTime;
+    };
+    const handleSeeked = () => {
+      if (selectedAudioTrack > 0) {
+        audioEl.currentTime = rawVideo.currentTime;
+        audioEl.playbackRate = rawVideo.playbackRate;
+        audioEl.muted = false;
+        if (!rawVideo.paused && audioEl.src) {
+          if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(() => {});
+          }
+          audioEl.play().catch(() => {});
+        }
+      }
+    };
+    const handleRateChange = () => {
+      if (selectedAudioTrack > 0) audioEl.playbackRate = rawVideo.playbackRate;
+    };
+    const handleVolumeChange = () => {
+      if (selectedAudioTrack > 0) {
+        audioEl.volume = rawVideo.volume;
+      }
+    };
+    const handleBuffering = () => {
+      if (selectedAudioTrack > 0) audioEl.pause();
+    };
+    const handleResumeSync = () => {
+      if (selectedAudioTrack > 0 && audioEl.src) {
+        audioEl.currentTime = rawVideo.currentTime;
+        audioEl.playbackRate = rawVideo.playbackRate;
+        audioEl.muted = false;
+        if (!rawVideo.paused) {
+          if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(() => {});
+          }
+          audioEl.play().catch(() => {});
+        }
+      }
+    };
+    const handleTimeUpdate = () => {
+      if (selectedAudioTrack > 0 && audioEl.src) {
+        if (!audioEl.seeking && audioEl.readyState >= 2 && !rawVideo.paused && !audioEl.paused) {
+          if (Math.abs(audioEl.currentTime - rawVideo.currentTime) > 0.25) {
+            audioEl.currentTime = rawVideo.currentTime;
+          }
+        }
       }
     };
 
@@ -333,6 +430,10 @@ export default function VideoPlayerModal({
     rawVideo.addEventListener('seeked', handleSeeked);
     rawVideo.addEventListener('ratechange', handleRateChange);
     rawVideo.addEventListener('volumechange', handleVolumeChange);
+    rawVideo.addEventListener('waiting', handleBuffering);
+    rawVideo.addEventListener('stalled', handleBuffering);
+    rawVideo.addEventListener('playing', handleResumeSync);
+    rawVideo.addEventListener('canplay', handleResumeSync);
     rawVideo.addEventListener('timeupdate', handleTimeUpdate);
 
     return () => {
@@ -342,9 +443,13 @@ export default function VideoPlayerModal({
       rawVideo.removeEventListener('seeked', handleSeeked);
       rawVideo.removeEventListener('ratechange', handleRateChange);
       rawVideo.removeEventListener('volumechange', handleVolumeChange);
+      rawVideo.removeEventListener('waiting', handleBuffering);
+      rawVideo.removeEventListener('stalled', handleBuffering);
+      rawVideo.removeEventListener('playing', handleResumeSync);
+      rawVideo.removeEventListener('canplay', handleResumeSync);
       rawVideo.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [selectedAudioTrack, video.video_id, token]);
+  }, [selectedAudioTrack, video.video_id, token, initAudioBooster]);
 
   // 3. Audio Booster Web Audio API GainNode Configuration
   const initAudioBooster = useCallback((mediaEl) => {
@@ -353,7 +458,7 @@ export default function VideoPlayerModal({
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
 
-      if (!audioContextRef.current) {
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
         const ctx = new AudioCtx();
         const source = ctx.createMediaElementSource(mediaEl);
         const gainNode = ctx.createGain();
@@ -364,6 +469,18 @@ export default function VideoPlayerModal({
 
         audioContextRef.current = ctx;
         gainNodeRef.current = gainNode;
+      }
+
+      if (companionAudioRef.current && audioContextRef.current && gainNodeRef.current) {
+        const audioEl = companionAudioRef.current;
+        if (!audioEl._mediaSourceNode || audioEl._mediaSourceCtx !== audioContextRef.current) {
+          try {
+            audioEl.crossOrigin = 'anonymous';
+            audioEl._mediaSourceNode = audioContextRef.current.createMediaElementSource(audioEl);
+            audioEl._mediaSourceCtx = audioContextRef.current;
+            audioEl._mediaSourceNode.connect(gainNodeRef.current);
+          } catch (e) {}
+        }
       }
     } catch (e) {
       // Element might already be hooked
@@ -965,7 +1082,7 @@ export default function VideoPlayerModal({
                 className="video-js vjs-big-play-centered w-full h-full object-contain"
               />
               {/* Companion Audio Element for multi-track audio switching */}
-              <audio ref={companionAudioRef} preload="none" className="hidden" />
+              <audio id="player-companion-audio" ref={companionAudioRef} preload="auto" crossOrigin="anonymous" className="hidden" />
               {/* Buffering Loading Indicator Overlay */}
               {isBuffering && (
                 <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200">

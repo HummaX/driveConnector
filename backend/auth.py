@@ -114,8 +114,17 @@ async def get_current_user_flexible(
         raw_token = credentials.credentials
     elif token:
         raw_token = token
+    elif "token" in request.query_params:
+        raw_token = request.query_params["token"]
+    elif "access_token" in request.query_params:
+        raw_token = request.query_params["access_token"]
     elif "access_token" in request.cookies:
         raw_token = request.cookies["access_token"]
+    elif "drive_auth_token" in request.cookies:
+        raw_token = request.cookies["drive_auth_token"]
+
+    if raw_token and raw_token.startswith("Bearer "):
+        raw_token = raw_token[7:].strip()
 
     if not raw_token:
         raise HTTPException(

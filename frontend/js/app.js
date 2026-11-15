@@ -1299,6 +1299,7 @@
       const audioEl = document.getElementById('player-companion-audio');
       if (audioEl && (!audioEl._mediaSourceNode || audioEl._mediaSourceCtx !== state.audioCtx)) {
         try {
+          audioEl.crossOrigin = 'anonymous';
           audioEl._mediaSourceNode = state.audioCtx.createMediaElementSource(audioEl);
           audioEl._mediaSourceCtx = state.audioCtx;
           audioEl._mediaSourceNode.connect(state.gainNode);
@@ -1358,6 +1359,7 @@
         audioEl.currentTime = videoEl.currentTime;
         audioEl.playbackRate = videoEl.playbackRate;
         audioEl.volume = videoEl.volume;
+        audioEl.muted = false;
         if (state.audioCtx && state.audioCtx.state === 'suspended') {
           state.audioCtx.resume().catch(() => {});
         }
@@ -1373,7 +1375,12 @@
     const handleSeeked = () => {
       if (state.activeAudioTrack > 0) {
         audioEl.currentTime = videoEl.currentTime;
+        audioEl.playbackRate = videoEl.playbackRate;
+        audioEl.muted = false;
         if (!videoEl.paused && audioEl.src) {
+          if (state.audioCtx && state.audioCtx.state === 'suspended') {
+            state.audioCtx.resume().catch(() => {});
+          }
           audioEl.play().catch(() => {});
         }
       }
@@ -1393,6 +1400,7 @@
       if (state.activeAudioTrack > 0 && audioEl.src) {
         audioEl.currentTime = videoEl.currentTime;
         audioEl.playbackRate = videoEl.playbackRate;
+        audioEl.muted = false;
         if (!videoEl.paused) {
           if (state.audioCtx && state.audioCtx.state === 'suspended') {
             state.audioCtx.resume().catch(() => {});
@@ -1401,11 +1409,13 @@
         }
       }
     };
-    // Tightened drift correction threshold to 0.15s
+    // Drift correction threshold guarded against active seeking, buffering, or pauses
     const handleTimeUpdate = () => {
       if (state.activeAudioTrack > 0 && audioEl.src) {
-        if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.15) {
-          audioEl.currentTime = videoEl.currentTime;
+        if (!audioEl.seeking && audioEl.readyState >= 2 && !videoEl.paused && !audioEl.paused) {
+          if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.25) {
+            audioEl.currentTime = videoEl.currentTime;
+          }
         }
       }
     };
@@ -1438,7 +1448,8 @@
   }
 
   async function changePlayerAudioTrack(trackIdx) {
-    const idx = parseInt(trackIdx, 10) || 0;
+    const rawVal = String(trackIdx).trim().toLowerCase();
+    const idx = (rawVal === 'default' || isNaN(parseInt(rawVal, 10))) ? 0 : parseInt(rawVal, 10);
     state.activeAudioTrack = idx;
     if (!state.activeVideo) return;
 
@@ -1449,6 +1460,10 @@
     // Route both main video and companion audio through audio booster gainNode
     setupAudioBooster(videoEl);
 
+    if (state.audioCtx && state.audioCtx.state === 'suspended') {
+      state.audioCtx.resume().catch(() => {});
+    }
+
     if (idx === 0) {
       audioEl.pause();
       audioEl.removeAttribute('src');
@@ -1456,20 +1471,52 @@
       videoEl.muted = false;
     } else {
       videoEl.muted = true;
+      audioEl.crossOrigin = 'anonymous';
+      audioEl.preload = 'auto';
+      audioEl.muted = false;
+      audioEl.volume = videoEl.volume;
+      audioEl.playbackRate = videoEl.playbackRate;
+
       const token = getAuthToken();
       const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-      audioEl.src = `/api/videos/${state.activeVideo.video_id}/audio/${idx}${tokenParam}`;
-      audioEl.currentTime = videoEl.currentTime;
-      audioEl.playbackRate = videoEl.playbackRate;
-      audioEl.volume = videoEl.volume;
+      const newSrc = `/api/videos/${state.activeVideo.video_id}/audio/${idx}${tokenParam}`;
+
+      if (audioEl.getAttribute('src') !== newSrc && audioEl.src !== newSrc) {
+        audioEl.src = newSrc;
+        audioEl.load();
+      }
+
+      const syncAndPlay = () => {
+        try {
+          if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.15) {
+            audioEl.currentTime = videoEl.currentTime;
+          }
+          audioEl.playbackRate = videoEl.playbackRate;
+          audioEl.volume = videoEl.volume;
+          audioEl.muted = false;
+          if (!videoEl.paused) {
+            if (state.audioCtx && state.audioCtx.state === 'suspended') {
+              state.audioCtx.resume().catch(() => {});
+            }
+            audioEl.play().catch(e => console.warn('[CompanionAudio] play error:', e));
+          }
+        } catch (e) {}
+      };
+
+      audioEl.onloadedmetadata = () => {
+        syncAndPlay();
+      };
+      audioEl.oncanplay = () => {
+        if (!videoEl.paused && audioEl.paused) {
+          syncAndPlay();
+        }
+      };
       audioEl.onerror = () => {
         console.warn(`[CompanionAudio] Audio track ${idx} loading error:`, audioEl.error);
       };
-      if (!videoEl.paused) {
-        if (state.audioCtx && state.audioCtx.state === 'suspended') {
-          state.audioCtx.resume().catch(() => {});
-        }
-        audioEl.play().catch(() => {});
+
+      if (audioEl.readyState >= 1) {
+        syncAndPlay();
       }
     }
   }
@@ -1500,15 +1547,16 @@
     const sContainer = document.getElementById('player-subtitles-container');
 
     if (aSelect) {
-      aSelect.innerHTML = '<option value="0">Default Audio Track</option>';
       const aTracks = v.audio_tracks || [];
+      const defaultLabel = aTracks[0]?.label || aTracks[0]?.title || aTracks[0]?.language_name || 'Default Audio Track';
+      aSelect.innerHTML = `<option value="0">${defaultLabel}</option>`;
       if (aTracks.length > 1) {
         if (aContainer) aContainer.classList.remove('hidden');
         aTracks.forEach((tr, i) => {
           if (i > 0) {
             const opt = document.createElement('option');
-            opt.value = i;
-            opt.textContent = tr.title || tr.language_name || `Audio Track #${i + 1} (${tr.codec})`;
+            opt.value = tr.index !== undefined ? tr.index : i;
+            opt.textContent = tr.label || tr.title || tr.language_name || `Audio Track #${i + 1} (${tr.codec})`;
             aSelect.appendChild(opt);
           }
         });

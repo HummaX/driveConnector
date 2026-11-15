@@ -1231,6 +1231,9 @@ async def stream_audio_track(
     if video.get("status") == "REMOTE_ONLY":
         raise HTTPException(status_code=409, detail="Video is stored in cloud. Download locally to stream alternate audio tracks.")
 
+    if track_index < 0:
+        raise HTTPException(status_code=400, detail="Invalid audio track index")
+
     audio_path = await extract_audio_track(valid_id, track_index)
     if not audio_path or not audio_path.exists():
         raise HTTPException(status_code=404, detail=f"Audio track {track_index} not found or extraction failed")
@@ -1246,6 +1249,9 @@ async def stream_audio_track(
             "Content-Type": content_type,
             "Accept-Ranges": "bytes",
             "Cache-Control": "public, max-age=86400",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
         }
         def full_audio_iterator():
             with open(audio_path, "rb") as f:
@@ -1303,6 +1309,9 @@ async def stream_audio_track(
         "Content-Length": str(content_length),
         "Content-Type": content_type,
         "Cache-Control": "public, max-age=86400",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     }
     return StreamingResponse(audio_range_stream(), status_code=206, headers=headers)
 

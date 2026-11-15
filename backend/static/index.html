@@ -757,7 +757,7 @@
       <div class="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden">
         <div id="player-container" class="w-full h-full flex items-center justify-center"></div>
         <!-- Companion Audio Element for multi-track audio switching -->
-        <audio id="player-companion-audio" preload="none" class="hidden"></audio>
+        <audio id="player-companion-audio" preload="auto" crossorigin="anonymous" class="hidden"></audio>
         <!-- Buffering Loading Indicator Overlay -->
         <div id="player-buffering-overlay" class="absolute inset-0 z-30 hidden items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200">
           <div class="flex flex-col items-center space-y-3 px-6 py-4 rounded-2xl bg-[#0d1117]/90 border border-sky-500/30 shadow-2xl backdrop-blur-md">
@@ -837,7 +837,7 @@
           <div id="player-audio-container" class="hidden items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]" title="Select Audio Track / Language">
             <i data-lucide="volume-2" class="w-3.5 h-3.5 text-sky-400"></i>
             <span class="text-[11px] font-mono text-slate-400">Audio:</span>
-            <select id="player-audio-select" onchange="changePlayerAudioTrack(Number(this.value))" class="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer max-w-[130px] truncate">
+            <select id="player-audio-select" onchange="changePlayerAudioTrack(this.value)" class="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer max-w-[130px] truncate">
             </select>
           </div>
 
@@ -2050,17 +2050,34 @@
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx || !videoEl) return;
-        if (audioCtx) {
-          try { audioCtx.close(); } catch (e) {}
-          audioCtx = null;
-          gainNode = null;
+        if (!audioCtx || audioCtx.state === 'closed') {
+          audioCtx = new AudioCtx();
+          gainNode = audioCtx.createGain();
+          gainNode.gain.value = currentGain / 100;
+          gainNode.connect(audioCtx.destination);
+        } else if (!gainNode) {
+          gainNode = audioCtx.createGain();
+          gainNode.gain.value = currentGain / 100;
+          gainNode.connect(audioCtx.destination);
         }
-        audioCtx = new AudioCtx();
-        const source = audioCtx.createMediaElementSource(videoEl);
-        gainNode = audioCtx.createGain();
-        gainNode.gain.value = currentGain / 100;
-        source.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+
+        if (videoEl && (!videoEl._mediaSourceNode || videoEl._mediaSourceCtx !== audioCtx)) {
+          try {
+            videoEl._mediaSourceNode = audioCtx.createMediaElementSource(videoEl);
+            videoEl._mediaSourceCtx = audioCtx;
+            videoEl._mediaSourceNode.connect(gainNode);
+          } catch (err) {}
+        }
+
+        const audioEl = document.getElementById('player-companion-audio');
+        if (audioEl && (!audioEl._mediaSourceNode || audioEl._mediaSourceCtx !== audioCtx)) {
+          try {
+            audioEl.crossOrigin = 'anonymous';
+            audioEl._mediaSourceNode = audioCtx.createMediaElementSource(audioEl);
+            audioEl._mediaSourceCtx = audioCtx;
+            audioEl._mediaSourceNode.connect(gainNode);
+          } catch (err) {}
+        }
       } catch (err) {}
     }
 
@@ -2490,8 +2507,17 @@
       const audioEl = document.getElementById('player-companion-audio');
       if (!audioEl || !videoEl) return;
 
+      setupAudioBooster(videoEl);
+
       const handlePlay = () => {
         if (activeAudioTrackIndex > 0 && audioEl.src) {
+          audioEl.currentTime = videoEl.currentTime;
+          audioEl.playbackRate = videoEl.playbackRate;
+          audioEl.volume = videoEl.volume;
+          audioEl.muted = false;
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+          }
           audioEl.play().catch(() => {});
         }
       };
@@ -2502,17 +2528,49 @@
         if (activeAudioTrackIndex > 0) audioEl.currentTime = videoEl.currentTime;
       };
       const handleSeeked = () => {
-        if (activeAudioTrackIndex > 0) audioEl.currentTime = videoEl.currentTime;
+        if (activeAudioTrackIndex > 0) {
+          audioEl.currentTime = videoEl.currentTime;
+          audioEl.playbackRate = videoEl.playbackRate;
+          audioEl.muted = false;
+          if (!videoEl.paused && audioEl.src) {
+            if (audioCtx && audioCtx.state === 'suspended') {
+              audioCtx.resume().catch(() => {});
+            }
+            audioEl.play().catch(() => {});
+          }
+        }
       };
       const handleRateChange = () => {
         if (activeAudioTrackIndex > 0) audioEl.playbackRate = videoEl.playbackRate;
       };
       const handleVolumeChange = () => {
-        if (activeAudioTrackIndex > 0) audioEl.volume = videoEl.volume;
+        if (activeAudioTrackIndex > 0) {
+          audioEl.volume = videoEl.volume;
+        }
+      };
+      const handleBuffering = () => {
+        if (activeAudioTrackIndex > 0) audioEl.pause();
+      };
+      const handleResumeSync = () => {
+        if (activeAudioTrackIndex > 0 && audioEl.src) {
+          audioEl.currentTime = videoEl.currentTime;
+          audioEl.playbackRate = videoEl.playbackRate;
+          audioEl.muted = false;
+          if (!videoEl.paused) {
+            if (audioCtx && audioCtx.state === 'suspended') {
+              audioCtx.resume().catch(() => {});
+            }
+            audioEl.play().catch(() => {});
+          }
+        }
       };
       const handleTimeUpdate = () => {
-        if (activeAudioTrackIndex > 0 && Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.3) {
-          audioEl.currentTime = videoEl.currentTime;
+        if (activeAudioTrackIndex > 0 && audioEl.src) {
+          if (!audioEl.seeking && audioEl.readyState >= 2 && !videoEl.paused && !audioEl.paused) {
+            if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.25) {
+              audioEl.currentTime = videoEl.currentTime;
+            }
+          }
         }
       };
 
@@ -2522,6 +2580,10 @@
       videoEl.addEventListener('seeked', handleSeeked);
       videoEl.addEventListener('ratechange', handleRateChange);
       videoEl.addEventListener('volumechange', handleVolumeChange);
+      videoEl.addEventListener('waiting', handleBuffering);
+      videoEl.addEventListener('stalled', handleBuffering);
+      videoEl.addEventListener('playing', handleResumeSync);
+      videoEl.addEventListener('canplay', handleResumeSync);
       videoEl.addEventListener('timeupdate', handleTimeUpdate);
 
       companionAudioCleanup = () => {
@@ -2531,34 +2593,79 @@
         videoEl.removeEventListener('seeked', handleSeeked);
         videoEl.removeEventListener('ratechange', handleRateChange);
         videoEl.removeEventListener('volumechange', handleVolumeChange);
+        videoEl.removeEventListener('waiting', handleBuffering);
+        videoEl.removeEventListener('stalled', handleBuffering);
+        videoEl.removeEventListener('playing', handleResumeSync);
+        videoEl.removeEventListener('canplay', handleResumeSync);
         videoEl.removeEventListener('timeupdate', handleTimeUpdate);
       };
     }
 
     async function changePlayerAudioTrack(trackIdx) {
       if (!activeVideoModal) return;
-      activeAudioTrackIndex = trackIdx;
-      const videoEl = activePlayer?.media || document.querySelector('#player-container video');
+      const rawVal = String(trackIdx).trim().toLowerCase();
+      const idx = (rawVal === 'default' || isNaN(parseInt(rawVal, 10))) ? 0 : parseInt(rawVal, 10);
+      activeAudioTrackIndex = idx;
+      const videoEl = activePlayer?.media || (activePlayer?.el ? activePlayer.el().querySelector('video') : null) || document.querySelector('#player-container video');
       const audioEl = document.getElementById('player-companion-audio');
       if (!videoEl || !audioEl) return;
 
-      if (trackIdx === 0) {
+      setupAudioBooster(videoEl);
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+
+      if (idx === 0) {
         audioEl.pause();
         audioEl.removeAttribute('src');
         audioEl.load();
         videoEl.muted = false;
       } else {
         videoEl.muted = true;
-        const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
-        audioEl.src = `/api/videos/${activeVideoModal.video_id}/audio/${trackIdx}${tokenParam}`;
-        audioEl.currentTime = videoEl.currentTime;
-        audioEl.playbackRate = videoEl.playbackRate;
+        audioEl.crossOrigin = 'anonymous';
+        audioEl.preload = 'auto';
+        audioEl.muted = false;
         audioEl.volume = videoEl.volume;
-        audioEl.onerror = () => {
-          console.warn(`[CompanionAudio] Audio track ${trackIdx} loading error:`, audioEl.error);
+        audioEl.playbackRate = videoEl.playbackRate;
+
+        const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+        const targetSrc = `/api/videos/${activeVideoModal.video_id}/audio/${idx}${tokenParam}`;
+        if (audioEl.getAttribute('src') !== targetSrc && audioEl.src !== targetSrc) {
+          audioEl.src = targetSrc;
+          audioEl.load();
+        }
+
+        const syncAndPlay = () => {
+          try {
+            if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.15) {
+              audioEl.currentTime = videoEl.currentTime;
+            }
+            audioEl.playbackRate = videoEl.playbackRate;
+            audioEl.volume = videoEl.volume;
+            audioEl.muted = false;
+            if (!videoEl.paused) {
+              if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+              }
+              audioEl.play().catch(e => console.warn('[CompanionAudio] play error:', e));
+            }
+          } catch (e) {}
         };
-        if (!videoEl.paused) {
-          audioEl.play().catch(() => {});
+
+        audioEl.onloadedmetadata = () => {
+          syncAndPlay();
+        };
+        audioEl.oncanplay = () => {
+          if (!videoEl.paused && audioEl.paused) {
+            syncAndPlay();
+          }
+        };
+        audioEl.onerror = () => {
+          console.warn(`[CompanionAudio] Audio track ${idx} loading error:`, audioEl.error);
+        };
+
+        if (audioEl.readyState >= 1) {
+          syncAndPlay();
         }
       }
     }

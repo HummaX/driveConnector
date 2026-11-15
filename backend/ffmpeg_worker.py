@@ -439,11 +439,10 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
                 target_track = audio_tracks[track_index - 1]
 
         if not target_track:
-            print(f"[FFmpeg] No audio track matching index/stream {track_index} found in {video_path}")
-            return None
+            print(f"[FFmpeg] No audio track metadata matching index/stream {track_index} found in {video_path}; attempting direct 0:a:{track_index} extraction")
 
         # Check if canonical track index was already extracted
-        target_idx = target_track.get("index")
+        target_idx = target_track.get("index") if target_track else track_index
         if target_idx is not None:
             canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
             if canonical_dest.exists() and canonical_dest.stat().st_size > 1000:
@@ -455,8 +454,17 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
                         pass
                 return canonical_dest
 
-        stream_idx = target_track.get("stream_index")
-        map_arg = f"0:{stream_idx}" if stream_idx is not None else f"0:a:{target_track.get('index', 0)}"
+        stream_idx = target_track.get("stream_index") if target_track else None
+
+        # Robust multi-track FFmpeg mapping resolution:
+        # Prioritize 0:a:{target_idx} (audio stream index) which is immune to non-audio container streams (subtitles, chapters, fonts)
+        candidate_maps = []
+        if target_idx is not None:
+            candidate_maps.append(f"0:a:{target_idx}")
+        if f"0:a:{track_index}" not in candidate_maps:
+            candidate_maps.append(f"0:a:{track_index}")
+        if stream_idx is not None and f"0:{stream_idx}" not in candidate_maps:
+            candidate_maps.append(f"0:{stream_idx}")
 
         temp_dest = meta_dir / f"tmp_audio_track_{track_index}.m4a"
         if temp_dest.exists():
@@ -465,38 +473,46 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
             except Exception:
                 pass
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-threads", str(settings.ffmpeg_worker_threads),
-            "-i", str(video_path),
-            "-map", map_arg,
-            "-vn", "-sn", "-dn",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-movflags", "+faststart",
-            "-f", "mp4",
-            str(temp_dest)
-        ]
-        code, _, err = await run_cmd(cmd, timeout=300)
-        if code == 0 and temp_dest.exists() and temp_dest.stat().st_size > 1000:
-            temp_dest.replace(audio_dest)
-            if target_idx is not None and target_idx != track_index:
-                canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
-                if not canonical_dest.exists():
+        extracted = False
+        for map_arg in candidate_maps:
+            cmd = [
+                "ffmpeg", "-y",
+                "-threads", str(settings.ffmpeg_worker_threads),
+                "-i", str(video_path),
+                "-map", map_arg,
+                "-vn", "-sn", "-dn",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-movflags", "+faststart",
+                "-f", "mp4",
+                str(temp_dest)
+            ]
+            code, _, err = await run_cmd(cmd, timeout=300)
+            if code == 0 and temp_dest.exists() and temp_dest.stat().st_size > 1000:
+                temp_dest.replace(audio_dest)
+                extracted = True
+                if target_idx is not None and target_idx != track_index:
+                    canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
+                    if not canonical_dest.exists():
+                        try:
+                            import shutil
+                            shutil.copyfile(audio_dest, canonical_dest)
+                        except Exception:
+                            pass
+                break
+            else:
+                print(f"[FFmpeg] Audio extraction candidate {map_arg} failed (code {code}): {err}")
+                if temp_dest.exists():
                     try:
-                        import shutil
-                        shutil.copyfile(audio_dest, canonical_dest)
+                        temp_dest.unlink()
                     except Exception:
                         pass
+
+        if extracted and audio_dest.exists() and audio_dest.stat().st_size > 1000:
             return audio_dest
-        else:
-            print(f"[FFmpeg] Audio track extraction failed (code {code}): {err}")
-            if temp_dest.exists():
-                try:
-                    temp_dest.unlink()
-                except Exception:
-                    pass
-            return None
+
+        print(f"[FFmpeg] All audio extraction candidates failed for track {track_index} in {video_path}")
+        return None
 
 async def generate_poster_if_needed(video_path: Path, poster_path: Path, duration: float):
     """Generates a high-quality static poster thumbnail at 10% of duration if not already present."""

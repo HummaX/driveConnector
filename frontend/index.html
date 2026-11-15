@@ -826,7 +826,7 @@
         </div>
 
         <!-- Companion Audio Stream (Multi-Audio Synchronization) -->
-        <audio id="player-companion-audio" class="hidden" preload="auto"></audio>
+        <audio id="player-companion-audio" class="hidden" preload="auto" crossorigin="anonymous"></audio>
 
         <!-- Buffering Loading Overlay -->
         <div id="player-buffering-overlay" class="hidden absolute inset-0 bg-black/60 backdrop-blur-sm z-30 flex-col items-center justify-center space-y-3 pointer-events-none" style="display: none;">
@@ -909,7 +909,7 @@
           <div id="player-audio-container" class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1.5 rounded-lg border border-white/10">
             <i data-lucide="headphones" class="w-3.5 h-3.5 text-indigo-400"></i>
             <select id="player-audio-select" onchange="changePlayerAudioTrack(this.value)" class="bg-transparent text-white focus:outline-none cursor-pointer font-sans text-xs">
-              <option value="default">Default Audio</option>
+              <option value="0">Default Audio</option>
             </select>
           </div>
 
