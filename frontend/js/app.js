@@ -315,6 +315,119 @@
   }
 
   /* ============================================================================
+     4b. DYNAMIC 3D GLOBE TELEMETRY & GEOIP UPDATE
+     ============================================================================ */
+  function updateHeroGlobe(geoData) {
+    if (!geoData) return;
+
+    // Update Globe HUD DOM Elements
+    const activeConnsEl = document.getElementById('globe-active-conns');
+    if (activeConnsEl && typeof geoData.active_connections === 'number') {
+      const conns = geoData.active_connections;
+      activeConnsEl.textContent = `${conns} ${conns === 1 ? 'Live Connection' : 'Live Connections'}`;
+    }
+
+    const countriesBadgeEl = document.getElementById('globe-countries-badge');
+    if (countriesBadgeEl && typeof geoData.unique_countries_count === 'number') {
+      const count = geoData.unique_countries_count;
+      countriesBadgeEl.textContent = `${count} ${count === 1 ? 'Country' : 'Countries'}`;
+    }
+
+    const clientIpEl = document.getElementById('globe-client-ip-text');
+    if (clientIpEl && geoData.current_client) {
+      const cc = geoData.current_client;
+      const maskedIp = cc.ip ? (cc.ip.includes('.') ? cc.ip.split('.').slice(0, 3).join('.') + '.xxx' : cc.ip) : '';
+      clientIpEl.innerHTML = `<span class="text-xs">${cc.flag || '🌐'}</span><span class="text-slate-300 font-medium">${cc.city || 'Visitor'}, ${cc.country || 'Node'}</span><span class="text-slate-500 text-[9px] font-mono">(${maskedIp})</span>`;
+    }
+
+    const flagsContainer = document.getElementById('globe-countries-flags');
+    if (flagsContainer && Array.isArray(geoData.countries)) {
+      flagsContainer.innerHTML = geoData.countries.map(c => `
+        <span class="px-1 py-0.5 rounded bg-slate-800 text-[9px] font-mono text-slate-300 border border-slate-700 flex items-center space-x-0.5" title="${c.name || c.code}: ${c.count} active">
+          <span>${c.flag || '🌐'}</span>
+          <span>${c.count}</span>
+        </span>
+      `).join('');
+    }
+
+    // Update 3D Globe WebGL points and glowing arcs
+    if (!state.globe) return;
+
+    const serverNode = geoData.server_node || {
+      lat: 50.6927,
+      lng: 3.1746,
+      name: 'OVH-EU-1TB (Roubaix, France)',
+      color: '#38bdf8',
+      size: 1.5
+    };
+
+    const clientNodes = Array.isArray(geoData.client_nodes) && geoData.client_nodes.length > 0
+      ? geoData.client_nodes
+      : (geoData.current_client ? [{
+          lat: geoData.current_client.lat,
+          lng: geoData.current_client.lng,
+          name: `${geoData.current_client.city}, ${geoData.current_client.country}`,
+          color: '#34d399'
+        }] : []);
+
+    const allPoints = [serverNode, ...clientNodes];
+    try {
+      state.globe.pointsData(allPoints);
+
+      // Cyan / emerald glowing arcs routing into serverNode
+      const arcsData = clientNodes
+        .filter(node => Math.abs(node.lat - serverNode.lat) > 0.05 || Math.abs(node.lng - serverNode.lng) > 0.05)
+        .map(node => ({
+          startLat: node.lat,
+          startLng: node.lng,
+          endLat: serverNode.lat,
+          endLng: serverNode.lng,
+          color: ['rgba(56, 189, 248, 0.85)', 'rgba(52, 211, 153, 0.95)']
+        }));
+
+      state.globe.arcsData(arcsData);
+    } catch (e) {
+      console.warn('[Globe] Error updating 3D points/arcs:', e);
+    }
+  }
+
+  async function fetchNetworkGeo() {
+    try {
+      const res = await fetch('/api/network/geo');
+      if (res.ok) {
+        const geoData = await res.json();
+        updateHeroGlobe(geoData);
+      }
+    } catch (_) {}
+  }
+
+  async function registerBrowserGeo() {
+    try {
+      const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.ip && data.latitude && data.longitude) {
+          const regRes = await fetch('/api/network/register-client', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ip: data.ip,
+              city: data.city,
+              country: data.country_name,
+              country_code: data.country_code,
+              lat: data.latitude,
+              lng: data.longitude
+            })
+          });
+          if (regRes.ok) {
+            await fetchNetworkGeo();
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  /* ============================================================================
      5. WEBSOCKET TELEMETRY (/ws/transfers)
      ============================================================================ */
   function initWebSocket() {
@@ -2838,6 +2951,11 @@
       }
     }
 
+    // Real-Time Network & GeoIP Telemetry
+    if (data.network_geo) {
+      updateHeroGlobe(data.network_geo);
+    }
+
     // Live Transfers Strip & Mini Telemetry Ribbon
     const dlList = Object.values(state.transfers || {});
     const procList = Object.values(state.processingJobs || {});
@@ -2969,6 +3087,9 @@
   window.fetchWithAuth = fetchWithAuth;
 
   window.initHeroGlobe = initHeroGlobe;
+  window.updateHeroGlobe = updateHeroGlobe;
+  window.fetchNetworkGeo = fetchNetworkGeo;
+  window.registerBrowserGeo = registerBrowserGeo;
   window.initWebSocket = initWebSocket;
 
   window.openPlayerModal = openPlayerModal;
@@ -3054,8 +3175,10 @@
   function initializeApp() {
     if (!checkAuthWall()) return;
 
-    // Initialize 3D Hero Globe
+    // Initialize 3D Hero Globe & Real-Time Network Telemetry
     initHeroGlobe();
+    fetchNetworkGeo();
+    registerBrowserGeo();
 
     // Initialize WebSocket Telemetry
     initWebSocket();

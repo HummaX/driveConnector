@@ -5,6 +5,8 @@ import asyncio
 import time
 import platform
 import mimetypes
+import ipaddress
+import httpx
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any, Union
@@ -152,6 +154,195 @@ def update_network_rates():
     except Exception:
         pass
 
+def get_flag_emoji(country_code: str) -> str:
+    """Converts 2-letter ISO country code into Unicode flag emoji."""
+    if not country_code or len(country_code) != 2:
+        return "🌐"
+    try:
+        return "".join(chr(127397 + ord(c.upper())) for c in country_code)
+    except Exception:
+        return "🌐"
+
+class NetworkTelemetryTracker:
+    def __init__(self):
+        self._geo_cache: Dict[str, Dict[str, Any]] = {}
+        self._active_clients: Dict[str, Dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
+        self.server_node = {
+            "name": "OVH-EU-1TB (Roubaix, France)",
+            "city": "Roubaix",
+            "country": "France",
+            "country_code": "FR",
+            "flag": "🇫🇷",
+            "lat": 50.6927,
+            "lng": 3.1746,
+            "ip": "51.195.233.244",
+            "color": "#38bdf8",
+            "size": 1.5
+        }
+
+    def extract_client_ip(self, request: Request) -> str:
+        for hdr in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip", "forwarded"):
+            val = request.headers.get(hdr)
+            if val:
+                ip = val.split(",")[0].strip()
+                if ip:
+                    return ip
+        if request.client and request.client.host:
+            return request.client.host
+        return "127.0.0.1"
+
+    def is_private_ip(self, ip: str) -> bool:
+        try:
+            addr = ipaddress.ip_address(ip)
+            return addr.is_private or addr.is_loopback or addr.is_link_local
+        except Exception:
+            return True
+
+    async def lookup_geo(self, ip: str) -> Dict[str, Any]:
+        if ip in self._geo_cache:
+            return self._geo_cache[ip]
+
+        if self.is_private_ip(ip):
+            geo = {
+                "ip": ip,
+                "city": "Local Node",
+                "country": "Local Network",
+                "country_code": "LOC",
+                "flag": "🌐",
+                "lat": self.server_node["lat"],
+                "lng": self.server_node["lng"]
+            }
+            self._geo_cache[ip] = geo
+            return geo
+
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,city,lat,lon,query")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("status") == "success":
+                        cc = data.get("countryCode") or "UN"
+                        geo = {
+                            "ip": ip,
+                            "city": data.get("city") or "Unknown",
+                            "country": data.get("country") or "Unknown",
+                            "country_code": cc,
+                            "flag": get_flag_emoji(cc),
+                            "lat": float(data.get("lat", self.server_node["lat"])),
+                            "lng": float(data.get("lon", self.server_node["lng"]))
+                        }
+                        self._geo_cache[ip] = geo
+                        return geo
+        except Exception:
+            pass
+
+        geo = {
+            "ip": ip,
+            "city": "Public Client",
+            "country": "Global Internet",
+            "country_code": "NET",
+            "flag": "🌐",
+            "lat": 48.8566,
+            "lng": 2.3522
+        }
+        self._geo_cache[ip] = geo
+        return geo
+
+    async def register_hit(self, ip: str, path: str = "/", client_override: Optional[Dict[str, Any]] = None):
+        geo = await self.lookup_geo(ip)
+        if client_override:
+            if client_override.get("country"):
+                geo["country"] = client_override["country"]
+            if client_override.get("country_code"):
+                geo["country_code"] = client_override["country_code"]
+                geo["flag"] = get_flag_emoji(geo["country_code"])
+            if client_override.get("city"):
+                geo["city"] = client_override["city"]
+            if client_override.get("lat") and client_override.get("lng"):
+                geo["lat"] = float(client_override["lat"])
+                geo["lng"] = float(client_override["lng"])
+
+        now = time.time()
+        async with self._lock:
+            # Prune sessions older than 300 seconds
+            self._active_clients = {
+                k: v for k, v in self._active_clients.items()
+                if now - v.get("last_seen", 0) < 300
+            }
+
+            key = ip
+            if key not in self._active_clients:
+                self._active_clients[key] = {
+                    "ip": ip,
+                    "city": geo["city"],
+                    "country": geo["country"],
+                    "country_code": geo["country_code"],
+                    "flag": geo["flag"],
+                    "lat": geo["lat"],
+                    "lng": geo["lng"],
+                    "hits": 1,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "path": path
+                }
+            else:
+                self._active_clients[key]["hits"] += 1
+                self._active_clients[key]["last_seen"] = now
+                self._active_clients[key]["path"] = path
+
+    async def get_telemetry(self, current_ip: Optional[str] = None) -> Dict[str, Any]:
+        now = time.time()
+        async with self._lock:
+            self._active_clients = {
+                k: v for k, v in self._active_clients.items()
+                if now - v.get("last_seen", 0) < 300
+            }
+            clients_list = list(self._active_clients.values())
+
+        current_geo = None
+        if current_ip:
+            current_geo = await self.lookup_geo(current_ip)
+
+        countries_map: Dict[str, Dict[str, Any]] = {}
+        for c in clients_list:
+            code = c.get("country_code", "UN")
+            if code not in countries_map:
+                countries_map[code] = {
+                    "code": code,
+                    "name": c.get("country", "Unknown"),
+                    "flag": c.get("flag", "🌐"),
+                    "count": 0
+                }
+            countries_map[code]["count"] += 1
+
+        client_nodes = []
+        for c in clients_list:
+            masked_ip = ".".join(c["ip"].split(".")[:3]) + ".xxx" if "." in c["ip"] else c["ip"]
+            client_nodes.append({
+                "lat": c["lat"],
+                "lng": c["lng"],
+                "name": f"{c['city']}, {c['country']} ({masked_ip})",
+                "city": c["city"],
+                "country": c["country"],
+                "country_code": c["country_code"],
+                "flag": c["flag"],
+                "ip": masked_ip,
+                "color": "#34d399",
+                "hits": c["hits"]
+            })
+
+        return {
+            "server_node": self.server_node,
+            "current_client": current_geo,
+            "active_connections": max(1, len(clients_list)),
+            "unique_countries_count": max(1, len(countries_map)),
+            "countries": list(countries_map.values()),
+            "client_nodes": client_nodes
+        }
+
+network_tracker = NetworkTelemetryTracker()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize MongoDB, ensure directories exist, seed admin user, prime network counters
@@ -190,6 +381,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def track_network_traffic(request: Request, call_next):
+    ip = network_tracker.extract_client_ip(request)
+    try:
+        asyncio.create_task(network_tracker.register_hit(ip, request.url.path))
+    except Exception:
+        pass
+    return await call_next(request)
 
 # WebVTT scrubber cue fallback route (eliminates 404 console errors while sprites generate)
 @app.get("/metadata/{video_id}/thumbnails.vtt")
@@ -260,6 +460,28 @@ async def serve_favicon():
     if favicon_file.exists():
         return FileResponse(str(favicon_file), media_type="image/x-icon")
     return Response(status_code=404)
+
+# ----------------- Real-Time Global Network & GeoIP Telemetry -----------------
+class ClientGeoRegistration(BaseModel):
+    ip: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    country_code: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+@app.get("/api/network/geo")
+async def get_network_geo(request: Request):
+    """Returns real-time geolocation of server node, connected client nodes, and active countries."""
+    ip = network_tracker.extract_client_ip(request)
+    return await network_tracker.get_telemetry(ip)
+
+@app.post("/api/network/register-client")
+async def register_client_geo(payload: ClientGeoRegistration, request: Request):
+    """Allows client browser to register its real external GeoIP (useful when behind Docker bridge NAT)."""
+    ip = payload.ip or network_tracker.extract_client_ip(request)
+    await network_tracker.register_hit(ip, request.url.path, payload.model_dump())
+    return {"status": "registered", "geo": await network_tracker.lookup_geo(ip)}
 
 # ----------------- Authentication Endpoints & Rate Limiting -----------------
 # In-memory sliding-window rate limiting for login endpoints (CYB-07)
@@ -1028,9 +1250,14 @@ async def stream_video(
 
 # ----------------- Hardware & Process Telemetry (Auth Guarded) -----------------
 @app.get("/api/system/metrics")
-async def get_system_metrics(current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_system_metrics(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
     """Comprehensive Hardware & Operational Metrics (Requires Authentication)."""
     update_network_rates()
+    client_ip = network_tracker.extract_client_ip(request)
+    geo_telemetry = await network_tracker.get_telemetry(client_ip)
 
     # CPU metrics
     cpu_percent = 0.0
@@ -1152,7 +1379,8 @@ async def get_system_metrics(current_user: Dict[str, Any] = Depends(get_current_
             "status": "optimal",
             "uptime_seconds": uptime_sec,
             "os": f"{platform.system()} {platform.release()}"
-        }
+        },
+        "network_geo": geo_telemetry
     }
 
 @app.get("/api/system/storage")
