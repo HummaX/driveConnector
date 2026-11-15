@@ -26,11 +26,26 @@ class Settings(BaseSettings):
     ADMIN_DEFAULT_PASSWORD: str = "Admin@Drive2026!"
 
     # Process Governance & CPU Core Reservation
-    MAX_CONCURRENT_FFMPEG: int = 2
+    MAX_CONCURRENT_FFMPEG: int = 4
     MIN_FREE_DISK_BYTES: int = 1024 * 1024 * 1024  # 1 GB reserve
     RESERVED_CPU_CORES: int = 1
     FFMPEG_THREADS: Optional[int] = None
     WHISPER_CPU_RATIO: float = 0.80  # Target 80% CPU utilization for AI subtitles
+
+    # RAM & Memory Governance (32 GB RAM Profile: 10% System Reserve, 90% Cloud Pipeline)
+    TOTAL_RAM_GB: float = 32.0
+    RESERVED_RAM_RATIO: float = 0.10  # 10% strictly reserved for host OS / Web (~3.2 GB)
+    CLOUD_PIPELINE_RAM_RATIO: float = 0.90  # 90% allocated to Cloud Pipeline (~28.8 GB)
+
+    # Cloud Pipeline Memory Allocation Shares (sum = 90% of system RAM)
+    WHISPER_RAM_RATIO: float = 0.30       # ~9.6 GB for parallel chunk AI transcription pool
+    FFMPEG_RAM_RATIO: float = 0.30        # ~9.6 GB for FFmpeg concurrent transcode & sprite buffering
+    STREAM_BUFFER_RAM_RATIO: float = 0.15 # ~4.8 GB for chunked video streaming ring buffers
+    DOWNLOAD_BUFFER_RAM_RATIO: float = 0.15 # ~4.8 GB for cloud ingestion & direct HTTP buffers
+
+    # High-Throughput Buffer Sizing
+    STREAM_CHUNK_SIZE_BYTES: int = 4 * 1024 * 1024     # 4 MB read chunks (accelerates seek & high bitrate streaming)
+    DOWNLOAD_CHUNK_SIZE_BYTES: int = 8 * 1024 * 1024   # 8 MB download stream chunks (accelerates Google Drive / URL downloads)
 
     # CORS
     CORS_ORIGINS: List[str] = ["*"]
@@ -108,6 +123,44 @@ class Settings(BaseSettings):
         except Exception:
             total = 1
         return max(1, int(round(total * self.WHISPER_CPU_RATIO)))
+
+    @property
+    def total_ram_bytes(self) -> int:
+        try:
+            import psutil
+            return psutil.virtual_memory().total
+        except Exception:
+            return int(self.TOTAL_RAM_GB * (1024**3))
+
+    @property
+    def total_ram_gb(self) -> float:
+        return round(self.total_ram_bytes / (1024**3), 2)
+
+    @property
+    def reserved_ram_gb(self) -> float:
+        """Exactly 10% reserved for host OS, kernel, SSH, and basic web tasks."""
+        return round(self.total_ram_gb * self.RESERVED_RAM_RATIO, 2)
+
+    @property
+    def pipeline_ram_gb(self) -> float:
+        """90% distributed across the cloud media pipeline."""
+        return round(self.total_ram_gb * self.CLOUD_PIPELINE_RAM_RATIO, 2)
+
+    @property
+    def whisper_ram_pool_gb(self) -> float:
+        return round(self.total_ram_gb * self.WHISPER_RAM_RATIO, 2)
+
+    @property
+    def ffmpeg_ram_pool_gb(self) -> float:
+        return round(self.total_ram_gb * self.FFMPEG_RAM_RATIO, 2)
+
+    @property
+    def streaming_buffers_ram_gb(self) -> float:
+        return round(self.total_ram_gb * self.STREAM_BUFFER_RAM_RATIO, 2)
+
+    @property
+    def download_buffers_ram_gb(self) -> float:
+        return round(self.total_ram_gb * self.DOWNLOAD_BUFFER_RAM_RATIO, 2)
 
     @property
     def storage_dir(self) -> Path:

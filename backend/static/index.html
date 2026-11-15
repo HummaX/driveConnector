@@ -339,7 +339,7 @@
           </div>
 
           <!-- RAM -->
-          <div class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition">
+          <div id="header-ram-pill" class="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition">
             <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
             <div class="flex items-baseline space-x-1">
               <span class="text-slate-400 text-[10px]">RAM</span>
@@ -1502,6 +1502,10 @@
           document.getElementById('header-ram-used').innerText = `${data.ram.used_gb}G`;
           document.getElementById('header-ram-pct').innerText = `/ ${data.ram.total_gb}G`;
           document.getElementById('header-ram-bar').style.width = `${Math.min(100, data.ram.percent)}%`;
+          const ramPill = document.getElementById('header-ram-pill');
+          if (ramPill && data.ram.reserved_system_gb) {
+            ramPill.title = `32GB Architecture: ${data.ram.used_gb}GB used of ${data.ram.total_gb}GB | Host: ${data.ram.reserved_system_gb}GB (10%) | Cloud: ${data.ram.cloud_pipeline_allocated_gb}GB (90%) [Whisper: ${data.ram.whisper_ram_pool_gb}GB, FFmpeg: ${data.ram.ffmpeg_ram_pool_gb}GB, Buffers: ${(data.ram.streaming_buffers_gb + data.ram.download_buffers_gb).toFixed(1)}GB]`;
+          }
 
           // Header Disk
           document.getElementById('header-disk-used').innerText = `${data.disk.used_gb}G`;

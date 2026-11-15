@@ -1095,6 +1095,49 @@ def test_whisper_parallel_chunks_and_cpu_budget():
     print("✅ AI Subtitles parallel chunk division, 80% CPU allocation, and stale job startup reconciliation fully verified.")
     return True
 
+def test_ram_governance_and_pipeline_distribution():
+    """Verifies that 32GB RAM is distributed with exactly 10% host reserve and 90% cloud pipeline allocation."""
+    backend_dir = REPO_DIR / "backend"
+    config_text = (backend_dir / "config.py").read_text(encoding="utf-8")
+    main_text = (backend_dir / "main.py").read_text(encoding="utf-8")
+    dl_text = (backend_dir / "downloader.py").read_text(encoding="utf-8")
+    ffmpeg_text = (backend_dir / "ffmpeg_worker.py").read_text(encoding="utf-8")
+    compose_text = (REPO_DIR / "docker-compose.yml").read_text(encoding="utf-8")
+
+    # 1. Configuration constants and ratios
+    assert "TOTAL_RAM_GB: float = 32.0" in config_text, "Missing TOTAL_RAM_GB in config.py"
+    assert "RESERVED_RAM_RATIO: float = 0.10" in config_text, "Missing 10% RESERVED_RAM_RATIO in config.py"
+    assert "CLOUD_PIPELINE_RAM_RATIO: float = 0.90" in config_text, "Missing 90% CLOUD_PIPELINE_RAM_RATIO in config.py"
+    assert "MAX_CONCURRENT_FFMPEG: int = 4" in config_text, "MAX_CONCURRENT_FFMPEG must be 4 for 32GB RAM profile"
+    assert "STREAM_CHUNK_SIZE_BYTES: int = 4 * 1024 * 1024" in config_text, "Missing 4MB stream buffer chunk in config.py"
+    assert "DOWNLOAD_CHUNK_SIZE_BYTES: int = 8 * 1024 * 1024" in config_text, "Missing 8MB download buffer chunk in config.py"
+
+    # 2. Memory helper properties
+    assert "def reserved_ram_gb" in config_text, "Missing reserved_ram_gb property in config.py"
+    assert "def pipeline_ram_gb" in config_text, "Missing pipeline_ram_gb property in config.py"
+    assert "def whisper_ram_pool_gb" in config_text, "Missing whisper_ram_pool_gb property in config.py"
+    assert "def ffmpeg_ram_pool_gb" in config_text, "Missing ffmpeg_ram_pool_gb property in config.py"
+
+    # 3. Main endpoints streaming chunk size and metrics
+    assert "chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)" in main_text, "Missing STREAM_CHUNK_SIZE_BYTES in stream_video/audio"
+    assert '"reserved_system_gb": settings.reserved_ram_gb' in main_text, "Missing reserved_system_gb in /api/metrics"
+    assert '"cloud_pipeline_allocated_gb": settings.pipeline_ram_gb' in main_text, "Missing cloud_pipeline_allocated_gb in /api/metrics"
+
+    # 4. Downloader chunk size
+    assert "chunk_size=settings.DOWNLOAD_CHUNK_SIZE_BYTES" in dl_text, "Downloader not using DOWNLOAD_CHUNK_SIZE_BYTES"
+
+    # 5. FFmpeg in-memory audio preloading for Whisper
+    assert "Preload full audio into RAM pool" in ffmpeg_text, "Whisper missing in-memory audio preloading"
+
+    # 6. Docker compose memory & shared memory sizing
+    assert "--wiredTigerCacheSizeGB" in compose_text, "Missing wiredTigerCacheSizeGB in docker-compose.yml"
+    assert "shm_size: 8g" in compose_text, "Missing backend shm_size: 8g in docker-compose.yml"
+    assert "shm_size: 4g" in compose_text, "Missing jdownloader shm_size: 4g in docker-compose.yml"
+    assert "JVM_OPTIONS=-Xms1024m -Xmx4096m" in compose_text, "Missing JDownloader JVM heap options in docker-compose.yml"
+
+    print("✅ 32GB RAM distribution (10% system reserve, 90% cloud pipeline) fully verified across Backend, Workers & Docker.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -1122,7 +1165,8 @@ if __name__ == "__main__":
         test_multiple_downloads_and_jdownloader_integration,
         test_nonblocking_video_playback_during_processing,
         test_audio_and_subtitle_tracks_integration,
-        test_whisper_parallel_chunks_and_cpu_budget
+        test_whisper_parallel_chunks_and_cpu_budget,
+        test_ram_governance_and_pipeline_distribution
     ]
     failed = False
     for t in tests:

@@ -1840,11 +1840,25 @@
     if (data.ram) {
       const ramPill = document.getElementById('telemetry-ram');
       const ramUsed = (data.ram.used_gb || 0).toFixed(1);
-      const ramTotal = Math.round(data.ram.total_gb || 16);
+      const ramTotal = Math.round(data.ram.total_gb || 32);
       const ramPct = Math.round(data.ram.percent || 0);
-      if (ramPill) ramPill.textContent = `RAM ${ramUsed}/${ramTotal} GB [${ramPct}%]`;
+      if (ramPill) {
+        ramPill.textContent = `RAM ${ramUsed}/${ramTotal} GB [${ramPct}%]`;
+        if (data.ram.reserved_system_gb) {
+          ramPill.title = `32GB Architecture: ${ramUsed}/${ramTotal} GB | Host: ${data.ram.reserved_system_gb}GB (10%) | Cloud Pipeline: ${data.ram.cloud_pipeline_allocated_gb}GB (90%)`;
+        }
+      }
       const ramBar = document.getElementById('telemetry-ram-bar');
       if (ramBar) ramBar.style.width = `${ramPct}%`;
+
+      const headerRamUsed = document.getElementById('header-ram-used');
+      if (headerRamUsed) headerRamUsed.textContent = `${ramUsed}G`;
+      const headerRamPct = document.getElementById('header-ram-pct');
+      if (headerRamPct) headerRamPct.textContent = `/ ${ramTotal}G`;
+      const headerRamBar = document.getElementById('header-ram-bar');
+      if (headerRamBar) headerRamBar.style.width = `${ramPct}%`;
+      const mobRam = document.getElementById('mobile-ram-used');
+      if (mobRam) mobRam.textContent = `${ramUsed}G`;
     }
 
     // Disk / Storage

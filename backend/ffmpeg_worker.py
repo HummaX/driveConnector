@@ -882,6 +882,7 @@ def run_whisper_transcription(audio_path: Path, total_duration: float = 60.0, pr
     # 180 seconds (3 minutes) per chunk provides fine-grained parallel progress and fast VAD skipping
     CHUNK_DURATION_SEC = 180.0
 
+    full_audio = None
     try:
         with wave.open(str(audio_path), "rb") as wf:
             framerate = wf.getframerate()
@@ -889,6 +890,13 @@ def run_whisper_transcription(audio_path: Path, total_duration: float = 60.0, pr
             sampwidth = wf.getsampwidth()
             total_frames = wf.getnframes()
             exact_duration = total_frames / float(framerate) if framerate > 0 else total_duration
+            # Preload full audio into RAM pool to eliminate parallel disk I/O contention
+            if sampwidth == 2:
+                raw_bytes_all = wf.readframes(total_frames)
+                full_audio = np.frombuffer(raw_bytes_all, dtype=np.int16).astype(np.float32) / 32768.0
+                if nchannels > 1:
+                    full_audio = full_audio.reshape(-1, nchannels).mean(axis=1)
+                print(f"[Whisper] Preloaded {len(full_audio)} audio samples into RAM pool ({round(full_audio.nbytes / (1024**2), 1)} MB)")
     except Exception as e:
         print(f"[Whisper] Wave header read error: {e}, falling back to total_duration")
         exact_duration = total_duration
@@ -949,14 +957,20 @@ def run_whisper_transcription(audio_path: Path, total_duration: float = 60.0, pr
         frames_to_read = int(dur_sec * framerate)
 
         try:
-            with wave.open(str(audio_path), "rb") as wf:
-                wf.setpos(start_frame)
-                raw_bytes = wf.readframes(frames_to_read)
+            if full_audio is not None:
+                end_frame = min(len(full_audio), start_frame + frames_to_read)
+                if start_frame >= len(full_audio):
+                    return chunk_idx, []
+                audio_arr = full_audio[start_frame:end_frame]
+            else:
+                with wave.open(str(audio_path), "rb") as wf:
+                    wf.setpos(start_frame)
+                    raw_bytes = wf.readframes(frames_to_read)
 
-            if not raw_bytes:
-                return chunk_idx, []
+                if not raw_bytes:
+                    return chunk_idx, []
 
-            audio_arr = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                audio_arr = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
 
             segs, info = model.transcribe(
                 audio_arr,

@@ -22,7 +22,7 @@ export default function Navbar({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const cpu = metrics?.cpu || { percent: 0, cores: 1, frequency_mhz: 0 };
-  const ram = metrics?.ram || { total_gb: 16, used_gb: 0, percent: 0 };
+  const ram = metrics?.ram || { total_gb: 32, used_gb: 0, percent: 0 };
   const disk = metrics?.disk || { total_gb: 1000, used_gb: 0, percent: 0 };
   const net = metrics?.network || { input_mb_s: 0, output_mb_s: 0 };
 
@@ -125,7 +125,7 @@ export default function Navbar({
           {/* RAM Pill */}
           <div 
             className="flex items-center space-x-2 bg-[#161b22]/90 border border-[#30363d]/70 px-2.5 py-1.5 rounded-lg hover:border-slate-600 transition"
-            title={`System Memory: ${ram.used_gb} GB used of ${ram.total_gb} GB total`}
+            title={`System Memory: ${ram.used_gb} GB used of ${ram.total_gb} GB total (Host Reserve: ${ram.reserved_system_gb || 3.2} GB, Cloud Pipeline: ${ram.cloud_pipeline_allocated_gb || 28.8} GB)`}
           >
             <Activity className="w-3.5 h-3.5 text-indigo-400" />
             <div className="flex items-baseline space-x-1">

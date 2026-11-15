@@ -269,7 +269,7 @@ async def download_drive_video(video_id: str):
 
                 # Write to .part temporary file first (OPS-03)
                 with open(part_path, "wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                    async for chunk in response.aiter_bytes(chunk_size=settings.DOWNLOAD_CHUNK_SIZE_BYTES):
                         f.write(chunk)
                         chunk_len = len(chunk)
                         downloaded_bytes += chunk_len
@@ -474,7 +474,7 @@ async def download_direct_http_stream(video_id: str, url: str):
                     last_bytes = downloaded_bytes
 
                     with open(part_path, file_mode) as f:
-                        async for chunk in response.aiter_bytes(chunk_size=2 * 1024 * 1024):
+                        async for chunk in response.aiter_bytes(chunk_size=settings.DOWNLOAD_CHUNK_SIZE_BYTES):
                             f.write(chunk)
                             downloaded_bytes += len(chunk)
 

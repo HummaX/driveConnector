@@ -728,7 +728,7 @@ async def stream_audio_track(
             f.seek(start)
             remaining = content_length
             while remaining > 0:
-                chunk_size = min(remaining, 256 * 1024)
+                chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)
                 data = f.read(chunk_size)
                 if not data:
                     break
@@ -862,7 +862,7 @@ async def stream_video(
             f.seek(start)
             remaining = content_length
             while remaining > 0:
-                chunk_size = min(remaining, 512 * 1024)
+                chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)
                 data = f.read(chunk_size)
                 if not data:
                     break
@@ -901,11 +901,11 @@ async def get_system_metrics(current_user: Dict[str, Any] = Depends(get_current_
     except Exception:
         pass
 
-    # RAM metrics
-    ram_total_gb = 16.0
+    # RAM metrics (32GB system profile: 10% host reserve, 90% cloud pipeline)
+    ram_total_gb = settings.total_ram_gb
     ram_used_gb = 2.0
-    ram_free_gb = 14.0
-    ram_percent = 12.5
+    ram_free_gb = round(max(0.0, ram_total_gb - ram_used_gb), 2)
+    ram_percent = round((ram_used_gb / ram_total_gb) * 100, 1) if ram_total_gb > 0 else 6.2
     try:
         mem = psutil.virtual_memory()
         ram_total_gb = round(mem.total / (1024 ** 3), 2)
@@ -972,7 +972,13 @@ async def get_system_metrics(current_user: Dict[str, Any] = Depends(get_current_
             "total_gb": ram_total_gb,
             "used_gb": ram_used_gb,
             "free_gb": ram_free_gb,
-            "percent": ram_percent
+            "percent": ram_percent,
+            "reserved_system_gb": settings.reserved_ram_gb,
+            "cloud_pipeline_allocated_gb": settings.pipeline_ram_gb,
+            "whisper_ram_pool_gb": settings.whisper_ram_pool_gb,
+            "ffmpeg_ram_pool_gb": settings.ffmpeg_ram_pool_gb,
+            "streaming_buffers_gb": settings.streaming_buffers_ram_gb,
+            "download_buffers_gb": settings.download_buffers_ram_gb
         },
         "disk": {
             "mount": settings.STORAGE_DIR,

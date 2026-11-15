@@ -3,6 +3,7 @@ services:
     image: mongo:7.0
     container_name: media_mongodb
     restart: unless-stopped
+    command: ["mongod", "--wiredTigerCacheSizeGB", "4"]
     ports:
       # Restricted to localhost (127.0.0.1) to prevent public internet access on OVHcloud
       - "127.0.0.1:27017:27017"
@@ -49,6 +50,7 @@ services:
     container_name: media_backend
     restart: unless-stopped
     init: true
+    shm_size: 8g
     ports:
       - "8000:8000"
     environment:
@@ -61,6 +63,10 @@ services:
       - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID:-}
       - RESERVED_CPU_CORES=${RESERVED_CPU_CORES:-1}
       - FFMPEG_THREADS=${FFMPEG_THREADS:-}
+      - TOTAL_RAM_GB=${TOTAL_RAM_GB:-32}
+      - RESERVED_RAM_RATIO=${RESERVED_RAM_RATIO:-0.10}
+      - CLOUD_PIPELINE_RAM_RATIO=${CLOUD_PIPELINE_RAM_RATIO:-0.90}
+      - MAX_CONCURRENT_FFMPEG=${MAX_CONCURRENT_FFMPEG:-4}
     volumes:
       # Mount 1TB block storage for media, metadata, and database
       - ${STORAGE_DIR:-/mnt/storage}:${STORAGE_DIR:-/mnt/storage}
@@ -76,6 +82,7 @@ services:
     image: jlesage/jdownloader-2:latest
     container_name: media_jdownloader
     restart: unless-stopped
+    shm_size: 4g
     ports:
       # Bound to JDOWNLOADER_BIND (defaults to 127.0.0.1 for SSH tunnel security; switch to 0.0.0.0 for direct browser access)
       - "${JDOWNLOADER_BIND:-127.0.0.1}:5800:5800"
@@ -83,6 +90,7 @@ services:
       - USER_ID=1000
       - GROUP_ID=1000
       - VNC_PASSWORD=${JDOWNLOADER_PASSWORD:-admin123}
+      - JVM_OPTIONS=-Xms1024m -Xmx4096m
     volumes:
       # Persistent configuration & JDownloader settings on 1TB block storage
       - ${STORAGE_DIR:-/mnt/storage}/jdownloader:/config
