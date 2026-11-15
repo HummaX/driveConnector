@@ -139,15 +139,29 @@ export default function VideoCard({
           ) : null}
         </div>
 
-        {/* Feature Badges (Top Right: Subtitles, Renditions) */}
+        {/* Feature Badges (Top Right: Audio, Subtitles, Renditions) */}
         <div className="absolute top-2 right-2 z-10 flex items-center space-x-1">
-          {video.subtitles_url && (
-            <span className="px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="AI Subtitles Available">
-              CC
+          {video.audio_tracks && video.audio_tracks.length > 1 && (
+            <span
+              className="px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-300 border border-blue-500/40 text-[9px] font-mono font-bold backdrop-blur-sm"
+              title={`${video.audio_tracks.length} Audio Tracks Available`}
+            >
+              {video.audio_tracks.length} Audio
+            </span>
+          )}
+          {((video.subtitle_tracks && video.subtitle_tracks.length > 0) || video.subtitles_url) && (
+            <span
+              className="px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold backdrop-blur-sm"
+              title="Subtitles Available"
+            >
+              CC{video.subtitle_tracks && video.subtitle_tracks.length > 1 ? ` (${video.subtitle_tracks.length})` : ''}
             </span>
           )}
           {video.renditions && Object.keys(video.renditions).length > 0 && (
-            <span className="px-1.5 py-0.5 rounded bg-sky-500/30 text-sky-300 border border-sky-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="Multi-Resolution Renditions Available">
+            <span
+              className="px-1.5 py-0.5 rounded bg-sky-500/30 text-sky-300 border border-sky-500/40 text-[9px] font-mono font-bold backdrop-blur-sm"
+              title="Multi-Resolution Renditions Available"
+            >
               {Object.keys(video.renditions).length}Q
             </span>
           )}

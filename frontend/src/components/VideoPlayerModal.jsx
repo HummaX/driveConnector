@@ -17,6 +17,7 @@ export default function VideoPlayerModal({
   onTranscribe
 }) {
   const playerContainerRef = useRef(null);
+  const companionAudioRef = useRef(null);
   const plyrInstanceRef = useRef(null);
   const audioContextRef = useRef(null);
   const gainNodeRef = useRef(null);
@@ -27,6 +28,10 @@ export default function VideoPlayerModal({
   const [isTheater, setIsTheater] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [selectedQuality, setSelectedQuality] = useState('original');
+  const [audioTracks, setAudioTracks] = useState(video.audio_tracks || []);
+  const [subtitleTracks, setSubtitleTracks] = useState(video.subtitle_tracks || []);
+  const [selectedAudioTrack, setSelectedAudioTrack] = useState(0);
+  const [selectedSubtitle, setSelectedSubtitle] = useState('off');
   const [resumeNotice, setResumeNotice] = useState(null);
   const [isTranscodingModalOpen, setIsTranscodingModalOpen] = useState(false);
   const [replaceOriginal, setReplaceOriginal] = useState(false);
@@ -130,6 +135,84 @@ export default function VideoPlayerModal({
     }
   }, [video, downloadStarted, onTriggerDownload]);
 
+  // Sync state when video prop changes
+  useEffect(() => {
+    if (video.audio_tracks) setAudioTracks(video.audio_tracks);
+    if (video.subtitle_tracks) setSubtitleTracks(video.subtitle_tracks);
+  }, [video.audio_tracks, video.subtitle_tracks]);
+
+  // Auto-probe tracks if video is ready/local and tracks haven't been probed yet
+  useEffect(() => {
+    if (!isReadyToPlay || (video.audio_tracks && video.audio_tracks.length > 0)) return;
+
+    fetch(`/api/videos/${video.video_id}/probe-tracks`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.status === 'success') {
+          if (data.audio_tracks) setAudioTracks(data.audio_tracks);
+          if (data.subtitle_tracks) setSubtitleTracks(data.subtitle_tracks);
+        }
+      })
+      .catch((err) => console.warn('[VideoPlayerModal] Auto-probe error:', err));
+  }, [isReadyToPlay, video.video_id, video.audio_tracks, token]);
+
+  // Companion audio synchronization
+  useEffect(() => {
+    const videoEl = playerContainerRef.current;
+    const audioEl = companionAudioRef.current;
+    if (!videoEl || !audioEl) return;
+
+    if (selectedAudioTrack === 0) {
+      audioEl.pause();
+      audioEl.removeAttribute('src');
+      videoEl.muted = false;
+      return;
+    }
+
+    videoEl.muted = true;
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    audioEl.src = `/api/videos/${video.video_id}/audio/${selectedAudioTrack}${tokenParam}`;
+    audioEl.currentTime = videoEl.currentTime;
+    audioEl.playbackRate = videoEl.playbackRate;
+    audioEl.volume = videoEl.volume;
+    if (!videoEl.paused) {
+      audioEl.play().catch(() => {});
+    }
+
+    const handlePlay = () => { if (selectedAudioTrack > 0 && audioEl.src) audioEl.play().catch(() => {}); };
+    const handlePause = () => { if (selectedAudioTrack > 0) audioEl.pause(); };
+    const handleSeeking = () => { if (selectedAudioTrack > 0) audioEl.currentTime = videoEl.currentTime; };
+    const handleSeeked = () => { if (selectedAudioTrack > 0) audioEl.currentTime = videoEl.currentTime; };
+    const handleRateChange = () => { if (selectedAudioTrack > 0) audioEl.playbackRate = videoEl.playbackRate; };
+    const handleVolumeChange = () => { if (selectedAudioTrack > 0) audioEl.volume = videoEl.volume; };
+    const handleTimeUpdate = () => {
+      if (selectedAudioTrack > 0 && Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.3) {
+        audioEl.currentTime = videoEl.currentTime;
+      }
+    };
+
+    videoEl.addEventListener('play', handlePlay);
+    videoEl.addEventListener('pause', handlePause);
+    videoEl.addEventListener('seeking', handleSeeking);
+    videoEl.addEventListener('seeked', handleSeeked);
+    videoEl.addEventListener('ratechange', handleRateChange);
+    videoEl.addEventListener('volumechange', handleVolumeChange);
+    videoEl.addEventListener('timeupdate', handleTimeUpdate);
+
+    return () => {
+      videoEl.removeEventListener('play', handlePlay);
+      videoEl.removeEventListener('pause', handlePause);
+      videoEl.removeEventListener('seeking', handleSeeking);
+      videoEl.removeEventListener('seeked', handleSeeked);
+      videoEl.removeEventListener('ratechange', handleRateChange);
+      videoEl.removeEventListener('volumechange', handleVolumeChange);
+      videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+    };
+  }, [selectedAudioTrack, video.video_id, token]);
+
   // 3. Audio Booster Web Audio API GainNode Configuration
   const initAudioBooster = useCallback((mediaEl) => {
     if (!mediaEl) return;
@@ -216,14 +299,28 @@ export default function VideoPlayerModal({
       };
 
       const tracks = [];
+      (subtitleTracks || []).forEach((st) => {
+        if (st.url) {
+          tracks.push({
+            kind: 'captions',
+            label: st.label || `${st.language_name || 'Sub'} (${st.codec})`,
+            srclang: st.language || 'en',
+            src: st.url,
+            default: Boolean(st.is_default)
+          });
+        }
+      });
       if (video.subtitles_url) {
-        tracks.push({
-          kind: 'captions',
-          label: 'English AI',
-          srclang: 'en',
-          src: video.subtitles_url,
-          default: true
-        });
+        const alreadyIn = (subtitleTracks || []).some((st) => st.url === video.subtitles_url);
+        if (!alreadyIn) {
+          tracks.push({
+            kind: 'captions',
+            label: 'AI Whisper (English)',
+            srclang: 'en',
+            src: video.subtitles_url,
+            default: tracks.length === 0
+          });
+        }
       }
 
       const plyr = new Plyr(videoEl, options);
@@ -483,7 +580,22 @@ export default function VideoPlayerModal({
         gainNodeRef.current = null;
       }
     };
-  }, [isReadyToPlay, video.video_id, selectedQuality, video.subtitles_url, token, initAudioBooster]);
+  }, [isReadyToPlay, video.video_id, selectedQuality, video.subtitles_url, subtitleTracks, token, initAudioBooster]);
+
+  // Handle Subtitle Track Change
+  const handleSubtitleChange = (val) => {
+    setSelectedSubtitle(val);
+    const plyr = plyrInstanceRef.current;
+    if (!plyr) return;
+    if (val === 'off') {
+      plyr.currentTrack = -1;
+    } else {
+      const idx = parseInt(val, 10);
+      if (!isNaN(idx)) {
+        plyr.currentTrack = idx;
+      }
+    }
+  };
 
   // Handle Quality Change
   const handleQualitySelect = (q) => {
@@ -599,6 +711,8 @@ export default function VideoPlayerModal({
                 crossOrigin="anonymous"
                 className="w-full h-full object-contain"
               />
+              {/* Companion Audio Element for multi-track audio switching */}
+              <audio ref={companionAudioRef} preload="none" className="hidden" />
               {/* Buffering Loading Indicator Overlay */}
               {isBuffering && (
                 <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200">
@@ -804,22 +918,65 @@ export default function VideoPlayerModal({
                 </button>
               </div>
 
-              {/* AI Subtitles Button */}
-              {video.subtitles_url ? (
-                <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono">
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  <span>AI Subtitles Active</span>
-                </div>
-              ) : (
-                <button
-                  onClick={() => onTranscribe && onTranscribe(video.video_id)}
-                  title="Generate Local AI Subtitles via Whisper"
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 text-purple-300 hover:text-white border border-purple-500/30 font-mono text-xs transition"
+              {/* Audio Track Selector */}
+              {audioTracks && audioTracks.length > 0 && (
+                <div
+                  className="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1.5 rounded-lg border border-[#30363d]"
+                  title="Select Audio Track / Language"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Generate AI Subtitles</span>
-                </button>
+                  <Volume2 className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="text-[11px] font-mono text-slate-400">Audio:</span>
+                  <select
+                    value={selectedAudioTrack}
+                    onChange={(e) => setSelectedAudioTrack(Number(e.target.value))}
+                    className="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer max-w-[130px] truncate"
+                  >
+                    {audioTracks.map((t) => (
+                      <option key={t.index} value={t.index} className="bg-[#161b22] text-white">
+                        {t.label || `Track ${t.index + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
+
+              {/* Subtitles Track Selector */}
+              <div
+                className="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1.5 rounded-lg border border-[#30363d]"
+                title="Select Subtitle Track / Language"
+              >
+                <Subtitles className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-[11px] font-mono text-slate-400">Subs:</span>
+                <select
+                  value={selectedSubtitle}
+                  onChange={(e) => handleSubtitleChange(e.target.value)}
+                  className="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer max-w-[130px] truncate"
+                >
+                  <option value="off" className="bg-[#161b22] text-white">Off</option>
+                  {(subtitleTracks || []).filter((s) => s.url).map((st, idx) => (
+                    <option key={st.index} value={idx} className="bg-[#161b22] text-white">
+                      {st.label || `${st.language_name || 'Sub'}`}
+                    </option>
+                  ))}
+                  {video.subtitles_url && !(subtitleTracks || []).some((s) => s.url === video.subtitles_url) && (
+                    <option value={(subtitleTracks || []).filter((s) => s.url).length} className="bg-[#161b22] text-white">
+                      AI Whisper (English)
+                    </option>
+                  )}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => onTranscribe && onTranscribe(video.video_id)}
+                  title={video.subtitles_url ? "AI Subtitles Active" : "Generate Local AI Subtitles via Whisper"}
+                  className={`p-1 rounded transition ${
+                    video.subtitles_url
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-purple-500/20 hover:bg-purple-500/40 text-purple-300'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3" />
+                </button>
+              </div>
             </div>
           </div>
         )}

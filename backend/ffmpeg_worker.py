@@ -177,7 +177,7 @@ async def run_cmd(cmd: list, timeout: int = 180) -> tuple[int, str, str]:
         return -1, "", str(e)
 
 async def probe_video(video_path: Path) -> Dict[str, Any]:
-    """Runs ffprobe on the target video and returns parsed JSON format and stream info."""
+    """Runs ffprobe on the target video and returns parsed JSON format and stream info including all audio and subtitle tracks."""
     cmd = [
         "ffprobe",
         "-v", "quiet",
@@ -186,29 +186,210 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
         "-show_streams",
         str(video_path)
     ]
-    code, stdout, _ = await run_cmd(cmd, timeout=30)
+    code, stdout, _ = await run_cmd(cmd, timeout=45)
     if code != 0 or not stdout:
-        return {"duration": 0.0, "width": 1920, "height": 1080, "has_audio": True}
+        return {
+            "duration": 0.0,
+            "width": 1920,
+            "height": 1080,
+            "has_audio": True,
+            "audio_tracks": [],
+            "subtitle_tracks": []
+        }
 
     try:
         data = json.loads(stdout)
         duration = float(data.get("format", {}).get("duration", 0.0))
         streams = data.get("streams", [])
         video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
-        audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
         width = int(video_stream.get("width", 1920))
         height = int(video_stream.get("height", 1080))
         if duration == 0.0:
             duration = float(video_stream.get("duration", 0.0))
+
+        lang_names = {
+            "hin": "Hindi", "eng": "English", "spa": "Spanish", "fra": "French",
+            "fre": "French", "deu": "German", "ger": "German", "ita": "Italian",
+            "jpn": "Japanese", "kor": "Korean", "zho": "Chinese", "chi": "Chinese",
+            "rus": "Russian", "tam": "Tamil", "tel": "Telugu", "mal": "Malayalam",
+            "kan": "Kannada", "pan": "Punjabi", "urd": "Urdu", "ara": "Arabic",
+            "por": "Portuguese", "und": "Audio Track"
+        }
+
+        audio_tracks = []
+        subtitle_tracks = []
+        audio_idx = 0
+        sub_idx = 0
+
+        for s in streams:
+            ctype = s.get("codec_type")
+            idx = s.get("index", 0)
+            tags = s.get("tags") or {}
+            lang = (tags.get("language") or tags.get("lang") or "und").lower()
+            title = (tags.get("title") or tags.get("handler_name") or "").strip()
+            disp = s.get("disposition") or {}
+            is_default = bool(disp.get("default", 0))
+
+            if ctype == "audio":
+                codec = s.get("codec_name", "aac")
+                channels = int(s.get("channels", 2))
+                layout = s.get("channel_layout", "")
+                lang_disp = lang_names.get(lang, lang.upper())
+
+                channel_str = f"{channels}ch" if not layout else layout
+                parts = [lang_disp]
+                if title and title.lower() != lang_disp.lower():
+                    parts.append(f"[{title}]")
+                parts.append(f"({codec.upper()} {channel_str})")
+                label = " ".join(parts)
+
+                audio_tracks.append({
+                    "index": audio_idx,
+                    "stream_index": idx,
+                    "codec": codec,
+                    "language": lang,
+                    "language_name": lang_disp,
+                    "channels": channels,
+                    "channel_layout": layout,
+                    "title": title,
+                    "label": label,
+                    "is_default": is_default
+                })
+                audio_idx += 1
+
+            elif ctype == "subtitle":
+                codec = s.get("codec_name", "srt")
+                is_text = codec.lower() in ("subrip", "srt", "ass", "ssa", "mov_text", "webvtt")
+                lang_disp = lang_names.get(lang, lang.upper() if lang != "und" else "Subtitle")
+                label = f"{lang_disp} [{title}]" if title else f"{lang_disp} ({codec.upper()})"
+
+                subtitle_tracks.append({
+                    "index": sub_idx,
+                    "stream_index": idx,
+                    "codec": codec,
+                    "language": lang,
+                    "language_name": lang_disp,
+                    "title": title,
+                    "label": label,
+                    "is_text": is_text,
+                    "is_default": is_default,
+                    "url": None
+                })
+                sub_idx += 1
+
         return {
             "duration": duration,
             "width": width,
             "height": height,
-            "has_audio": audio_stream is not None
+            "has_audio": len(audio_tracks) > 0,
+            "audio_tracks": audio_tracks,
+            "subtitle_tracks": subtitle_tracks
         }
     except Exception as e:
         print(f"[FFmpeg] Error parsing ffprobe output: {e}")
-        return {"duration": 0.0, "width": 1920, "height": 1080, "has_audio": True}
+        return {
+            "duration": 0.0,
+            "width": 1920,
+            "height": 1080,
+            "has_audio": True,
+            "audio_tracks": [],
+            "subtitle_tracks": []
+        }
+
+async def extract_embedded_subtitles(
+    video_id: str,
+    video_path: Path,
+    meta_dir: Path,
+    subtitle_tracks: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Extracts embedded text subtitle streams (SRT, ASS, MOV_TEXT, WebVTT)
+    into standard WebVTT files so they can be loaded by web browsers via Plyr.
+    """
+    updated_tracks = []
+    meta_dir.mkdir(parents=True, exist_ok=True)
+
+    for st in subtitle_tracks:
+        track = dict(st)
+        if not track.get("is_text"):
+            updated_tracks.append(track)
+            continue
+
+        sub_filename = f"sub_{track['index']}_{track['language']}.vtt"
+        sub_path = meta_dir / sub_filename
+
+        # If already extracted and valid, keep existing
+        if sub_path.exists() and sub_path.stat().st_size > 50:
+            track["url"] = f"/metadata/{video_id}/{sub_filename}"
+            updated_tracks.append(track)
+            continue
+
+        try:
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(video_path),
+                "-map", f"0:{track['stream_index']}",
+                "-c:s", "webvtt",
+                str(sub_path)
+            ]
+            code, _, _ = await run_cmd(cmd, timeout=30)
+            if code == 0 and sub_path.exists() and sub_path.stat().st_size > 50:
+                track["url"] = f"/metadata/{video_id}/{sub_filename}"
+                print(f"[FFmpeg] Extracted subtitle track {track['index']} ({track['label']}) -> {sub_path.name}")
+            else:
+                track["url"] = None
+        except Exception as e:
+            print(f"[FFmpeg] Subtitle extraction error for track {track['index']}: {e}")
+            track["url"] = None
+
+        updated_tracks.append(track)
+
+    return updated_tracks
+
+async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]:
+    """
+    Extracts a specific audio track to AAC .m4a format for companion audio streaming
+    in web browsers when dual-audio switching is requested.
+    """
+    video = await get_video(video_id)
+    if not video or not video.get("local_path"):
+        return None
+
+    video_path = Path(video["local_path"])
+    if not video_path.exists():
+        return None
+
+    meta_dir = settings.get_video_metadata_dir(video_id)
+    audio_dest = meta_dir / f"audio_track_{track_index}.m4a"
+
+    if audio_dest.exists() and audio_dest.stat().st_size > 1000:
+        return audio_dest
+
+    info = await probe_video(video_path)
+    audio_tracks = info.get("audio_tracks", [])
+    target_track = next((t for t in audio_tracks if t["index"] == track_index), None)
+    if not target_track:
+        return None
+
+    stream_idx = target_track["stream_index"]
+    temp_dest = meta_dir / f"audio_track_{track_index}.m4a.tmp"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-threads", str(settings.ffmpeg_worker_threads),
+        "-i", str(video_path),
+        "-map", f"0:{stream_idx}",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        str(temp_dest)
+    ]
+    code, _, err = await run_cmd(cmd, timeout=300)
+    if code == 0 and temp_dest.exists():
+        temp_dest.replace(audio_dest)
+        return audio_dest
+    else:
+        print(f"[FFmpeg] Audio track extraction failed: {err}")
+        return None
 
 async def generate_poster_if_needed(video_path: Path, poster_path: Path, duration: float):
     """Generates a high-quality static poster thumbnail at 10% of duration if not already present."""
@@ -382,6 +563,16 @@ async def process_video_background(video_id: str):
         try:
             info = await probe_video(video_path)
             duration = info["duration"]
+            audio_tracks = info.get("audio_tracks", [])
+            raw_subtitles = info.get("subtitle_tracks", [])
+
+            # Extract embedded text subtitles to WebVTT
+            extracted_subtitles = await extract_embedded_subtitles(
+                video_id=video_id,
+                video_path=video_path,
+                meta_dir=meta_dir,
+                subtitle_tracks=raw_subtitles
+            )
 
             # Stage 1: Poster Thumbnail
             await emit_processing_update(
@@ -451,8 +642,16 @@ async def process_video_background(video_id: str):
                 "poster_url": f"/metadata/{video_id}/poster.jpg" if poster_path.exists() else None,
                 "preview_url": f"/metadata/{video_id}/preview.mp4" if preview_path.exists() else None,
                 "vtt_url": f"/metadata/{video_id}/thumbnails.vtt" if vtt_path.exists() else None,
+                "audio_tracks": audio_tracks,
+                "subtitle_tracks": extracted_subtitles,
                 "processing_info": None
             }
+            if not video.get("subtitles_url"):
+                default_sub = next((s["url"] for s in extracted_subtitles if s.get("url") and s.get("language") in ("eng", "en")), None)
+                if not default_sub:
+                    default_sub = next((s["url"] for s in extracted_subtitles if s.get("url")), None)
+                if default_sub:
+                    update_data["subtitles_url"] = default_sub
             await update_video(video_id, update_data)
 
             await manager.broadcast({

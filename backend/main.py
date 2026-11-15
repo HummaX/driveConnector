@@ -57,7 +57,10 @@ from downloader import (
 from ffmpeg_worker import (
     active_processing,
     transcode_video,
-    transcribe_video
+    transcribe_video,
+    probe_video,
+    extract_embedded_subtitles,
+    extract_audio_track
 )
 
 SAFE_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -582,6 +585,140 @@ async def reset_video_status(
         "metadata": updated
     })
     return {"status": "success", "message": "Video status reset to LOCAL_READY", "video": updated}
+
+@app.post("/api/videos/{video_id}/probe-tracks")
+async def probe_and_extract_tracks(
+    video_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Probes audio and subtitle tracks for a video, extracts embedded text subtitles
+    into WebVTT format, updates the database, and returns the track metadata.
+    """
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    local_p = video.get("local_path")
+    if not local_p or not Path(local_p).exists():
+        raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
+
+    video_path = Path(local_p)
+    meta_dir = settings.get_video_metadata_dir(valid_id)
+
+    info = await probe_video(video_path)
+    audio_tracks = info.get("audio_tracks", [])
+    raw_subs = info.get("subtitle_tracks", [])
+
+    extracted_subs = await extract_embedded_subtitles(valid_id, video_path, meta_dir, raw_subs)
+
+    update_payload = {
+        "audio_tracks": audio_tracks,
+        "subtitle_tracks": extracted_subs
+    }
+    if not video.get("subtitles_url"):
+        default_sub = next((s["url"] for s in extracted_subs if s.get("url") and s.get("language") in ("eng", "en")), None)
+        if not default_sub:
+            default_sub = next((s["url"] for s in extracted_subs if s.get("url")), None)
+        if default_sub:
+            update_payload["subtitles_url"] = default_sub
+
+    updated = await update_video(valid_id, update_payload)
+    await manager.broadcast({
+        "event": "TRACKS_UPDATED",
+        "video_id": valid_id,
+        "audio_tracks": audio_tracks,
+        "subtitle_tracks": extracted_subs,
+        "metadata": updated
+    })
+    return {
+        "status": "success",
+        "audio_tracks": audio_tracks,
+        "subtitle_tracks": extracted_subs,
+        "video": updated
+    }
+
+@app.get("/api/videos/{video_id}/audio/{track_index}")
+async def stream_audio_track(
+    video_id: str,
+    track_index: int,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user_flexible)
+):
+    """
+    RFC 7233 Range Streaming for a specific audio track extracted to AAC format.
+    Allows browsers to switch and play alternate audio tracks (e.g. Hindi, English, Spanish).
+    """
+    valid_id = validate_video_id(video_id)
+    audio_path = await extract_audio_track(valid_id, track_index)
+    if not audio_path or not audio_path.exists():
+        raise HTTPException(status_code=404, detail=f"Audio track {track_index} not found or extraction failed")
+
+    file_size = audio_path.stat().st_size
+    range_header = request.headers.get("range")
+    content_type = "audio/mp4"
+
+    if not range_header:
+        headers = {
+            "Content-Length": str(file_size),
+            "Content-Type": content_type,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=86400",
+        }
+        def full_audio_iterator():
+            with open(audio_path, "rb") as f:
+                while chunk := f.read(256 * 1024):
+                    yield chunk
+        return StreamingResponse(full_audio_iterator(), headers=headers)
+
+    range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
+    if not range_match:
+        raise HTTPException(status_code=416, detail="Invalid Range Header format")
+
+    raw_start, raw_end = range_match.groups()
+    if raw_start == "" and raw_end == "":
+        raise HTTPException(status_code=416, detail="Invalid Range parameters")
+
+    if raw_start == "":
+        suffix_length = int(raw_end)
+        start = max(0, file_size - suffix_length)
+        end = file_size - 1
+    elif raw_end == "":
+        start = int(raw_start)
+        end = file_size - 1
+    else:
+        start = int(raw_start)
+        end = min(int(raw_end), file_size - 1)
+
+    if start >= file_size or start > end:
+        raise HTTPException(
+            status_code=416,
+            detail="Requested range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"}
+        )
+
+    content_length = end - start + 1
+    def audio_range_stream():
+        with open(audio_path, "rb") as f:
+            f.seek(start)
+            remaining = content_length
+            while remaining > 0:
+                chunk_size = min(remaining, 256 * 1024)
+                data = f.read(chunk_size)
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(content_length),
+        "Content-Type": content_type,
+        "Cache-Control": "public, max-age=86400",
+    }
+    return StreamingResponse(audio_range_stream(), status_code=206, headers=headers)
 
 # ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
 ALLOWED_STREAM_QUALITIES = {"720p", "480p", "360p", "1080p", "original", "source"}

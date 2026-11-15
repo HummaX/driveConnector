@@ -631,6 +631,8 @@
       <!-- Player Viewport & Buffering Overlay -->
       <div class="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden">
         <div id="player-container" class="w-full h-full flex items-center justify-center"></div>
+        <!-- Companion Audio Element for multi-track audio switching -->
+        <audio id="player-companion-audio" preload="none" class="hidden"></audio>
         <!-- Buffering Loading Indicator Overlay -->
         <div id="player-buffering-overlay" class="absolute inset-0 z-30 hidden items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200">
           <div class="flex flex-col items-center space-y-3 px-6 py-4 rounded-2xl bg-[#0d1117]/90 border border-sky-500/30 shadow-2xl backdrop-blur-md">
@@ -689,7 +691,7 @@
           </div>
         </div>
 
-        <!-- Quality & AI Subtitles -->
+        <!-- Quality, Audio Tracks & Subtitles -->
         <div class="flex items-center space-x-2.5 flex-wrap gap-y-2">
           <!-- Quality Dropdown -->
           <div class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]">
@@ -706,11 +708,23 @@
             </button>
           </div>
 
-          <!-- AI Subtitles Button / Status -->
-          <div id="player-subtitles-container">
-            <button id="btn-player-subtitles" onclick="generateSubtitlesForActiveVideo()" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 text-purple-300 border border-purple-500/30 font-mono text-xs transition">
-              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-400"></i>
-              <span>Generate AI Subtitles</span>
+          <!-- Audio Track Selector Dropdown -->
+          <div id="player-audio-container" class="hidden items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]" title="Select Audio Track / Language">
+            <i data-lucide="volume-2" class="w-3.5 h-3.5 text-sky-400"></i>
+            <span class="text-[11px] font-mono text-slate-400">Audio:</span>
+            <select id="player-audio-select" onchange="changePlayerAudioTrack(Number(this.value))" class="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer max-w-[130px] truncate">
+            </select>
+          </div>
+
+          <!-- Subtitles Track Selector Dropdown -->
+          <div id="player-subtitles-container" class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]" title="Select Subtitle Track / Language">
+            <i data-lucide="subtitles" class="w-3.5 h-3.5 text-purple-400"></i>
+            <span class="text-[11px] font-mono text-slate-400">Subs:</span>
+            <select id="player-subtitles-select" onchange="changePlayerSubtitleTrack(this.value)" class="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer max-w-[130px] truncate">
+              <option value="off" class="bg-[#161b22] text-white">Off</option>
+            </select>
+            <button id="btn-player-subtitles" onclick="generateSubtitlesForActiveVideo()" title="Generate Local AI Subtitles via Whisper" class="p-1 rounded bg-purple-500/20 hover:bg-purple-500/40 text-purple-300 transition">
+              <i data-lucide="sparkles" class="w-3 h-3 text-purple-400"></i>
             </button>
           </div>
         </div>
@@ -1677,7 +1691,8 @@
               </div>
 
               <div class="absolute top-2 right-2 z-10 flex items-center space-x-1">
-                ${v.subtitles_url ? `<span class="px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="AI Subtitles Available">CC</span>` : ''}
+                ${v.audio_tracks && v.audio_tracks.length > 1 ? `<span class="px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-300 border border-blue-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="${v.audio_tracks.length} Audio Tracks Available">${v.audio_tracks.length} Audio</span>` : ''}
+                ${(v.subtitle_tracks && v.subtitle_tracks.length > 0) || v.subtitles_url ? `<span class="px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="Subtitles Available">CC${v.subtitle_tracks && v.subtitle_tracks.length > 1 ? ` (${v.subtitle_tracks.length})` : ''}</span>` : ''}
                 ${v.renditions && Object.keys(v.renditions).length > 0 ? `<span class="px-1.5 py-0.5 rounded bg-sky-500/30 text-sky-300 border border-sky-500/40 text-[9px] font-mono font-bold backdrop-blur-sm" title="Multi-Resolution Renditions Available">${Object.keys(v.renditions).length}Q</span>` : ''}
               </div>
 
@@ -2159,9 +2174,204 @@
       }
     }
 
+    let activeAudioTrackIndex = 0;
+    let companionAudioCleanup = null;
+
+    function buildPlayerTracks(v) {
+      const tracks = [];
+      const subTracks = v.subtitle_tracks || [];
+      subTracks.forEach((st) => {
+        if (st.url) {
+          tracks.push({
+            kind: 'captions',
+            label: st.label || `${st.language_name || 'Sub'} (${st.codec})`,
+            srclang: st.language || 'en',
+            src: st.url,
+            default: Boolean(st.is_default)
+          });
+        }
+      });
+      if (v.subtitles_url) {
+        const alreadyIn = subTracks.some(st => st.url === v.subtitles_url);
+        if (!alreadyIn) {
+          tracks.push({
+            kind: 'captions',
+            label: 'AI Whisper (English)',
+            srclang: 'en',
+            src: v.subtitles_url,
+            default: tracks.length === 0
+          });
+        }
+      }
+      return tracks;
+    }
+
+    function populatePlayerTracksUI(v) {
+      const audioContainer = document.getElementById('player-audio-container');
+      const audioSelect = document.getElementById('player-audio-select');
+      if (audioContainer && audioSelect) {
+        audioSelect.innerHTML = '';
+        const tracks = v.audio_tracks || [];
+        if (tracks.length > 0) {
+          tracks.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.index;
+            opt.className = 'bg-[#161b22] text-white';
+            opt.innerText = t.label || `Track ${t.index + 1} (${t.language || 'und'})`;
+            audioSelect.appendChild(opt);
+          });
+          audioSelect.value = activeAudioTrackIndex;
+          audioContainer.classList.remove('hidden');
+          audioContainer.classList.add('flex');
+        } else {
+          audioContainer.classList.add('hidden');
+          audioContainer.classList.remove('flex');
+        }
+      }
+
+      const subSelect = document.getElementById('player-subtitles-select');
+      const subBtn = document.getElementById('btn-player-subtitles');
+      if (subSelect) {
+        subSelect.innerHTML = '<option value="off" class="bg-[#161b22] text-white">Off</option>';
+        const subTracks = v.subtitle_tracks || [];
+        let plyrTrackIndex = 0;
+        let selectedSubVal = 'off';
+
+        subTracks.forEach((st) => {
+          if (st.url) {
+            const opt = document.createElement('option');
+            opt.value = plyrTrackIndex;
+            opt.className = 'bg-[#161b22] text-white';
+            opt.innerText = st.label || `${st.language_name || 'Sub'} (${st.codec})`;
+            if (st.is_default && selectedSubVal === 'off') {
+              selectedSubVal = plyrTrackIndex.toString();
+              opt.selected = true;
+            }
+            subSelect.appendChild(opt);
+            plyrTrackIndex++;
+          }
+        });
+
+        if (v.subtitles_url) {
+          const alreadyIn = subTracks.some(st => st.url === v.subtitles_url);
+          if (!alreadyIn) {
+            const opt = document.createElement('option');
+            opt.value = plyrTrackIndex;
+            opt.className = 'bg-[#161b22] text-white';
+            opt.innerText = 'AI Whisper (English)';
+            if (selectedSubVal === 'off') {
+              selectedSubVal = plyrTrackIndex.toString();
+              opt.selected = true;
+            }
+            subSelect.appendChild(opt);
+          }
+        }
+        subSelect.value = selectedSubVal;
+      }
+      if (subBtn) {
+        if (v.subtitles_url) {
+          subBtn.title = 'AI Subtitles Active';
+          subBtn.classList.add('text-emerald-400');
+        } else {
+          subBtn.title = 'Generate Local AI Subtitles via Whisper';
+          subBtn.classList.remove('text-emerald-400');
+        }
+      }
+    }
+
+    function setupCompanionAudioSync(videoEl) {
+      if (companionAudioCleanup) {
+        companionAudioCleanup();
+        companionAudioCleanup = null;
+      }
+      const audioEl = document.getElementById('player-companion-audio');
+      if (!audioEl || !videoEl) return;
+
+      const handlePlay = () => {
+        if (activeAudioTrackIndex > 0 && audioEl.src) {
+          audioEl.play().catch(() => {});
+        }
+      };
+      const handlePause = () => {
+        if (activeAudioTrackIndex > 0) audioEl.pause();
+      };
+      const handleSeeking = () => {
+        if (activeAudioTrackIndex > 0) audioEl.currentTime = videoEl.currentTime;
+      };
+      const handleSeeked = () => {
+        if (activeAudioTrackIndex > 0) audioEl.currentTime = videoEl.currentTime;
+      };
+      const handleRateChange = () => {
+        if (activeAudioTrackIndex > 0) audioEl.playbackRate = videoEl.playbackRate;
+      };
+      const handleVolumeChange = () => {
+        if (activeAudioTrackIndex > 0) audioEl.volume = videoEl.volume;
+      };
+      const handleTimeUpdate = () => {
+        if (activeAudioTrackIndex > 0 && Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.3) {
+          audioEl.currentTime = videoEl.currentTime;
+        }
+      };
+
+      videoEl.addEventListener('play', handlePlay);
+      videoEl.addEventListener('pause', handlePause);
+      videoEl.addEventListener('seeking', handleSeeking);
+      videoEl.addEventListener('seeked', handleSeeked);
+      videoEl.addEventListener('ratechange', handleRateChange);
+      videoEl.addEventListener('volumechange', handleVolumeChange);
+      videoEl.addEventListener('timeupdate', handleTimeUpdate);
+
+      companionAudioCleanup = () => {
+        videoEl.removeEventListener('play', handlePlay);
+        videoEl.removeEventListener('pause', handlePause);
+        videoEl.removeEventListener('seeking', handleSeeking);
+        videoEl.removeEventListener('seeked', handleSeeked);
+        videoEl.removeEventListener('ratechange', handleRateChange);
+        videoEl.removeEventListener('volumechange', handleVolumeChange);
+        videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+      };
+    }
+
+    async function changePlayerAudioTrack(trackIdx) {
+      if (!activeVideoModal) return;
+      activeAudioTrackIndex = trackIdx;
+      const videoEl = activePlayer?.media || document.querySelector('#player-container video');
+      const audioEl = document.getElementById('player-companion-audio');
+      if (!videoEl || !audioEl) return;
+
+      if (trackIdx === 0) {
+        audioEl.pause();
+        audioEl.removeAttribute('src');
+        videoEl.muted = false;
+      } else {
+        videoEl.muted = true;
+        const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+        audioEl.src = `/api/videos/${activeVideoModal.video_id}/audio/${trackIdx}${tokenParam}`;
+        audioEl.currentTime = videoEl.currentTime;
+        audioEl.playbackRate = videoEl.playbackRate;
+        audioEl.volume = videoEl.volume;
+        if (!videoEl.paused) {
+          audioEl.play().catch(() => {});
+        }
+      }
+    }
+
+    function changePlayerSubtitleTrack(trackVal) {
+      if (!activePlayer) return;
+      if (trackVal === 'off') {
+        activePlayer.currentTrack = -1;
+      } else {
+        const idx = parseInt(trackVal, 10);
+        if (!isNaN(idx)) {
+          activePlayer.currentTrack = idx;
+        }
+      }
+    }
+
     // Authenticated Player Modal
     async function openPlayerModal(v) {
       activeVideoModal = v;
+      activeAudioTrackIndex = 0;
       document.getElementById('player-title').innerText = v.title;
       document.getElementById('player-footer-path').innerText = v.local_path || `/mnt/storage/videos/${v.video_id}.mp4`;
       document.getElementById('player-footer-status').innerText = v.status;
@@ -2191,24 +2401,38 @@
         }
       }
 
-      // Populate Subtitles Status Button
-      const subContainer = document.getElementById('player-subtitles-container');
-      if (subContainer) {
-        if (v.subtitles_url) {
-          subContainer.innerHTML = `
-            <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono">
-              <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
-              <span>AI Subtitles Active</span>
-            </div>
-          `;
-        } else {
-          subContainer.innerHTML = `
-            <button id="btn-player-subtitles" onclick="generateSubtitlesForActiveVideo()" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 text-purple-300 border border-purple-500/30 font-mono text-xs transition">
-              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-400"></i>
-              <span>Generate AI Subtitles</span>
-            </button>
-          `;
-        }
+      // Populate Audio & Subtitles Toolbar Controls
+      populatePlayerTracksUI(v);
+
+      // Auto probe tracks if video is ready/local and tracks haven't been probed yet
+      if (isPlayable && (!v.audio_tracks || v.audio_tracks.length === 0)) {
+        fetch(`/api/videos/${v.video_id}/probe-tracks`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'success' && activeVideoModal && activeVideoModal.video_id === v.video_id) {
+            activeVideoModal.audio_tracks = data.audio_tracks;
+            activeVideoModal.subtitle_tracks = data.subtitle_tracks;
+            if (data.video && data.video.subtitles_url) {
+              activeVideoModal.subtitles_url = data.video.subtitles_url;
+            }
+            populatePlayerTracksUI(activeVideoModal);
+            if (activePlayer) {
+              const newTracks = buildPlayerTracks(activeVideoModal);
+              if (newTracks.length > 0 && (!activePlayer.tracks || activePlayer.tracks.length === 0)) {
+                activePlayer.source = {
+                  type: 'video',
+                  title: activeVideoModal.title,
+                  sources: activePlayer.source?.sources || [],
+                  tracks: newTracks
+                };
+              }
+            }
+          }
+        })
+        .catch(err => console.warn('[Player] Auto-probe tracks error:', err));
       }
 
       // Check Quality Dropdown Options
@@ -2252,16 +2476,7 @@
           setTimeout(() => { if (resumeNoticeEl) resumeNoticeEl.classList.add('hidden'); }, 4000);
         }
 
-        const tracks = [];
-        if (v.subtitles_url) {
-          tracks.push({
-            kind: 'captions',
-            label: 'English AI',
-            srclang: 'en',
-            src: v.subtitles_url,
-            default: true
-          });
-        }
+        const tracks = buildPlayerTracks(v);
 
         activePlayer = new Plyr(videoEl, {
           autoplay: true,
@@ -2288,6 +2503,7 @@
           }
           activePlayer.speed = currentPlaybackSpeed;
           setupAudioBooster(videoEl);
+          setupCompanionAudioSync(videoEl);
 
           // Add timeline buffer badge to Plyr progress element
           if (activePlayer.elements && activePlayer.elements.progress) {
@@ -2472,6 +2688,17 @@
       showBufferingIndicator(false);
       const footerBuf = document.getElementById('player-footer-buffer');
       if (footerBuf) footerBuf.classList.add('hidden');
+
+      if (companionAudioCleanup) {
+        companionAudioCleanup();
+        companionAudioCleanup = null;
+      }
+      const audioEl = document.getElementById('player-companion-audio');
+      if (audioEl) {
+        audioEl.pause();
+        audioEl.removeAttribute('src');
+      }
+      activeAudioTrackIndex = 0;
 
       if (activePlayer) {
         activePlayer.destroy();
@@ -3385,6 +3612,16 @@
                 if (etaEl) etaEl.innerText = msg.eta_seconds > 0 ? `${msg.eta_seconds}s left` : '';
               }
             }
+          } else if (msg.event === 'TRACKS_UPDATED') {
+            if (activeVideoModal && activeVideoModal.video_id === msg.video_id) {
+              activeVideoModal.audio_tracks = msg.audio_tracks;
+              activeVideoModal.subtitle_tracks = msg.subtitle_tracks;
+              if (msg.metadata && msg.metadata.subtitles_url) {
+                activeVideoModal.subtitles_url = msg.metadata.subtitles_url;
+              }
+              populatePlayerTracksUI(activeVideoModal);
+            }
+            renderVideos();
           } else if (msg.event === 'PROCESSING_COMPLETE') {
             delete processingJobs[msg.video_id];
             if (transfers[msg.video_id]) {
@@ -3410,6 +3647,9 @@
                 if (msg.metadata.subtitles_url) activeVideoModal.subtitles_url = msg.metadata.subtitles_url;
                 if (msg.metadata.renditions) activeVideoModal.renditions = msg.metadata.renditions;
                 if (msg.metadata.preview_url) activeVideoModal.preview_url = msg.metadata.preview_url;
+                if (msg.metadata.audio_tracks) activeVideoModal.audio_tracks = msg.metadata.audio_tracks;
+                if (msg.metadata.subtitle_tracks) activeVideoModal.subtitle_tracks = msg.metadata.subtitle_tracks;
+                populatePlayerTracksUI(activeVideoModal);
               }
             }
             fetchAllData();

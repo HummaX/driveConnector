@@ -1032,6 +1032,44 @@ def test_nonblocking_video_playback_during_processing():
     print("✅ Non-blocking video playback during background processing fully verified across React and standalone HTML.")
     return True
 
+def test_audio_and_subtitle_tracks_integration():
+    """Verifies end-to-end multi-audio and multi-subtitle track probing, WebVTT extraction, and player selection."""
+    backend_dir = REPO_DIR / "backend"
+    ffmpeg_text = (backend_dir / "ffmpeg_worker.py").read_text(encoding="utf-8")
+    main_text = (backend_dir / "main.py").read_text(encoding="utf-8")
+    index_html = (backend_dir / "static" / "index.html").read_text(encoding="utf-8")
+    player_jsx = (REPO_DIR / "frontend/src/components/VideoPlayerModal.jsx").read_text(encoding="utf-8")
+    card_jsx = (REPO_DIR / "frontend/src/components/VideoCard.jsx").read_text(encoding="utf-8")
+
+    # 1. Backend probing and extraction functions
+    assert "extract_embedded_subtitles" in ffmpeg_text, "Missing extract_embedded_subtitles in ffmpeg_worker.py"
+    assert "extract_audio_track" in ffmpeg_text, "Missing extract_audio_track in ffmpeg_worker.py"
+    assert "audio_tracks" in ffmpeg_text, "Missing audio_tracks probing in ffmpeg_worker.py"
+    assert "subtitle_tracks" in ffmpeg_text, "Missing subtitle_tracks probing in ffmpeg_worker.py"
+
+    # 2. Backend endpoints
+    assert "/api/videos/{video_id}/probe-tracks" in main_text, "Missing /probe-tracks endpoint in main.py"
+    assert "/api/videos/{video_id}/audio/{track_index}" in main_text, "Missing audio track stream endpoint in main.py"
+
+    # 3. HTML player controls and companion audio
+    assert 'id="player-companion-audio"' in index_html, "Missing #player-companion-audio in index.html"
+    assert 'id="player-audio-select"' in index_html, "Missing #player-audio-select in index.html"
+    assert 'id="player-subtitles-select"' in index_html, "Missing #player-subtitles-select in index.html"
+    assert "changePlayerAudioTrack" in index_html, "Missing changePlayerAudioTrack in index.html"
+    assert "changePlayerSubtitleTrack" in index_html, "Missing changePlayerSubtitleTrack in index.html"
+    assert "Audio Tracks Available" in index_html, "Missing audio track badge in index.html"
+
+    # 4. React player controls and companion audio
+    assert "companionAudioRef" in player_jsx, "Missing companionAudioRef in VideoPlayerModal.jsx"
+    assert "audioTracks" in player_jsx, "Missing audioTracks state in VideoPlayerModal.jsx"
+    assert "subtitleTracks" in player_jsx, "Missing subtitleTracks state in VideoPlayerModal.jsx"
+    assert "handleSubtitleChange" in player_jsx, "Missing handleSubtitleChange in VideoPlayerModal.jsx"
+    assert "probe-tracks" in player_jsx, "Missing probe-tracks auto-fetch in VideoPlayerModal.jsx"
+    assert "Audio Tracks Available" in card_jsx, "Missing audio track badge in VideoCard.jsx"
+
+    print("✅ Multi-audio and multi-subtitle track probing, WebVTT extraction, and player selection verified across Backend, React, and standalone HTML.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -1057,7 +1095,8 @@ if __name__ == "__main__":
         test_cpu_core_reservation_and_governance,
         test_direct_stream_and_mkv_support,
         test_multiple_downloads_and_jdownloader_integration,
-        test_nonblocking_video_playback_during_processing
+        test_nonblocking_video_playback_during_processing,
+        test_audio_and_subtitle_tracks_integration
     ]
     failed = False
     for t in tests:
