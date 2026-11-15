@@ -35,7 +35,8 @@ from database import (
     create_url_video,
     create_local_scanned_video,
     update_video,
-    delete_video
+    delete_video,
+    reconcile_stale_jobs
 )
 from auth import (
     init_admin_user,
@@ -114,6 +115,7 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize MongoDB, ensure directories exist, seed admin user, prime network counters
     await init_db()
     await init_admin_user()
+    await reconcile_stale_jobs()
     try:
         await drive_catalog.load_drive_config_from_db()
     except Exception as e:

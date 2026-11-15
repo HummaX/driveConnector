@@ -232,3 +232,19 @@ async def update_video(video_id: str, update_data: Dict[str, Any]) -> Optional[D
 async def delete_video(video_id: str) -> bool:
     res = await get_videos_collection().delete_one({"video_id": video_id})
     return res.deleted_count > 0
+
+async def reconcile_stale_jobs():
+    """
+    On server startup, checks for any jobs left in PROCESSING or with stale processing_info
+    from a previous crashed or restarted server run, and safely resets them to LOCAL_READY.
+    """
+    try:
+        col = get_videos_collection()
+        res = await col.update_many(
+            {"status": "PROCESSING"},
+            {"$set": {"status": "LOCAL_READY", "processing_info": None, "updated_at": datetime.utcnow()}}
+        )
+        if res.modified_count > 0:
+            print(f"[Database] Reconciled {res.modified_count} stale PROCESSING jobs to LOCAL_READY on startup.")
+    except Exception as e:
+        print(f"[Database] Notice: reconcile_stale_jobs: {e}")

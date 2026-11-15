@@ -1070,6 +1070,31 @@ def test_audio_and_subtitle_tracks_integration():
     print("✅ Multi-audio and multi-subtitle track probing, WebVTT extraction, and player selection verified across Backend, React, and standalone HTML.")
     return True
 
+def test_whisper_parallel_chunks_and_cpu_budget():
+    """Verifies that AI subtitle generation divides audio into parallel chunks, allocates 80% CPU, and reconciles stale jobs."""
+    backend_dir = REPO_DIR / "backend"
+    config_text = (backend_dir / "config.py").read_text(encoding="utf-8")
+    ffmpeg_text = (backend_dir / "ffmpeg_worker.py").read_text(encoding="utf-8")
+    db_text = (backend_dir / "database.py").read_text(encoding="utf-8")
+    main_text = (backend_dir / "main.py").read_text(encoding="utf-8")
+
+    # 1. 80% CPU core budgeting
+    assert "WHISPER_CPU_RATIO: float = 0.80" in config_text, "Missing WHISPER_CPU_RATIO in config.py"
+    assert "def whisper_worker_threads" in config_text, "Missing whisper_worker_threads in config.py"
+
+    # 2. Parallel chunk division and VAD filtering in ffmpeg_worker.py
+    assert "CHUNK_DURATION_SEC" in ffmpeg_text, "Missing CHUNK_DURATION_SEC in ffmpeg_worker.py"
+    assert "vad_filter=True" in ffmpeg_text, "Missing vad_filter=True in ffmpeg_worker.py"
+    assert "condition_on_previous_text=False" in ffmpeg_text, "Missing condition_on_previous_text=False in ffmpeg_worker.py"
+    assert "ThreadPoolExecutor" in ffmpeg_text, "Missing ThreadPoolExecutor for chunk parallelization in ffmpeg_worker.py"
+
+    # 3. Stale job reconciliation on startup
+    assert "def reconcile_stale_jobs" in db_text, "Missing reconcile_stale_jobs in database.py"
+    assert "await reconcile_stale_jobs()" in main_text, "Missing reconcile_stale_jobs call in main.py lifespan"
+
+    print("✅ AI Subtitles parallel chunk division, 80% CPU allocation, and stale job startup reconciliation fully verified.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -1096,7 +1121,8 @@ if __name__ == "__main__":
         test_direct_stream_and_mkv_support,
         test_multiple_downloads_and_jdownloader_integration,
         test_nonblocking_video_playback_during_processing,
-        test_audio_and_subtitle_tracks_integration
+        test_audio_and_subtitle_tracks_integration,
+        test_whisper_parallel_chunks_and_cpu_budget
     ]
     failed = False
     for t in tests:

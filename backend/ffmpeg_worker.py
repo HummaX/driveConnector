@@ -859,41 +859,160 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
             })
 
 def run_whisper_transcription(audio_path: Path, total_duration: float = 60.0, progress_callback=None) -> Optional[List[Dict[str, Any]]]:
-    """Runs local speech-to-text inference using faster-whisper on CPU with int8 precision and core budgeting."""
+    """
+    Transcribes audio by dividing the work into parallel chunks and utilizing 80% of CPU cores.
+    Uses faster-whisper with Silero VAD to skip silence/music and prevent hallucination/repetition loops.
+    """
+    import wave
+    import numpy as np
+    import concurrent.futures
+
+    if not audio_path.exists() or audio_path.stat().st_size < 1000:
+        return None
+
     try:
         from faster_whisper import WhisperModel
-        # 'tiny' model provides high-speed, low-memory local transcription
-        # Allocates (total_cores - 1) threads, keeping 1 core reserved for web handling
-        threads = settings.ffmpeg_worker_threads
-        model = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=threads)
-        segments, info = model.transcribe(str(audio_path), beam_size=1)
-        audio_dur = info.duration if (info and info.duration > 0) else (total_duration or 1.0)
+    except ImportError:
+        print("[Whisper] faster_whisper not installed")
+        return None
 
-        res = []
-        last_report_t = time.time()
-        for s in segments:
-            res.append({
-                "start": float(s.start),
-                "end": float(s.end),
-                "text": s.text.strip()
-            })
-            now = time.time()
-            if progress_callback and (now - last_report_t >= 2.0):
-                last_report_t = now
-                current_pos = float(s.end)
-                pct = min(85.0, 45.0 + (current_pos / audio_dur) * 40.0)
-                remaining = max(0.0, audio_dur - current_pos)
-                eta = max(1, int(remaining * 0.2))  # CPU tiny model is ~5x faster than real-time
-                pct_int = int((current_pos / audio_dur) * 100)
+    # Calculate 80% CPU allocation
+    total_whisper_cores = settings.whisper_worker_threads
+
+    # 180 seconds (3 minutes) per chunk provides fine-grained parallel progress and fast VAD skipping
+    CHUNK_DURATION_SEC = 180.0
+
+    try:
+        with wave.open(str(audio_path), "rb") as wf:
+            framerate = wf.getframerate()
+            nchannels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            total_frames = wf.getnframes()
+            exact_duration = total_frames / float(framerate) if framerate > 0 else total_duration
+    except Exception as e:
+        print(f"[Whisper] Wave header read error: {e}, falling back to total_duration")
+        exact_duration = total_duration
+        framerate = 16000
+        nchannels = 1
+        sampwidth = 2
+        total_frames = int(exact_duration * framerate)
+
+    # Divide work into chunks
+    chunks = []
+    curr = 0.0
+    while curr < exact_duration:
+        chunk_len = min(CHUNK_DURATION_SEC, exact_duration - curr)
+        if chunk_len > 0.5:  # Ignore trailing tiny slivers
+            chunks.append((len(chunks), curr, chunk_len))
+        curr += chunk_len
+
+    if not chunks:
+        chunks = [(0, 0.0, exact_duration)]
+
+    total_chunks = len(chunks)
+
+    # Worker allocation targeting 80% CPU:
+    if total_chunks == 1 or total_whisper_cores <= 1:
+        num_workers = 1
+        threads_per_worker = total_whisper_cores
+    elif total_whisper_cores >= 8:
+        num_workers = min(4, total_chunks)
+        threads_per_worker = max(1, total_whisper_cores // num_workers)
+    elif total_whisper_cores >= 4:
+        num_workers = min(3, total_chunks)
+        threads_per_worker = max(1, total_whisper_cores // num_workers)
+    else:
+        num_workers = min(2, total_chunks)
+        threads_per_worker = max(1, total_whisper_cores // num_workers)
+
+    print(
+        f"[Whisper] Dividing work: {total_chunks} chunks ({CHUNK_DURATION_SEC}s each) across "
+        f"{num_workers} parallel workers ({threads_per_worker} threads/worker, "
+        f"total {num_workers * threads_per_worker} cores = 80% CPU target)"
+    )
+
+    try:
+        model = WhisperModel(
+            "tiny",
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=threads_per_worker,
+            num_workers=num_workers
+        )
+    except Exception as e:
+        print(f"[Whisper] Model load error: {e}")
+        return None
+
+    def process_chunk(chunk_tuple):
+        chunk_idx, start_sec, dur_sec = chunk_tuple
+        start_frame = int(start_sec * framerate)
+        frames_to_read = int(dur_sec * framerate)
+
+        try:
+            with wave.open(str(audio_path), "rb") as wf:
+                wf.setpos(start_frame)
+                raw_bytes = wf.readframes(frames_to_read)
+
+            if not raw_bytes:
+                return chunk_idx, []
+
+            audio_arr = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+            segs, info = model.transcribe(
+                audio_arr,
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500),
+                condition_on_previous_text=False
+            )
+
+            chunk_segments = []
+            for s in segs:
+                txt = s.text.strip()
+                if txt:
+                    chunk_segments.append({
+                        "start": round(float(s.start) + start_sec, 3),
+                        "end": round(float(s.end) + start_sec, 3),
+                        "text": txt
+                    })
+            return chunk_idx, chunk_segments
+        except Exception as e:
+            print(f"[Whisper] Chunk {chunk_idx} error: {e}")
+            return chunk_idx, []
+
+    chunk_results = {}
+    completed_count = 0
+    start_time = time.time()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        future_map = {executor.submit(process_chunk, c): c for c in chunks}
+        for future in concurrent.futures.as_completed(future_map):
+            chunk_idx, segs = future.result()
+            chunk_results[chunk_idx] = segs
+            completed_count += 1
+
+            if progress_callback:
+                elapsed = time.time() - start_time
+                avg_time_per_chunk = elapsed / max(1, completed_count)
+                remaining_chunks = total_chunks - completed_count
+                eta_sec = max(1, int(remaining_chunks * (avg_time_per_chunk / num_workers)))
+                pct = min(85.0, 20.0 + (completed_count / total_chunks) * 65.0)
+                pct_int = int((completed_count / total_chunks) * 100)
+                details = f"Transcribing AI Subtitles: chunk {completed_count}/{total_chunks} ({pct_int}%, {eta_sec}s left) [80% CPU active]..."
                 try:
-                    progress_callback(pct, eta, f"Transcribing audio: {int(current_pos)}s / {int(audio_dur)}s ({pct_int}%)...")
+                    progress_callback(pct, eta_sec, details)
                 except Exception:
                     pass
 
-        return res
-    except Exception as e:
-        print(f"[Whisper] Transcription engine error or model initializing: {e}")
-        return None
+    # Assemble in chronological order
+    all_segments = []
+    for idx in range(total_chunks):
+        if idx in chunk_results:
+            all_segments.extend(chunk_results[idx])
+
+    return all_segments
 
 async def transcribe_video(video_id: str):
     """
@@ -927,17 +1046,28 @@ async def transcribe_video(video_id: str):
                 details="Extracting 16kHz audio stream via FFmpeg..."
             )
 
-            # Probe audio stream existence first
+            # Probe audio stream existence and pick best language track (e.g. English)
             probe_info = await probe_video(video_path)
             has_audio = probe_info.get("has_audio", True)
+            audio_tracks = probe_info.get("audio_tracks", [])
+
+            target_stream = None
+            for t in audio_tracks:
+                if t.get("language") in ("eng", "en"):
+                    target_stream = t.get("stream_index")
+                    break
+            if target_stream is None and audio_tracks:
+                target_stream = audio_tracks[0].get("stream_index")
 
             segments = None
             if has_audio:
-                # Extract 16kHz mono audio for Whisper model with 10-minute timeout for large 40GB files
+                map_args = ["-map", f"0:{target_stream}"] if target_stream is not None else []
+                # Extract 16kHz mono audio for Whisper model with 10-minute timeout for large files
                 cmd = [
                     "ffmpeg", "-y",
                     "-threads", str(settings.ffmpeg_worker_threads),
                     "-i", str(video_path),
+                    *map_args,
                     "-vn",
                     "-acodec", "pcm_s16le",
                     "-ar", "16000",
@@ -947,14 +1077,14 @@ async def transcribe_video(video_id: str):
                 code, _, err = await run_cmd(cmd, timeout=600)
                 if code == 0 and audio_path.exists():
                     total_dur = float(probe_info.get("duration") or (video.get("duration_seconds") or 60.0))
-                    initial_eta = max(10, int(total_dur * 0.2))
+                    initial_eta = max(10, int(total_dur * 0.15))
                     await emit_processing_update(
                         video_id=video_id,
                         stage="TRANSCRIBE",
                         stage_name="Generating AI Subtitles",
-                        percent=45.0,
+                        percent=20.0,
                         eta_seconds=initial_eta,
-                        details="Running local Whisper AI speech-to-text..."
+                        details="Dividing audio into parallel chunks (80% CPU)..."
                     )
                     loop = asyncio.get_running_loop()
 
@@ -971,7 +1101,7 @@ async def transcribe_video(video_id: str):
                             loop
                         )
 
-                    # Execute transcription in background thread pool with live progress updates
+                    # Execute parallel chunked transcription in background thread pool with live progress updates
                     segments = await asyncio.to_thread(run_whisper_transcription, audio_path, total_dur, on_whisper_progress)
                 else:
                     print(f"[Whisper] Audio extraction notice (proceeding to fallback): {err}")

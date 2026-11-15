@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     MIN_FREE_DISK_BYTES: int = 1024 * 1024 * 1024  # 1 GB reserve
     RESERVED_CPU_CORES: int = 1
     FFMPEG_THREADS: Optional[int] = None
+    WHISPER_CPU_RATIO: float = 0.80  # Target 80% CPU utilization for AI subtitles
 
     # CORS
     CORS_ORIGINS: List[str] = ["*"]
@@ -94,6 +95,19 @@ class Settings(BaseSettings):
         except Exception:
             total = 1
         return max(1, total - self.RESERVED_CPU_CORES)
+
+    @property
+    def whisper_worker_threads(self) -> int:
+        """
+        Dynamically calculates available CPU cores for AI Whisper subtitle transcription,
+        allocating 80% of total system CPU cores while preserving 20% for web handling,
+        streaming, downloads, and OS operations.
+        """
+        try:
+            total = os.cpu_count() or 1
+        except Exception:
+            total = 1
+        return max(1, int(round(total * self.WHISPER_CPU_RATIO)))
 
     @property
     def storage_dir(self) -> Path:
