@@ -676,11 +676,15 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
     )
 
     # 1. Ensure JDownloader directories and configuration exist
-    jdownloader_dir = settings.storage_dir / "jdownloader"
+    jdownloader_dir = Path(settings.STORAGE_DIR) / "jdownloader"
     folderwatch_dir = jdownloader_dir / "folderwatch"
     cfg_dir = jdownloader_dir / "cfg"
     folderwatch_dir.mkdir(parents=True, exist_ok=True)
     cfg_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(folderwatch_dir, 0o777)
+    except Exception:
+        pass
 
     # Pre-seed FolderWatch and GeneralSettings if not present
     fw_ext = cfg_dir / "org.jdownloader.extensions.folderwatch.FolderWatchExtension.json"
@@ -697,8 +701,8 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         except Exception:
             pass
 
-    # 2. Snapshot current files in videos dir to detect the new arrival
-    existing_files = {p.resolve() for p in settings.videos_dir.iterdir() if p.is_file()}
+    # 2. Snapshot current files in videos dir to detect the new arrival (recursive in case of package subfolders)
+    existing_files = {p.resolve() for p in settings.videos_dir.rglob("*") if p.is_file()}
 
     # 3. Create .crawljob file
     job_file = folderwatch_dir / f"job_{video_id}.crawljob"
@@ -712,6 +716,10 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         f"overwritePackagizerEnabled=true\n"
     )
     job_file.write_text(crawljob_content, encoding="utf-8")
+    try:
+        os.chmod(job_file, 0o666)
+    except Exception:
+        pass
     print(f"[JDownloader] Dispatched .crawljob for {video_id} to {job_file}")
 
     # 4. Monitor /output (${STORAGE_DIR}/videos) for download progress and completion
@@ -725,7 +733,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         await asyncio.sleep(4)
 
         try:
-            current_files = [p for p in settings.videos_dir.iterdir() if p.is_file() and p.resolve() not in existing_files]
+            current_files = [p for p in settings.videos_dir.rglob("*") if p.is_file() and p.resolve() not in existing_files]
         except Exception:
             current_files = []
 
@@ -772,6 +780,18 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         await update_video(video_id, {"status": "FAILED", "error": "JDownloader download timed out or did not complete."})
         active_downloads.pop(video_id, None)
         return
+
+    # Move out of subfolder if JDownloader placed it in a package subfolder
+    if discovered_file.parent != settings.videos_dir:
+        dest_in_root = settings.videos_dir / discovered_file.name
+        try:
+            shutil.move(str(discovered_file), str(dest_in_root))
+            parent_dir = discovered_file.parent
+            discovered_file = dest_in_root
+            if parent_dir != settings.videos_dir and not any(parent_dir.iterdir()):
+                parent_dir.rmdir()
+        except Exception as move_err:
+            print(f"[JDownloader] Subfolder move notice: {move_err}")
 
     # 5. Success - register downloaded video
     final_size = discovered_file.stat().st_size
@@ -825,7 +845,14 @@ async def download_external_url(video_id: str, url: str, engine: str = "auto"):
         clean_engine = (engine or "auto").lower().strip()
         if clean_engine == "jdownloader" or (clean_engine == "auto" and is_jdownloader_hoster(url)):
             print(f"[Downloader] Routing {url} to JDownloader 2 engine...")
-            return await download_via_jdownloader(video_id, url, title)
+            try:
+                return await download_via_jdownloader(video_id, url, title)
+            except Exception as jd_err:
+                print(f"[Downloader] JDownloader engine error: {jd_err}")
+                if is_direct_media_url(url):
+                    print(f"[Downloader] Falling back to direct HTTP stream for direct media URL: {url}")
+                    return await download_direct_http_stream(video_id, url)
+                raise jd_err
 
         # Explicit warning if a raw Google Video stream chunk is submitted
         if ("googlevideo.com" in url and "videoplayback" in url) or ("&sig=" in url and "itag=" in url and "googlevideo" in url):

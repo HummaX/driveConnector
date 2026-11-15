@@ -96,6 +96,12 @@ class Settings(BaseSettings):
         return max(1, total - self.RESERVED_CPU_CORES)
 
     @property
+    def storage_dir(self) -> Path:
+        p = Path(self.STORAGE_DIR)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
     def videos_dir(self) -> Path:
         p = Path(self.STORAGE_DIR) / "videos"
         p.mkdir(parents=True, exist_ok=True)
