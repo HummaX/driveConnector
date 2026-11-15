@@ -48,7 +48,10 @@ async def emit_processing_update(
     }
     active_processing[video_id] = payload
     try:
-        await update_video(video_id, {"processing_info": payload, "status": "PROCESSING"})
+        v = await get_video(video_id)
+        is_already_local = bool(v and (v.get("status") == "LOCAL_READY" or v.get("local_path")))
+        new_status = "LOCAL_READY" if is_already_local else "PROCESSING"
+        await update_video(video_id, {"processing_info": payload, "status": new_status})
     except Exception:
         pass
     await manager.broadcast(payload)
@@ -656,22 +659,38 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                 "error": str(e)
             })
 
-def run_whisper_transcription(audio_path: Path) -> Optional[List[Dict[str, Any]]]:
+def run_whisper_transcription(audio_path: Path, total_duration: float = 60.0, progress_callback=None) -> Optional[List[Dict[str, Any]]]:
     """Runs local speech-to-text inference using faster-whisper on CPU with int8 precision and core budgeting."""
     try:
         from faster_whisper import WhisperModel
-        # 'tiny' or 'base' model provides high-speed, low-memory local transcription
+        # 'tiny' model provides high-speed, low-memory local transcription
         # Allocates (total_cores - 1) threads, keeping 1 core reserved for web handling
         threads = settings.ffmpeg_worker_threads
         model = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=threads)
-        segments, _ = model.transcribe(str(audio_path), beam_size=1)
+        segments, info = model.transcribe(str(audio_path), beam_size=1)
+        audio_dur = info.duration if (info and info.duration > 0) else (total_duration or 1.0)
+
         res = []
+        last_report_t = time.time()
         for s in segments:
             res.append({
                 "start": float(s.start),
                 "end": float(s.end),
                 "text": s.text.strip()
             })
+            now = time.time()
+            if progress_callback and (now - last_report_t >= 2.0):
+                last_report_t = now
+                current_pos = float(s.end)
+                pct = min(85.0, 45.0 + (current_pos / audio_dur) * 40.0)
+                remaining = max(0.0, audio_dur - current_pos)
+                eta = max(1, int(remaining * 0.2))  # CPU tiny model is ~5x faster than real-time
+                pct_int = int((current_pos / audio_dur) * 100)
+                try:
+                    progress_callback(pct, eta, f"Transcribing audio: {int(current_pos)}s / {int(audio_dur)}s ({pct_int}%)...")
+                except Exception:
+                    pass
+
         return res
     except Exception as e:
         print(f"[Whisper] Transcription engine error or model initializing: {e}")
@@ -715,7 +734,7 @@ async def transcribe_video(video_id: str):
 
             segments = None
             if has_audio:
-                # Extract 16kHz mono audio for Whisper model
+                # Extract 16kHz mono audio for Whisper model with 10-minute timeout for large 40GB files
                 cmd = [
                     "ffmpeg", "-y",
                     "-threads", str(settings.ffmpeg_worker_threads),
@@ -726,18 +745,35 @@ async def transcribe_video(video_id: str):
                     "-ac", "1",
                     str(audio_path)
                 ]
-                code, _, err = await run_cmd(cmd, timeout=90)
+                code, _, err = await run_cmd(cmd, timeout=600)
                 if code == 0 and audio_path.exists():
+                    total_dur = float(probe_info.get("duration") or (video.get("duration_seconds") or 60.0))
+                    initial_eta = max(10, int(total_dur * 0.2))
                     await emit_processing_update(
                         video_id=video_id,
                         stage="TRANSCRIBE",
                         stage_name="Generating AI Subtitles",
                         percent=45.0,
-                        eta_seconds=12,
+                        eta_seconds=initial_eta,
                         details="Running local Whisper AI speech-to-text..."
                     )
-                    # Execute transcription in background thread pool to avoid blocking async event loop
-                    segments = await asyncio.to_thread(run_whisper_transcription, audio_path)
+                    loop = asyncio.get_running_loop()
+
+                    def on_whisper_progress(pct: float, eta: int, details_str: str):
+                        asyncio.run_coroutine_threadsafe(
+                            emit_processing_update(
+                                video_id=video_id,
+                                stage="TRANSCRIBE",
+                                stage_name="Generating AI Subtitles",
+                                percent=pct,
+                                eta_seconds=eta,
+                                details=details_str
+                            ),
+                            loop
+                        )
+
+                    # Execute transcription in background thread pool with live progress updates
+                    segments = await asyncio.to_thread(run_whisper_transcription, audio_path, total_dur, on_whisper_progress)
                 else:
                     print(f"[Whisper] Audio extraction notice (proceeding to fallback): {err}")
 

@@ -95,6 +95,15 @@ async def init_db():
     await videos_col.create_index("status")
     await videos_col.create_index("created_at")
 
+    # Auto-unstick videos that have local files but got stuck in PROCESSING
+    try:
+        await videos_col.update_many(
+            {"status": "PROCESSING", "local_path": {"$ne": None}},
+            {"$set": {"status": "LOCAL_READY", "processing_info": None}}
+        )
+    except Exception:
+        pass
+
     # Users index
     users_col = db["users"]
     await users_col.create_index("username", unique=True)
