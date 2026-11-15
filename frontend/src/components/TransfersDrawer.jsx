@@ -246,7 +246,7 @@ export default function TransfersDrawer({
                     </div>
                   </>
                 ) : (
-                  <div className="text-[10px] text-red-400 font-mono truncate">
+                  <div className="text-[10px] text-red-400 font-mono break-words leading-tight" title={transfer.error || ''}>
                     {transfer.error || 'Transfer failed'}
                   </div>
                 )}

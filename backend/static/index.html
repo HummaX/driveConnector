@@ -2981,7 +2981,7 @@
                 <span class="truncate text-red-300">${escapeHtml(t.title)}</span>
                 <span class="text-[10px] font-mono font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 shrink-0">Failed</span>
               </div>
-              <div class="text-[10px] text-red-400 font-mono truncate">${escapeHtml(t.error || 'Download failed')}</div>
+              <div class="text-[10px] text-red-400 font-mono break-words leading-tight" title="${escapeHtml(t.error || '')}">${escapeHtml(t.error || 'Download failed')}</div>
             </div>
           `;
         } else {

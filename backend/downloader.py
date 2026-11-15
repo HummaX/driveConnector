@@ -632,6 +632,12 @@ async def download_external_url(video_id: str, url: str):
                 "Direct Google Video CDN stream chunks (googlevideo.com/videoplayback) are cryptographically IP-bound to your personal browser and rejected with HTTP 403 Forbidden by Google servers. Please provide the public YouTube link (https://www.youtube.com/watch?v=... or https://youtu.be/...) instead."
             )
 
+        # Explicit warning if Gofile interactive session link is submitted
+        if "gofile.io" in url and ("/download/web/" in url or "/d/" in url):
+            raise ValueError(
+                "Gofile links require an interactive browser session with JavaScript verification (wt.obf.js) to generate a temporary token and cannot be streamed server-to-server. Please open the link in your browser to download it, or use a direct media link (e.g., from mkvcdn, direct CDN, or Google Drive)."
+            )
+
         if is_direct_media_url(url):
             await download_direct_http_stream(video_id, url)
         else:

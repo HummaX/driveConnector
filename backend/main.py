@@ -357,6 +357,11 @@ async def trigger_url_download(
             status_code=400,
             detail="Raw Google Video CDN stream URLs (googlevideo.com/videoplayback) are cryptographically IP-bound to your personal browser and rejected with HTTP 403 Forbidden by Google when requested from the server. Please copy the public YouTube video URL (https://www.youtube.com/watch?v=... or https://youtu.be/...) instead."
         )
+    if "gofile.io" in clean_url and ("/download/web/" in clean_url or "/d/" in clean_url):
+        raise HTTPException(
+            status_code=400,
+            detail="Gofile links require an interactive browser session with JavaScript verification (wt.obf.js) to generate a temporary token and cannot be streamed server-to-server. Please open the link in your browser to download it, or use a direct media link (e.g., from mkvcdn, direct CDN, or Google Drive)."
+        )
     video = await create_url_video(url=clean_url, title=payload.title)
     video_id = video["video_id"]
     background_tasks.add_task(download_external_url, video_id, clean_url)
