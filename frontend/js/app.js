@@ -1564,6 +1564,13 @@
 
   function showBufferingIndicator(show) {
     state.isBuffering = show;
+    const isFs = Boolean(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      (state.activePlayer && (typeof state.activePlayer.isFullscreen === 'function' ? state.activePlayer.isFullscreen() : false))
+    );
+
     const overlay = document.getElementById('player-buffering-overlay');
     const beacon = document.getElementById('player-buffer-beacon');
 
@@ -1573,15 +1580,56 @@
         : 'w-2 h-2 rounded-full bg-sky-400';
     }
 
-    if (overlay) {
-      if (show) {
-        overlay.classList.remove('hidden');
-        overlay.classList.add('flex');
-        overlay.style.display = '';
+    const rootEl = state.activePlayer?.el ? state.activePlayer.el() : (document.getElementById('player-container') || null);
+    const fsOverlay = rootEl ? rootEl.querySelector('.dc-plyr-fs-buffering') : null;
+
+    if (show) {
+      if (isFs && fsOverlay) {
+        fsOverlay.classList.remove('hidden');
+        fsOverlay.classList.add('flex');
+        fsOverlay.style.display = 'flex';
+        if (overlay) {
+          overlay.classList.add('hidden');
+          overlay.classList.remove('flex');
+          overlay.style.display = 'none';
+        }
       } else {
+        if (overlay) {
+          overlay.classList.remove('hidden');
+          overlay.classList.add('flex');
+          overlay.style.display = 'flex';
+        }
+        if (fsOverlay) {
+          fsOverlay.classList.add('hidden');
+          fsOverlay.classList.remove('flex');
+          fsOverlay.style.display = 'none';
+        }
+      }
+      if (rootEl) {
+        const spinner = rootEl.querySelector('.vjs-loading-spinner');
+        if (spinner) spinner.style.display = '';
+      }
+    } else {
+      if (overlay) {
         overlay.classList.add('hidden');
         overlay.classList.remove('flex');
         overlay.style.display = 'none';
+      }
+      if (fsOverlay) {
+        fsOverlay.classList.add('hidden');
+        fsOverlay.classList.remove('flex');
+        fsOverlay.style.display = 'none';
+      }
+      // Remove Video.js built-in waiting class and spinner
+      if (state.activePlayer) {
+        if (typeof state.activePlayer.removeClass === 'function') {
+          state.activePlayer.removeClass('vjs-waiting');
+        }
+        if (rootEl) {
+          rootEl.classList.remove('vjs-waiting');
+          const spinner = rootEl.querySelector('.vjs-loading-spinner');
+          if (spinner) spinner.style.display = 'none';
+        }
       }
     }
   }
@@ -1594,9 +1642,7 @@
 
     // Self-healing: if video is actively playing and rendering frames, dismiss buffering overlay reliably
     if (rawEl && !rawEl.paused && !rawEl.seeking && (rawEl.readyState >= 3 || (rawEl.currentTime > 0 && rawEl.readyState >= 2))) {
-      if (state.isBuffering) {
-        showBufferingIndicator(false);
-      }
+      showBufferingIndicator(false);
     }
 
     const pct = getBufferedPercent(rawEl);
@@ -1854,16 +1900,22 @@
         window.activeVideoPlayer = state.activePlayer;
 
         // Frame rendering callback hook to dismiss buffering overlay as soon as frames are rendering
-        let frameCallbackActive = true;
+        state.frameCallbackActive = true;
         const hookFrameRendering = (el) => {
-          if (!el || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+          if (!el || typeof el.requestVideoFrameCallback !== 'function' || el._dcFrameHookActive) return;
+          el._dcFrameHookActive = true;
           const onFrame = () => {
-            if (!frameCallbackActive) return;
+            if (!state.frameCallbackActive) {
+              el._dcFrameHookActive = false;
+              return;
+            }
             if (el && !el.paused && !el.seeking) {
               showBufferingIndicator(false);
             }
-            if (el && !el.paused && !el.ended) {
+            if (el && !el.ended) {
               el.requestVideoFrameCallback(onFrame);
+            } else {
+              el._dcFrameHookActive = false;
             }
           };
           el.requestVideoFrameCallback(onFrame);
@@ -1881,8 +1933,35 @@
             setupAudioBooster(rawVideo);
             setupCompanionAudioSync(rawVideo);
             hookFrameRendering(rawVideo);
+            bindNativeEvents(rawVideo);
             if (!rawVideo.paused && rawVideo.readyState >= 3) {
               showBufferingIndicator(false);
+            }
+          }
+
+          // Fullscreen buffering indicator overlay inside Video.js root element
+          const rootEl = state.activePlayer.el();
+          if (rootEl) {
+            let fsOverlay = rootEl.querySelector('.dc-plyr-fs-buffering');
+            if (!fsOverlay) {
+              fsOverlay = document.createElement('div');
+              fsOverlay.className = 'dc-plyr-fs-buffering absolute inset-0 z-40 hidden items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200';
+              fsOverlay.innerHTML = `
+                <div class="flex flex-col items-center space-y-3 px-6 py-4 rounded-2xl bg-[#0d1117]/90 border border-sky-500/30 shadow-2xl backdrop-blur-md">
+                  <div class="relative flex items-center justify-center">
+                    <div class="w-12 h-12 rounded-full border-2 border-sky-500/20 border-t-sky-400 animate-spin"></div>
+                    <div class="absolute w-6 h-6 rounded-full bg-sky-500/20 animate-ping"></div>
+                  </div>
+                  <div class="flex flex-col items-center space-y-1 text-center font-mono">
+                    <div class="flex items-center space-x-1.5 text-xs font-semibold text-white">
+                      <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+                      <span>Buffering Stream...</span>
+                    </div>
+                    <span class="dc-fs-buffer-text text-[11px] text-sky-400 font-bold font-mono">Buffered: 0%</span>
+                  </div>
+                </div>
+              `;
+              rootEl.appendChild(fsOverlay);
             }
           }
 
@@ -1924,6 +2003,11 @@
             updatePlayerBufferUI(raw);
           }
         });
+        state.activePlayer.on('play', () => {
+          const raw = state.activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw) hookFrameRendering(raw);
+          updatePlayerBufferUI(raw);
+        });
         state.activePlayer.on('playing', () => {
           showBufferingIndicator(false);
           updatePlayerBufferUI();
@@ -1935,13 +2019,21 @@
         });
         state.activePlayer.on('canplay', () => { showBufferingIndicator(false); updatePlayerBufferUI(); });
         state.activePlayer.on('canplaythrough', () => { showBufferingIndicator(false); updatePlayerBufferUI(); });
+        state.activePlayer.on('loadeddata', () => {
+          const raw = state.activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw && !raw.paused && raw.readyState >= 2) {
+            showBufferingIndicator(false);
+          }
+          updatePlayerBufferUI(raw);
+        });
         state.activePlayer.on('seeked', () => {
-          const raw = state.activePlayer.el()?.querySelector('video');
+          const raw = state.activePlayer.el()?.querySelector('video') || videoEl;
           if (raw && (raw.readyState >= 3 || raw.paused)) {
             showBufferingIndicator(false);
           } else {
             showBufferingIndicator(true);
           }
+          if (raw) hookFrameRendering(raw);
           updatePlayerBufferUI(raw);
         });
         state.activePlayer.on('pause', () => { showBufferingIndicator(false); });
@@ -1953,24 +2045,49 @@
           }
           updatePlayerBufferUI(raw);
         });
+        state.activePlayer.on('fullscreenchange', () => {
+          showBufferingIndicator(state.isBuffering);
+        });
 
         // Native Video Element Event Listeners
         const bindNativeEvents = (el) => {
-          if (!el) return;
-          el.addEventListener('playing', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); hookFrameRendering(el); });
-          el.addEventListener('canplay', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); });
-          el.addEventListener('canplaythrough', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); });
-          el.addEventListener('timeupdate', () => {
+          if (!el || el._dcBufferingBound) return;
+          el._dcBufferingBound = true;
+
+          const onPlaying = () => {
+            showBufferingIndicator(false);
+            updatePlayerBufferUI(el);
+            hookFrameRendering(el);
+          };
+          const onCanPlay = () => {
+            showBufferingIndicator(false);
+            updatePlayerBufferUI(el);
+          };
+          const onTimeUpdate = () => {
             if (!el.paused && !el.seeking && (el.readyState >= 3 || (el.currentTime > 0 && el.readyState >= 2))) {
               showBufferingIndicator(false);
             }
-          });
-          el.addEventListener('stalled', () => {
-            if (!el.paused && el.readyState < 3) {
-              showBufferingIndicator(true);
-              updatePlayerBufferUI(el);
+          };
+          const onLoadedData = () => {
+            if (!el.paused && el.readyState >= 2) {
+              showBufferingIndicator(false);
             }
-          });
+          };
+
+          el.addEventListener('playing', onPlaying);
+          el.addEventListener('canplay', onCanPlay);
+          el.addEventListener('canplaythrough', onCanPlay);
+          el.addEventListener('timeupdate', onTimeUpdate);
+          el.addEventListener('loadeddata', onLoadedData);
+
+          state.nativeCleanup = () => {
+            el.removeEventListener('playing', onPlaying);
+            el.removeEventListener('canplay', onCanPlay);
+            el.removeEventListener('canplaythrough', onCanPlay);
+            el.removeEventListener('timeupdate', onTimeUpdate);
+            el.removeEventListener('loadeddata', onLoadedData);
+            delete el._dcBufferingBound;
+          };
         };
         bindNativeEvents(videoEl);
 
@@ -2038,6 +2155,11 @@
   }
 
   function closePlayerModal() {
+    state.frameCallbackActive = false;
+    if (state.nativeCleanup) {
+      state.nativeCleanup();
+      state.nativeCleanup = null;
+    }
     if (state.bufferMonitorInterval) {
       clearInterval(state.bufferMonitorInterval);
       state.bufferMonitorInterval = null;

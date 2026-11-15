@@ -486,9 +486,7 @@ export default function VideoPlayerModal({
       const updateBufferMetrics = () => {
         const rawVideo = player.el()?.querySelector('video') || videoEl;
         if (rawVideo && !rawVideo.paused && !rawVideo.seeking && (rawVideo.readyState >= 3 || (rawVideo.currentTime > 0 && rawVideo.readyState >= 2))) {
-          if (isBufferingState) {
-            setBufferingActive(false);
-          }
+          setBufferingActive(false);
         }
 
         const pct = calculateBufferedPercent();
@@ -545,24 +543,43 @@ export default function VideoPlayerModal({
             if (buffering && isFs) {
               fsOverlay.classList.remove('hidden');
               fsOverlay.classList.add('flex');
+              fsOverlay.style.display = 'flex';
             } else {
               fsOverlay.classList.add('hidden');
               fsOverlay.classList.remove('flex');
+              fsOverlay.style.display = 'none';
             }
+          }
+          if (buffering) {
+            const spinner = rootEl.querySelector('.vjs-loading-spinner');
+            if (spinner) spinner.style.display = '';
+          } else {
+            if (typeof player.removeClass === 'function') {
+              player.removeClass('vjs-waiting');
+            }
+            rootEl.classList.remove('vjs-waiting');
+            const spinner = rootEl.querySelector('.vjs-loading-spinner');
+            if (spinner) spinner.style.display = 'none';
           }
         }
       };
 
       let frameCallbackActive = true;
       const hookFrameRendering = (el) => {
-        if (!el || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+        if (!el || typeof el.requestVideoFrameCallback !== 'function' || el._dcFrameHookActive) return;
+        el._dcFrameHookActive = true;
         const onFrame = () => {
-          if (!frameCallbackActive) return;
+          if (!frameCallbackActive) {
+            el._dcFrameHookActive = false;
+            return;
+          }
           if (el && !el.paused && !el.seeking) {
             setBufferingActive(false);
           }
-          if (el && !el.paused && !el.ended) {
+          if (el && !el.ended) {
             el.requestVideoFrameCallback(onFrame);
+          } else {
+            el._dcFrameHookActive = false;
           }
         };
         el.requestVideoFrameCallback(onFrame);
@@ -662,6 +679,12 @@ export default function VideoPlayerModal({
       player.on('stalled', handleStalled);
       videoEl.addEventListener('stalled', handleStalled);
 
+      player.on('play', () => {
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (raw) hookFrameRendering(raw);
+        updateBufferMetrics();
+      });
+
       player.on('playing', () => {
         setBufferingActive(false);
         updateBufferMetrics();
@@ -682,6 +705,14 @@ export default function VideoPlayerModal({
         updateBufferMetrics();
       });
 
+      player.on('loadeddata', () => {
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (raw && !raw.paused && raw.readyState >= 2) {
+          setBufferingActive(false);
+        }
+        updateBufferMetrics();
+      });
+
       player.on('seeked', () => {
         const raw = player.el()?.querySelector('video') || videoEl;
         if (raw && (raw.readyState >= 3 || raw.paused)) {
@@ -689,6 +720,7 @@ export default function VideoPlayerModal({
         } else {
           setBufferingActive(true);
         }
+        if (raw) hookFrameRendering(raw);
         updateBufferMetrics();
       });
 
@@ -724,10 +756,16 @@ export default function VideoPlayerModal({
           setBufferingActive(false);
         }
       };
+      const handleNativeLoadedData = () => {
+        if (!videoEl.paused && videoEl.readyState >= 2) {
+          setBufferingActive(false);
+        }
+      };
       videoEl.addEventListener('playing', handleNativePlaying);
       videoEl.addEventListener('canplay', handleNativeCanPlay);
       videoEl.addEventListener('canplaythrough', handleNativeCanPlay);
       videoEl.addEventListener('timeupdate', handleNativeTimeUpdate);
+      videoEl.addEventListener('loadeddata', handleNativeLoadedData);
 
       // Watch Position Memory Throttled Save
       let lastSave = 0;
@@ -763,6 +801,7 @@ export default function VideoPlayerModal({
         videoEl.removeEventListener('canplay', handleNativeCanPlay);
         videoEl.removeEventListener('canplaythrough', handleNativeCanPlay);
         videoEl.removeEventListener('timeupdate', handleNativeTimeUpdate);
+        videoEl.removeEventListener('loadeddata', handleNativeLoadedData);
         if (playerRef.current) {
           try { playerRef.current.dispose(); } catch (e) {}
           playerRef.current = null;
