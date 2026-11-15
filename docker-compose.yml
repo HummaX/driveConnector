@@ -72,6 +72,25 @@ services:
     networks:
       - media_net
 
+  jdownloader:
+    image: jlesage/jdownloader-2:latest
+    container_name: media_jdownloader
+    restart: unless-stopped
+    ports:
+      # Bound to JDOWNLOADER_BIND (defaults to 127.0.0.1 for SSH tunnel security; switch to 0.0.0.0 for direct browser access)
+      - "${JDOWNLOADER_BIND:-127.0.0.1}:5800:5800"
+    environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - VNC_PASSWORD=${JDOWNLOADER_PASSWORD:-admin123}
+    volumes:
+      # Persistent configuration & JDownloader settings on 1TB block storage
+      - ${STORAGE_DIR:-/mnt/storage}/jdownloader:/config
+      # Downloads land directly in the video directory
+      - ${STORAGE_DIR:-/mnt/storage}/videos:/output
+    networks:
+      - media_net
+
 networks:
   media_net:
     driver: bridge

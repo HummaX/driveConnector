@@ -182,10 +182,10 @@ else
 fi
 
 # Ensure subdirectories and permission hierarchy
-mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata"
+mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader"
 chown -R 999:999 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 chmod 777 "$STORAGE_DIR/mongodb" 2>/dev/null || true
-chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" 2>/dev/null || true
+chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader" 2>/dev/null || true
 chmod -R 775 "$STORAGE_DIR"
 
 # 6. Configuration & Symlinks

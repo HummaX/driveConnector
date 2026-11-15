@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import BrandLogo from './BrandLogo';
 import { 
   Cloud, Plus, RefreshCw, LogOut, Shield, 
-  Cpu, HardDrive, ArrowDownRight, ArrowUpRight, Activity, Database
+  Cpu, HardDrive, ArrowDownRight, ArrowUpRight, Activity, Database,
+  DownloadCloud, FolderSearch, Loader2
 } from 'lucide-react';
 
 export default function Navbar({
@@ -11,6 +12,9 @@ export default function Navbar({
   onOpenSync,
   onOpenUrl,
   onOpenMongoDb,
+  onOpenJDownloader,
+  onScanStorage,
+  isScanning = false,
   metrics,
   activeTransfersCount = 0,
   onRefresh
@@ -191,10 +195,39 @@ export default function Navbar({
             <button
               onClick={onOpenMongoDb}
               title="Open MongoDB Live Explorer"
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 text-xs font-medium hover:bg-emerald-950/30 transition shadow-sm"
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 text-xs font-medium hover:bg-emerald-950/30 transition shadow-sm"
             >
               <Database className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">MongoDB</span>
+            </button>
+          )}
+
+          {/* JDownloader 2 UI Button */}
+          {user && onOpenJDownloader && (
+            <button
+              onClick={onOpenJDownloader}
+              title="Open JDownloader 2 Desktop (Port 5800)"
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-sky-500/30 hover:border-sky-500/60 text-sky-400 text-xs font-medium hover:bg-sky-950/30 transition shadow-sm"
+            >
+              <DownloadCloud className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">JDownloader</span>
+            </button>
+          )}
+
+          {/* Scan Local Storage Button */}
+          {user && onScanStorage && (
+            <button
+              onClick={onScanStorage}
+              disabled={isScanning}
+              title="Scan /mnt/storage/videos for new files"
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-500 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm disabled:opacity-50"
+            >
+              {isScanning ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+              ) : (
+                <FolderSearch className="w-3.5 h-3.5 text-amber-400" />
+              )}
+              <span className="hidden sm:inline">{isScanning ? 'Scanning...' : 'Scan Storage'}</span>
             </button>
           )}
 

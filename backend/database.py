@@ -79,7 +79,19 @@ async def init_db():
     # Initialize indexes
     videos_col = db["videos"]
     await videos_col.create_index("video_id", unique=True)
-    await videos_col.create_index("drive_file_id", unique=True, sparse=True)
+    try:
+        await videos_col.update_many({"drive_file_id": None}, {"$unset": {"drive_file_id": ""}})
+    except Exception:
+        pass
+    try:
+        await videos_col.drop_index("drive_file_id_1")
+    except Exception:
+        pass
+    await videos_col.create_index(
+        "drive_file_id",
+        unique=True,
+        partialFilterExpression={"drive_file_id": {"$type": "string"}}
+    )
     await videos_col.create_index("status")
     await videos_col.create_index("created_at")
 
@@ -165,6 +177,30 @@ async def create_url_video(url: str, title: Optional[str] = None) -> Dict[str, A
         updated_at=now
     )
     doc = new_video.model_dump()
+    doc.pop("_id", None)
+    if not doc.get("drive_file_id"):
+        doc.pop("drive_file_id", None)
+    await col.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+async def create_local_scanned_video(file_path: Path) -> Dict[str, Any]:
+    col = get_videos_collection()
+    now = datetime.utcnow()
+    clean_title = file_path.stem
+    size_bytes = file_path.stat().st_size if file_path.exists() else 0
+    new_video = VideoModel(
+        title=clean_title,
+        source="LOCAL",
+        local_path=str(file_path),
+        file_size_bytes=size_bytes,
+        status="PROCESSING",
+        created_at=now,
+        updated_at=now
+    )
+    doc = new_video.model_dump()
+    doc.pop("_id", None)
+    doc.pop("drive_file_id", None)
     await col.insert_one(doc)
     doc.pop("_id", None)
     return doc

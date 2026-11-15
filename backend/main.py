@@ -33,6 +33,7 @@ from database import (
     list_videos,
     get_video,
     create_url_video,
+    create_local_scanned_video,
     update_video,
     delete_video
 )
@@ -195,7 +196,8 @@ async def get_my_profile(current_user: Dict[str, Any] = Depends(get_current_user
 
 # ----------------- Request Schemas -----------------
 class DownloadUrlRequest(BaseModel):
-    url: str
+    url: Optional[str] = None
+    urls: Optional[List[str]] = None
     title: Optional[str] = None
 
 class SyncDriveRequest(BaseModel):
@@ -350,22 +352,104 @@ async def trigger_url_download(
     background_tasks: BackgroundTasks,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Downloads external URL link with SSRF protection (Requires Authentication)."""
-    clean_url = payload.url.strip()
-    if ("googlevideo.com" in clean_url and "videoplayback" in clean_url) or ("&sig=" in clean_url and "itag=" in clean_url and "googlevideo" in clean_url):
-        raise HTTPException(
-            status_code=400,
-            detail="Raw Google Video CDN stream URLs (googlevideo.com/videoplayback) are cryptographically IP-bound to your personal browser and rejected with HTTP 403 Forbidden by Google when requested from the server. Please copy the public YouTube video URL (https://www.youtube.com/watch?v=... or https://youtu.be/...) instead."
-        )
-    if "gofile.io" in clean_url and ("/download/web/" in clean_url or "/d/" in clean_url):
-        raise HTTPException(
-            status_code=400,
-            detail="Gofile links require an interactive browser session with JavaScript verification (wt.obf.js) to generate a temporary token and cannot be streamed server-to-server. Please open the link in your browser to download it, or use a direct media link (e.g., from mkvcdn, direct CDN, or Google Drive)."
-        )
-    video = await create_url_video(url=clean_url, title=payload.title)
-    video_id = video["video_id"]
-    background_tasks.add_task(download_external_url, video_id, clean_url)
-    return {"message": "URL Download queued", "video": video}
+    """Downloads external URL link(s) with SSRF protection and multi-URL queueing (Requires Authentication)."""
+    raw_urls: List[str] = []
+    if payload.urls:
+        for u in payload.urls:
+            u_clean = u.strip()
+            if u_clean and u_clean not in raw_urls:
+                raw_urls.append(u_clean)
+    if payload.url:
+        for line in payload.url.replace(",", "\n").splitlines():
+            line_str = line.strip()
+            if line_str and line_str not in raw_urls:
+                raw_urls.append(line_str)
+
+    if not raw_urls:
+        raise HTTPException(status_code=400, detail="No valid URL provided. Enter one or more video URLs.")
+
+    queued_videos = []
+    errors = []
+
+    for idx, clean_url in enumerate(raw_urls):
+        try:
+            if ("googlevideo.com" in clean_url and "videoplayback" in clean_url) or ("&sig=" in clean_url and "itag=" in clean_url and "googlevideo" in clean_url):
+                raise ValueError("Direct Google Video CDN stream chunks (googlevideo.com/videoplayback) are IP-bound to personal browsers. Please provide the public YouTube link instead.")
+
+            if "gofile.io" in clean_url and ("/download/web/" in clean_url or "/d/" in clean_url):
+                raise ValueError("Gofile links require an interactive browser session with anti-bot verification (wt.obf.js). Please open in browser or use a direct media link.")
+
+            # Assign custom title only if a single URL was submitted
+            item_title = payload.title if len(raw_urls) == 1 else None
+            video = await create_url_video(url=clean_url, title=item_title)
+            video_id = video["video_id"]
+            background_tasks.add_task(download_external_url, video_id, clean_url)
+            queued_videos.append(video)
+        except Exception as e:
+            if len(raw_urls) == 1:
+                # Single URL request: surface immediate 400 with specific error
+                raise HTTPException(status_code=400, detail=str(e))
+            errors.append({"url": clean_url, "error": str(e)})
+
+    if not queued_videos and errors:
+        raise HTTPException(status_code=400, detail=f"Failed to queue downloads: {errors[0]['error']}")
+
+    return {
+        "message": f"Queued {len(queued_videos)} download(s)",
+        "count": len(queued_videos),
+        "queued": queued_videos,
+        "errors": errors,
+        "video": queued_videos[0] if queued_videos else None
+    }
+
+@app.post("/api/videos/scan-local")
+async def scan_local_storage(
+    background_tasks: BackgroundTasks,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Scans /mnt/storage/videos for local media files (e.g. downloaded by JDownloader or scp).
+    Automatically registers any uncataloged videos and triggers background processing.
+    """
+    scanned_extensions = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts"}
+    discovered = []
+
+    existing_videos = await list_videos()
+    known_paths = set()
+    for v in existing_videos:
+        lp = v.get("local_path")
+        if lp:
+            known_paths.add(str(Path(lp).resolve()))
+        vid = v.get("video_id")
+        if vid:
+            for ext in scanned_extensions:
+                known_paths.add(str((settings.videos_dir / f"{vid}{ext}").resolve()))
+
+    for file_path in settings.videos_dir.iterdir():
+        if not file_path.is_file():
+            continue
+        if file_path.name.endswith(".part") or file_path.name.endswith(".tmp") or file_path.name.endswith(".orig"):
+            continue
+        if any(f"_{q}.mp4" in file_path.name for q in ["720p", "480p", "360p"]):
+            continue
+        if file_path.suffix.lower() not in scanned_extensions:
+            continue
+        if str(file_path.resolve()) in known_paths:
+            continue
+
+        video_doc = await create_local_scanned_video(file_path)
+        video_id = video_doc["video_id"]
+        discovered.append(video_doc)
+
+        from ffmpeg_worker import process_video_background
+        background_tasks.add_task(process_video_background, video_id)
+
+    return {
+        "status": "success",
+        "found_count": len(discovered),
+        "discovered": discovered,
+        "message": f"Storage scan complete: {len(discovered)} new video(s) cataloged."
+    }
 
 @app.delete("/api/videos/{video_id}")
 async def remove_video(

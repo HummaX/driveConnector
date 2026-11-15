@@ -322,6 +322,14 @@
             <i data-lucide="database" class="w-3.5 h-3.5"></i>
             <span class="hidden sm:inline">MongoDB</span>
           </button>
+          <button onclick="openJDownloaderModal()" title="JDownloader 2 Web Desktop (Port 5800)" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-sky-500/30 hover:border-sky-500/60 text-sky-400 text-xs font-medium hover:bg-sky-950/30 transition shadow-sm">
+            <i data-lucide="download-cloud" class="w-3.5 h-3.5"></i>
+            <span class="hidden sm:inline">JDownloader</span>
+          </button>
+          <button id="scan-storage-btn" onclick="triggerScanStorage()" title="Scan /mnt/storage/videos for new files" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-500 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm">
+            <i data-lucide="folder-search" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span class="hidden sm:inline">Scan Storage</span>
+          </button>
           <button onclick="openSyncModal()" title="Sync Google Drive" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-600 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm">
             <i data-lucide="cloud" class="w-3.5 h-3.5 text-sky-400"></i>
             <span class="hidden sm:inline">Sync Drive</span>
@@ -950,29 +958,132 @@
 
   <!-- URL Modal -->
   <div id="url-modal" onclick="closeUrlModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <div onclick="event.stopPropagation()" class="relative w-full max-w-md bg-[#0d1117] border border-[#30363d] rounded-xl p-6 shadow-2xl">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-lg bg-[#0d1117] border border-[#30363d] rounded-xl p-6 shadow-2xl">
       <button onclick="closeUrlModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
         <i data-lucide="x" class="w-5 h-5"></i>
       </button>
       <h3 class="text-base font-semibold text-white mb-1">External Link Ingestion</h3>
-      <p class="text-xs text-slate-400 mb-4">Direct MP4 URL, YouTube, Vimeo, or generic video stream</p>
-      <input id="url-input" type="url" oninput="handleUrlInputChange()" placeholder="https://www.youtube.com/watch?v=... or MP4 URL" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-3 focus:outline-none focus:border-sky-500" />
+      <p class="text-xs text-slate-400 mb-3">Direct MKV/MP4 CDN streams, YouTube, Vimeo, and Multi-URL Queueing</p>
+
+      <!-- Mode Selector -->
+      <div class="flex rounded-lg bg-[#010409] p-1 border border-[#30363d] mb-4">
+        <button id="url-mode-single-btn" type="button" onclick="setUrlDownloadMode('single')" class="flex-1 py-1.5 text-xs font-semibold rounded-md bg-[#21262d] text-white shadow-sm border border-slate-600/50 transition">
+          Single Video URL
+        </button>
+        <button id="url-mode-batch-btn" type="button" onclick="setUrlDownloadMode('batch')" class="flex-1 py-1.5 text-xs font-semibold rounded-md text-slate-400 hover:text-slate-200 transition">
+          Multi-URL Batch Download
+        </button>
+      </div>
+
+      <div id="url-single-container">
+        <input id="url-input" type="text" oninput="handleUrlInputChange()" placeholder="https://example.com/video.mkv or YouTube URL" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-3 focus:outline-none focus:border-sky-500" />
+        <input id="url-title-input" type="text" placeholder="Custom Title (optional, blank to auto-detect)" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-3 focus:outline-none focus:border-sky-500" />
+      </div>
+
+      <div id="url-batch-container" class="hidden">
+        <textarea id="url-batch-input" rows="5" placeholder="Paste multiple video URLs (one per line):&#10;https://example.com/movie1.mkv&#10;https://example.com/movie2.mp4&#10;https://www.youtube.com/watch?v=..." class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs font-mono text-white mb-2 focus:outline-none focus:border-sky-500 resize-y"></textarea>
+        <p class="text-[11px] text-slate-400 mb-3">Each URL will be downloaded concurrently with live progress tracking in the Transfers drawer.</p>
+      </div>
+
       <div id="url-googlevideo-warning" class="hidden mb-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
         <div class="flex items-start space-x-2">
           <i data-lucide="alert-triangle" class="w-4 h-4 mt-0.5 shrink-0 text-amber-400"></i>
           <div class="space-y-1">
             <p class="font-semibold text-amber-200">Google Video CDN Stream Detected</p>
             <p class="text-[11px] text-amber-300/90 leading-relaxed">
-              This raw stream URL is cryptographically IP-locked to your personal browser and will trigger an <strong class="text-white">HTTP 403 Forbidden</strong> on the server. Please copy and paste the public YouTube video URL (e.g. <code class="text-white bg-black/40 px-1 py-0.5 rounded font-mono">https://www.youtube.com/watch?v=...</code>) instead.
+              This raw stream URL is cryptographically IP-locked to your personal browser. Please copy and paste the public YouTube video URL instead.
             </p>
           </div>
         </div>
       </div>
-      <div id="url-error-msg" class="hidden mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs"></div>
-      <input id="url-title-input" type="text" placeholder="Custom Title (optional)" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white mb-4 focus:outline-none focus:border-sky-500" />
+
+      <div id="url-gofile-warning" class="hidden mb-3 p-3 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs">
+        <div class="flex items-start space-x-2">
+          <i data-lucide="download-cloud" class="w-4 h-4 mt-0.5 shrink-0 text-sky-400"></i>
+          <div class="space-y-1">
+            <p class="font-semibold text-sky-200">Gofile / Protected Hoster Detected</p>
+            <p class="text-[11px] text-sky-300/90 leading-relaxed">
+              Gofile links require an interactive browser session with anti-bot verification (wt.obf.js). Use our built-in <strong>JDownloader 2 Desktop</strong> (Port 5800) to download them straight to storage!
+            </p>
+            <button type="button" onclick="closeUrlModal(); openJDownloaderModal();" class="text-[11px] text-sky-400 hover:text-white underline font-semibold mt-1">Open JDownloader 2 Desktop</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="url-error-msg" class="hidden mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs break-words"></div>
+
       <div class="flex justify-end space-x-2">
         <button onclick="closeUrlModal()" class="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-[#161b22]">Cancel</button>
         <button id="url-submit-btn" onclick="triggerUrlDownload()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#238636] hover:bg-[#2ea043] text-white shadow-sm border border-[#2ea043]/50">Start Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JDownloader 2 Modal -->
+  <div id="jdownloader-modal" onclick="closeJDownloaderModal()" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div onclick="event.stopPropagation()" class="relative w-full max-w-xl bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl p-6 overflow-hidden">
+      <div class="flex items-center justify-between pb-4 border-b border-[#30363d]">
+        <div class="flex items-center space-x-3">
+          <div class="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400">
+            <i data-lucide="download-cloud" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-white tracking-tight flex items-center space-x-2">
+              <span>JDownloader 2 Web Desktop</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Port 5800</span>
+            </h3>
+            <p class="text-xs text-slate-400">Universal Host-Bypassing Downloader (Gofile, 1Fichier, Mega, Rapidgator, etc.)</p>
+          </div>
+        </div>
+        <button onclick="closeJDownloaderModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#161b22] transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="py-5 space-y-4 text-xs text-slate-300">
+        <p class="leading-relaxed">
+          JDownloader 2 runs on your server with automated decrypter plugins that solve anti-bot gates (like Gofile's wt.obf.js), CAPTCHAs, and countdown timers.
+        </p>
+
+        <div class="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-white flex items-center space-x-1.5">
+              <i data-lucide="external-link" class="w-4 h-4 text-sky-400"></i>
+              <span>Web GUI Access</span>
+            </span>
+            <a id="jd-direct-link" href="http://localhost:5800" target="_blank" rel="noreferrer" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition font-semibold">
+              <span>Open :5800</span>
+              <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+          </div>
+
+          <p class="text-[11px] text-slate-400">
+            If port 5800 is blocked by your firewall, open an SSH tunnel from your local computer terminal:
+          </p>
+
+          <div class="flex items-center justify-between bg-[#010409] px-3 py-2 rounded-lg border border-[#30363d] font-mono text-[11px]">
+            <span id="jd-ssh-cmd" class="text-sky-300 truncate">ssh -L 5800:127.0.0.1:5800 ubuntu@server</span>
+            <button type="button" onclick="copyJdCmd()" class="ml-2 px-2 py-1 rounded bg-[#161b22] hover:bg-[#21262d] text-slate-300 hover:text-white border border-[#30363d] transition shrink-0">Copy</button>
+          </div>
+
+          <div class="flex items-center justify-between bg-[#010409] px-3 py-2 rounded-lg border border-[#30363d] font-mono text-[11px]">
+            <span class="text-slate-400">Desktop Password: <strong class="text-emerald-400">admin123</strong></span>
+            <button type="button" onclick="navigator.clipboard.writeText('admin123'); alert('Password copied: admin123');" class="px-2 py-1 rounded bg-[#161b22] hover:bg-[#21262d] text-slate-300 hover:text-white border border-[#30363d] transition shrink-0">Copy</button>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-1.5">
+          <span class="text-[11px] font-semibold text-emerald-400">How to Use with DriveConnector:</span>
+          <ol class="list-decimal list-inside space-y-1 text-[11px] text-slate-300">
+            <li>Paste your Gofile or hoster link into JDownloader Web GUI (:5800).</li>
+            <li>Downloads save directly into <code class="bg-black/40 px-1 py-0.5 rounded font-mono text-emerald-300">/mnt/storage/videos</code>.</li>
+            <li>Click <strong>Scan Storage</strong> in DriveConnector to immediately index and stream the video!</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2 border-t border-[#30363d]">
+        <button onclick="closeJDownloaderModal()" class="px-4 py-2 rounded-lg text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-white transition">Close</button>
       </div>
     </div>
   </div>
@@ -2744,6 +2855,27 @@
       }
     }
 
+    let urlDownloadMode = 'single';
+    function setUrlDownloadMode(mode) {
+      urlDownloadMode = mode;
+      const singleContainer = document.getElementById('url-single-container');
+      const batchContainer = document.getElementById('url-batch-container');
+      const singleBtn = document.getElementById('url-mode-single-btn');
+      const batchBtn = document.getElementById('url-mode-batch-btn');
+      if (mode === 'single') {
+        singleContainer.classList.remove('hidden');
+        batchContainer.classList.add('hidden');
+        singleBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md bg-[#21262d] text-white shadow-sm border border-slate-600/50 transition';
+        batchBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md text-slate-400 hover:text-slate-200 transition';
+      } else {
+        singleContainer.classList.add('hidden');
+        batchContainer.classList.remove('hidden');
+        batchBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md bg-[#21262d] text-white shadow-sm border border-slate-600/50 transition';
+        singleBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md text-slate-400 hover:text-slate-200 transition';
+      }
+      handleUrlInputChange();
+    }
+
     function openUrlModal() { 
       document.getElementById('url-modal').classList.remove('hidden'); 
       document.getElementById('url-modal').classList.add('flex');
@@ -2756,34 +2888,112 @@
       document.getElementById('url-modal').classList.remove('flex'); 
     }
 
+    function openJDownloaderModal() {
+      const modal = document.getElementById('jdownloader-modal');
+      const host = window.location.hostname || 'SERVER_IP';
+      const link = document.getElementById('jd-direct-link');
+      const ssh = document.getElementById('jd-ssh-cmd');
+      if (link) link.href = `http://${host}:5800`;
+      if (ssh) ssh.innerText = `ssh -L 5800:127.0.0.1:5800 ubuntu@${host}`;
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+    function closeJDownloaderModal() {
+      const modal = document.getElementById('jdownloader-modal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    }
+    function copyJdCmd() {
+      const host = window.location.hostname || 'SERVER_IP';
+      const cmd = `ssh -L 5800:127.0.0.1:5800 ubuntu@${host}`;
+      navigator.clipboard.writeText(cmd);
+      alert('SSH tunnel command copied to clipboard!');
+    }
+
+    async function triggerScanStorage() {
+      const btn = document.getElementById('scan-storage-btn');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch('/api/videos/scan-local', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (res.status === 401) { handleLogout(); return; }
+        if (res.ok) {
+          const data = await res.json();
+          fetchAllData();
+          if (data.found_count > 0) {
+            alert(`Storage Scan Complete: ${data.found_count} new video(s) found and queued for background processing!`);
+          } else {
+            alert('Storage Scan Complete: All files in /mnt/storage/videos are already cataloged.');
+          }
+        }
+      } catch (err) {
+        console.error('Scan storage failed:', err);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     function handleUrlInputChange() {
       const input = document.getElementById('url-input');
-      const val = input ? input.value.trim() : '';
-      const warn = document.getElementById('url-googlevideo-warning');
-      if (warn) {
+      const batchInput = document.getElementById('url-batch-input');
+      const val = (urlDownloadMode === 'single' ? (input ? input.value : '') : (batchInput ? batchInput.value : '')).trim();
+      const warnGoogle = document.getElementById('url-googlevideo-warning');
+      const warnGofile = document.getElementById('url-gofile-warning');
+      if (warnGoogle) {
         if (val.includes('googlevideo.com') || val.includes('videoplayback')) {
-          warn.classList.remove('hidden');
+          warnGoogle.classList.remove('hidden');
         } else {
-          warn.classList.add('hidden');
+          warnGoogle.classList.add('hidden');
+        }
+      }
+      if (warnGofile) {
+        if (val.includes('gofile.io')) {
+          warnGofile.classList.remove('hidden');
+        } else {
+          warnGofile.classList.add('hidden');
         }
       }
     }
 
     async function triggerUrlDownload() {
-      const url = document.getElementById('url-input').value.trim();
-      const title = document.getElementById('url-title-input').value.trim();
       const errEl = document.getElementById('url-error-msg');
       const btn = document.getElementById('url-submit-btn');
-      if (!url) return;
-
       if (errEl) errEl.classList.add('hidden');
+
+      let payload = {};
+      if (urlDownloadMode === 'single') {
+        const url = document.getElementById('url-input').value.trim();
+        const title = document.getElementById('url-title-input').value.trim();
+        if (!url) return;
+        payload.url = url;
+        if (title) payload.title = title;
+      } else {
+        const batchText = document.getElementById('url-batch-input').value.trim();
+        const list = batchText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        if (list.length === 0) {
+          if (errEl) {
+            errEl.innerText = 'Please enter at least one URL in the batch box.';
+            errEl.classList.remove('hidden');
+          }
+          return;
+        }
+        payload.urls = list;
+      }
+
       if (btn) btn.disabled = true;
 
       try {
         const res = await fetch('/api/videos/download-url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({ url, title: title || null })
+          body: JSON.stringify(payload)
         });
         if (res.status === 401) { handleLogout(); return; }
         if (!res.ok) {
@@ -2793,6 +3003,8 @@
         closeUrlModal();
         document.getElementById('url-input').value = '';
         document.getElementById('url-title-input').value = '';
+        const batchInp = document.getElementById('url-batch-input');
+        if (batchInp) batchInp.value = '';
         fetchAllData();
       } catch (err) {
         if (errEl) {

@@ -10,6 +10,7 @@ import VideoPlayerModal from './components/VideoPlayerModal';
 import DriveSyncModal from './components/DriveSyncModal';
 import UrlDownloadModal from './components/UrlDownloadModal';
 import MongoDbModal from './components/MongoDbModal';
+import JDownloaderModal from './components/JDownloaderModal';
 import TransfersDrawer from './components/TransfersDrawer';
 import LoginPage from './components/LoginPage';
 import StatsDashboard from './components/StatsDashboard';
@@ -25,6 +26,8 @@ export default function App() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
   const [isMongoModalOpen, setIsMongoModalOpen] = useState(false);
+  const [isJDownloaderModalOpen, setIsJDownloaderModalOpen] = useState(false);
+  const [isScanningStorage, setIsScanningStorage] = useState(false);
   const [transfers, setTransfers] = useState({});
   const [processingJobs, setProcessingJobs] = useState({});
   const [metrics, setMetrics] = useState(null);
@@ -282,6 +285,34 @@ export default function App() {
     }
   };
 
+  // 4b. Scan Local Storage (/mnt/storage/videos) for newly downloaded files
+  const handleScanStorage = async () => {
+    setIsScanningStorage(true);
+    try {
+      const res = await fetch('/api/videos/scan-local', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        fetchVideos();
+        if (data.found_count > 0) {
+          alert(`Storage Scan Complete: ${data.found_count} new video(s) found and queued for background processing!`);
+        } else {
+          alert('Storage Scan Complete: All files in /mnt/storage/videos are already cataloged.');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to scan storage:', err);
+    } finally {
+      setIsScanningStorage(false);
+    }
+  };
+
   // 5. Delete Video
   const handleDeleteVideo = async (videoId) => {
     try {
@@ -452,6 +483,9 @@ export default function App() {
         onOpenSync={() => setIsSyncModalOpen(true)}
         onOpenUrl={() => setIsUrlModalOpen(true)}
         onOpenMongoDb={() => setIsMongoModalOpen(true)}
+        onOpenJDownloader={() => setIsJDownloaderModalOpen(true)}
+        onScanStorage={handleScanStorage}
+        isScanning={isScanningStorage}
         metrics={metrics}
         activeTransfersCount={counts.active}
         onRefresh={() => {
@@ -743,6 +777,13 @@ export default function App() {
         authHeaders={getAuthHeaders()}
         onClose={() => setIsUrlModalOpen(false)}
         onDownloadStarted={fetchVideos}
+        onOpenJDownloader={() => setIsJDownloaderModalOpen(true)}
+      />
+
+      {/* JDownloader 2 Web Desktop Modal */}
+      <JDownloaderModal
+        isOpen={isJDownloaderModalOpen}
+        onClose={() => setIsJDownloaderModalOpen(false)}
       />
 
       {/* Real-time Transfer Telemetry HUD Drawer */}

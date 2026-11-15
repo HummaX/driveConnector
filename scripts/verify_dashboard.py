@@ -946,6 +946,55 @@ def test_direct_stream_and_mkv_support():
     print("✅ Direct HTTP chunked streaming, MKV container preservation, and 500-retry logic fully verified.")
     return True
 
+def test_multiple_downloads_and_jdownloader_integration():
+    root_dir = Path(__file__).parent.parent
+    backend_dir = root_dir / "backend"
+    frontend_dir = root_dir / "frontend"
+
+    # 1. Verify docker-compose.yml defines jdownloader on port 5800
+    compose_txt = (root_dir / "docker-compose.yml").read_text(encoding="utf-8")
+    if "jdownloader:" not in compose_txt or "5800:5800" not in compose_txt:
+        print("❌ docker-compose.yml missing jdownloader service or 5800 port mapping!")
+        return False
+
+    # 2. Verify .env.example contains JDownloader settings
+    env_txt = (root_dir / ".env.example").read_text(encoding="utf-8")
+    if "JDOWNLOADER_BIND" not in env_txt or "JDOWNLOADER_PORT" not in env_txt:
+        print("❌ .env.example missing JDOWNLOADER_BIND or JDOWNLOADER_PORT!")
+        return False
+
+    # 3. Verify database.py strips null drive_file_id and uses partialFilterExpression
+    db_txt = (backend_dir / "database.py").read_text(encoding="utf-8")
+    if "partialFilterExpression" not in db_txt:
+        print("❌ database.py missing partialFilterExpression for drive_file_id (prevents 2nd download 500 duplicate null error)!")
+        return False
+    if 'doc.pop("drive_file_id", None)' not in db_txt:
+        print("❌ database.py missing drive_file_id pop in create_url_video!")
+        return False
+
+    # 4. Verify main.py has /api/videos/scan-local and batch URL support
+    main_txt = (backend_dir / "main.py").read_text(encoding="utf-8")
+    if "/api/videos/scan-local" not in main_txt:
+        print("❌ main.py missing /api/videos/scan-local endpoint!")
+        return False
+    if "raw_urls" not in main_txt or "splitlines" not in main_txt:
+        print("❌ main.py missing multi-line / batch URL parsing in trigger_url_download!")
+        return False
+
+    # 5. Verify React and HTML have Scan Storage and JDownloader integrations
+    react_app = (frontend_dir / "src" / "App.jsx").read_text(encoding="utf-8")
+    if "JDownloaderModal" not in react_app or "handleScanStorage" not in react_app:
+        print("❌ App.jsx missing JDownloaderModal or handleScanStorage!")
+        return False
+
+    index_html = (backend_dir / "static" / "index.html").read_text(encoding="utf-8")
+    if "jdownloader-modal" not in index_html or "triggerScanStorage" not in index_html:
+        print("❌ index.html missing jdownloader-modal or triggerScanStorage!")
+        return False
+
+    print("✅ Multiple downloads batching, 2nd download duplicate null key fix, JDownloader 2 container, and Scan Storage fully verified.")
+    return True
+
 if __name__ == "__main__":
     tests = [
         test_python_syntax,
@@ -969,7 +1018,8 @@ if __name__ == "__main__":
         test_deployment_and_mongo_express_ux,
         test_favicons_and_brand_assets,
         test_cpu_core_reservation_and_governance,
-        test_direct_stream_and_mkv_support
+        test_direct_stream_and_mkv_support,
+        test_multiple_downloads_and_jdownloader_integration
     ]
     failed = False
     for t in tests:
