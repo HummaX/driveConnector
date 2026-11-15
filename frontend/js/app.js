@@ -51,10 +51,21 @@
      ============================================================================ */
   function getAuthToken() {
     return (
+      localStorage.getItem('drive_auth_token') ||
       localStorage.getItem('ovh_media_token') ||
       localStorage.getItem('drive_connector_token') ||
       ''
     );
+  }
+
+  function persistAuth(token, user) {
+    if (!token) return;
+    localStorage.setItem('drive_auth_token', token);
+    localStorage.setItem('ovh_media_token', token);
+    localStorage.setItem('drive_connector_token', token);
+    localStorage.setItem('drive_auth_user', JSON.stringify(user || { username: 'admin' }));
+    document.cookie = `access_token=${token}; path=/; max-age=604800; SameSite=Lax`;
+    state.token = token;
   }
 
   function checkAuthWall() {
@@ -71,8 +82,11 @@
   }
 
   function handleLogout() {
+    localStorage.removeItem('drive_auth_token');
     localStorage.removeItem('ovh_media_token');
     localStorage.removeItem('drive_connector_token');
+    localStorage.removeItem('drive_auth_user');
+    document.cookie = 'access_token=; path=/; max-age=0; SameSite=Lax';
     state.token = null;
     window.location.href = '/login.html';
   }
@@ -1927,6 +1941,73 @@
     }
   }
 
+  // MongoDB Live UI Modal & Dynamic SSH Tunnel Fetch
+  async function openMongoModal() {
+    const modal = document.getElementById('mongo-modal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    const host = window.location.hostname || 'localhost';
+    const fallbackTunnel = `ssh -L 8081:127.0.0.1:8081 ubuntu@${host}`;
+    const cmdEl = document.getElementById('me-tunnel-cmd-text');
+    if (cmdEl) cmdEl.textContent = fallbackTunnel;
+
+    try {
+      const res = await fetchWithAuth('/api/db/stats');
+      if (res && res.ok) {
+        const data = await res.json();
+        const port = data.mongo_express_port || 8081;
+        const tunnelCmd = data.ssh_tunnel_cmd || `ssh -L ${port}:127.0.0.1:${port} ubuntu@${host}`;
+        const user = data.mongo_express_user || 'admin';
+        const pass = data.mongo_express_pass || 'expresspassword';
+
+        if (cmdEl) cmdEl.textContent = tunnelCmd;
+        const userEl = document.getElementById('me-user-val');
+        if (userEl) userEl.textContent = user;
+        const passEl = document.getElementById('me-pass-val');
+        if (passEl) passEl.textContent = pass;
+        const portEl = document.getElementById('me-port-num');
+        if (portEl) portEl.textContent = port;
+      }
+    } catch (err) {
+      console.warn('[MongoModal] Error fetching db stats:', err);
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function closeMongoModal() {
+    const modal = document.getElementById('mongo-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+  }
+
+  // JDownloader 2 Modal & Dynamic SSH Tunnel Command
+  function openJDownloaderModal() {
+    const modal = document.getElementById('jdownloader-modal');
+    const host = window.location.hostname || 'localhost';
+    const sshCmd = `ssh -L 5800:127.0.0.1:5800 ubuntu@${host}`;
+    const jdCmdEl = document.getElementById('jd-ssh-cmd');
+    if (jdCmdEl) jdCmdEl.textContent = sshCmd;
+    const jdDirectLink = document.getElementById('jd-direct-link');
+    if (jdDirectLink) jdDirectLink.href = `http://${host}:5800`;
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function closeJDownloaderModal() {
+    const modal = document.getElementById('jdownloader-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+  }
+
   /* ============================================================================
      8. SYSTEM METRICS & TELEMETRY POLLING
      ============================================================================ */
@@ -2240,6 +2321,13 @@
   window.filterCatalog = setCatalogFilter;
   window.setCatalogView = setCatalogView;
   window.setAppCatalogView = setCatalogView;
+
+  window.openMongoModal = openMongoModal;
+  window.closeMongoModal = closeMongoModal;
+  window.openJDownloaderModal = openJDownloaderModal;
+  window.closeJDownloaderModal = closeJDownloaderModal;
+  window.persistAuth = persistAuth;
+  window.handleLogout = handleLogout;
 
   window.syncDrive = syncDrive;
   window.submitUrlDownload = submitUrlDownload;

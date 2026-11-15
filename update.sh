@@ -22,6 +22,13 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Source environment variables if .env exists
+if [ -f .env ]; then
+    set -a
+    . .env 2>/dev/null || true
+    set +a
+fi
+
 echo "======================================================================"
 echo "    Updating DriveConnector in $SCRIPT_DIR"
 echo "======================================================================"
@@ -41,9 +48,15 @@ if [ ! -f .env ] && [ -f .env.example ]; then
     cp .env.example .env
 fi
 
+if [ -f .env ]; then
+    set -a
+    . .env 2>/dev/null || true
+    set +a
+fi
+
 # Ensure storage directories and permissions are intact
 STORAGE_DIR="${STORAGE_DIR:-/mnt/storage}"
-mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader/cfg" "$STORAGE_DIR/jdownloader/folderwatch" 2>/dev/null || true
+mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/config" "$STORAGE_DIR/jdownloader/cfg" "$STORAGE_DIR/jdownloader/folderwatch" 2>/dev/null || true
 if [ ! -f "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.extensions.folderwatch.FolderWatchExtension.json" ]; then
     cat << 'EOF' > "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.extensions.folderwatch.FolderWatchExtension.json" 2>/dev/null || true
 {
@@ -58,10 +71,11 @@ if [ ! -f "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.settings.GeneralSettings
 }
 EOF
 fi
+chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/config" "$STORAGE_DIR/jdownloader" 2>/dev/null || true
+chmod 775 "$STORAGE_DIR" 2>/dev/null || true
+chmod -R 775 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/config" "$STORAGE_DIR/jdownloader" 2>/dev/null || true
 chown -R 999:999 "$STORAGE_DIR/mongodb" 2>/dev/null || true
-chmod 777 "$STORAGE_DIR/mongodb" 2>/dev/null || true
-chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader" 2>/dev/null || true
-chmod -R 775 "$STORAGE_DIR" 2>/dev/null || true
+chmod 750 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 
 # Ensure global update CLI shortcut is installed
 chmod +x "$SCRIPT_DIR/update.sh" 2>/dev/null || true
@@ -71,7 +85,7 @@ echo "[+] Rebuilding and launching containers..."
 docker compose up -d --build
 
 echo "[+] Unsticking any stale processing records in database..."
-docker exec media_mongodb mongosh media_db --eval 'db.videos.updateMany({status: "PROCESSING", $or: [{local_path: {$ne: null}}, {file_size_bytes: {$gt: 0}}, {poster_url: {$ne: null}}]}, {$set: {status: "LOCAL_READY", processing_info: null}})' 2>/dev/null || true
+docker exec media_mongodb mongosh media_db -u "${MONGO_INITDB_ROOT_USERNAME:-admin}" -p "${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}" --authenticationDatabase admin --eval 'db.videos.updateMany({status: "PROCESSING", $or: [{local_path: {$ne: null}}, {file_size_bytes: {$gt: 0}}, {poster_url: {$ne: null}}]}, {$set: {status: "LOCAL_READY", processing_info: null}})' 2>/dev/null || true
 
 echo "[+] Cleaning up dangling Docker images..."
 docker image prune -f

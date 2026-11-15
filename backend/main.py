@@ -211,16 +211,19 @@ app.mount("/js", StaticFiles(directory=str(frontend_js_dir)), name="js")
 @app.get("/login", include_in_schema=False)
 @app.get("/login.html", include_in_schema=False)
 async def serve_login():
-    login_file = frontend_dir / "login.html"
+    login_file = static_ui_dir / "login.html"
     if login_file.exists():
         return FileResponse(str(login_file))
+    login_fallback = frontend_dir / "login.html"
+    if login_fallback.exists():
+        return FileResponse(str(login_fallback))
     return Response(status_code=404)
 
 @app.get("/", include_in_schema=False)
 async def serve_root():
-    frontend_index = frontend_dir / "index.html"
-    if frontend_index.exists():
-        return FileResponse(str(frontend_index))
+    dist_index = frontend_dir / "dist" / "index.html"
+    if dist_index.exists():
+        return FileResponse(str(dist_index))
     index_file = static_ui_dir / "index.html"
     if index_file.exists():
         return FileResponse(str(index_file))

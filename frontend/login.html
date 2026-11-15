@@ -708,7 +708,7 @@
 
       // 7. Check Existing Authentication Session
       // Auto-redirect to dashboard if valid token is already present
-      const existingToken = localStorage.getItem('ovh_media_token') || localStorage.getItem('drive_connector_token');
+      const existingToken = localStorage.getItem('drive_auth_token') || localStorage.getItem('ovh_media_token') || localStorage.getItem('drive_connector_token');
       if (existingToken) {
         fetch('/api/auth/me', {
           headers: { 'Authorization': `Bearer ${existingToken}` }
@@ -805,9 +805,11 @@
               throw new Error('Authentication succeeded but no token was returned');
             }
 
-            // Persist JWT token in both specified storage keys
+            // Persist JWT token in all unified storage keys
+            localStorage.setItem('drive_auth_token', token);
             localStorage.setItem('ovh_media_token', token);
             localStorage.setItem('drive_connector_token', token);
+            localStorage.setItem('drive_auth_user', JSON.stringify(authResult.user || { username: username || authResult.username || 'admin', role: authResult.role || 'admin' }));
 
             // Also set session cookie for direct HTML5 media stream requests
             document.cookie = `access_token=${token}; path=/; max-age=604800; SameSite=Lax`;

@@ -1352,7 +1352,7 @@
     let transfers = {};
     let activePlayer = null;
     let activeVideoModal = null;
-    let authToken = localStorage.getItem('drive_auth_token') || null;
+    let authToken = localStorage.getItem('drive_auth_token') || localStorage.getItem('ovh_media_token') || localStorage.getItem('drive_connector_token') || null;
     let authUser = null;
     try {
       authUser = JSON.parse(localStorage.getItem('drive_auth_user'));
@@ -1438,10 +1438,13 @@
           throw new Error(err.detail || 'Login failed');
         }
         const data = await res.json();
-        authToken = data.access_token;
-        authUser = { username: data.username, role: data.role };
+        authToken = data.access_token || data.token;
+        authUser = { username: data.username || u, role: data.role || 'admin' };
         localStorage.setItem('drive_auth_token', authToken);
+        localStorage.setItem('ovh_media_token', authToken);
+        localStorage.setItem('drive_connector_token', authToken);
         localStorage.setItem('drive_auth_user', JSON.stringify(authUser));
+        document.cookie = `access_token=${authToken}; path=/; max-age=604800; SameSite=Lax`;
         checkAuthWall();
       } catch (err) {
         if (errText) errText.innerText = err.message;
@@ -1456,7 +1459,10 @@
       authToken = null;
       authUser = null;
       localStorage.removeItem('drive_auth_token');
+      localStorage.removeItem('ovh_media_token');
+      localStorage.removeItem('drive_connector_token');
       localStorage.removeItem('drive_auth_user');
+      document.cookie = 'access_token=; path=/; max-age=0; SameSite=Lax';
       checkAuthWall();
     }
 
@@ -1992,6 +1998,14 @@
           b.className = "gain-btn px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-white hover:bg-[#21262d]";
         }
       });
+    }
+
+    function cycleAudioBoost() {
+      let nextGain = 100;
+      if (currentGain === 100) nextGain = 150;
+      else if (currentGain === 150) nextGain = 200;
+      else nextGain = 100;
+      setAudioGain(nextGain);
     }
 
     function setPlayerSpeed(s) {
@@ -3371,7 +3385,7 @@
 
     function openJDownloaderModal() {
       const modal = document.getElementById('jdownloader-modal');
-      const host = window.location.hostname || 'SERVER_IP';
+      const host = window.location.hostname || 'localhost';
       const link = document.getElementById('jd-direct-link');
       const ssh = document.getElementById('jd-ssh-cmd');
       if (link) link.href = `http://${host}:5800`;
@@ -3390,7 +3404,7 @@
       }
     }
     function copyJdCmd() {
-      const host = window.location.hostname || 'SERVER_IP';
+      const host = window.location.hostname || 'localhost';
       const cmd = `ssh -L 5800:127.0.0.1:5800 ubuntu@${host}`;
       navigator.clipboard.writeText(cmd);
       alert('SSH tunnel command copied to clipboard!');

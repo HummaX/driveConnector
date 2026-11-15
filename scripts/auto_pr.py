@@ -20,9 +20,11 @@ import argparse
 from pathlib import Path
 
 def run_command(cmd, check=True):
-    result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+    use_shell = not isinstance(cmd, list)
+    result = subprocess.run(cmd, shell=use_shell, text=True, capture_output=True)
     if check and result.returncode != 0:
-        print(f"[ERROR] Command failed: {cmd}\nOutput:\n{result.stderr.strip()}")
+        cmd_display = " ".join(cmd) if isinstance(cmd, list) else cmd
+        print(f"[ERROR] Command failed: {cmd_display}\nOutput:\n{result.stderr.strip()}")
         sys.exit(result.returncode)
     return result.stdout.strip(), result.stderr.strip(), result.returncode
 
@@ -115,12 +117,12 @@ def main():
     if stdout:
         if args.commit_msg:
             print("📝 Committing pending changes...")
-            run_command("git add .")
-            run_command(f'git commit -m "{args.commit_msg}"')
+            run_command(["git", "add", "."])
+            run_command(["git", "commit", "-m", args.commit_msg])
         else:
             print("⚠️ You have uncommitted changes. Staging and committing with default message...")
-            run_command("git add .")
-            run_command(f'git commit -m "feat: automated updates on {current_branch}"')
+            run_command(["git", "add", "."])
+            run_command(["git", "commit", "-m", f"feat: automated updates on {current_branch}"])
 
     # Push branch to remote
     print(f"📤 Pushing branch '{current_branch}' to origin...")

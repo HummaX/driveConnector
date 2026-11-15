@@ -35,7 +35,12 @@ export default function App() {
   const searchInputRef = useRef(null);
 
   // Authentication State
-  const [token, setToken] = useState(() => localStorage.getItem('drive_auth_token'));
+  const [token, setToken] = useState(() => (
+    localStorage.getItem('drive_auth_token') ||
+    localStorage.getItem('ovh_media_token') ||
+    localStorage.getItem('drive_connector_token') ||
+    null
+  ));
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('drive_auth_user'));
@@ -48,13 +53,23 @@ export default function App() {
   selectedVideoRef.current = selectedVideo;
 
   const handleLoginSuccess = (authData) => {
-    setToken(authData.access_token);
-    setUser({ username: authData.username, role: authData.role });
+    const t = authData.access_token || authData.token;
+    const u = { username: authData.username, role: authData.role };
+    localStorage.setItem('drive_auth_token', t);
+    localStorage.setItem('ovh_media_token', t);
+    localStorage.setItem('drive_connector_token', t);
+    localStorage.setItem('drive_auth_user', JSON.stringify(u));
+    document.cookie = `access_token=${t}; path=/; max-age=604800; SameSite=Lax`;
+    setToken(t);
+    setUser(u);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('drive_auth_token');
+    localStorage.removeItem('ovh_media_token');
+    localStorage.removeItem('drive_connector_token');
     localStorage.removeItem('drive_auth_user');
+    document.cookie = 'access_token=; path=/; max-age=0; SameSite=Lax';
     setToken(null);
     setUser(null);
     setVideos([]);

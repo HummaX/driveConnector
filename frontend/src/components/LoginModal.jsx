@@ -27,8 +27,13 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
       }
 
       const data = await res.json();
-      localStorage.setItem('drive_auth_token', data.access_token);
-      localStorage.setItem('drive_auth_user', JSON.stringify({ username: data.username, role: data.role }));
+      const t = data.access_token || data.token;
+      const u = { username: data.username, role: data.role };
+      localStorage.setItem('drive_auth_token', t);
+      localStorage.setItem('ovh_media_token', t);
+      localStorage.setItem('drive_connector_token', t);
+      localStorage.setItem('drive_auth_user', JSON.stringify(u));
+      document.cookie = `access_token=${t}; path=/; max-age=604800; SameSite=Lax`;
       
       onLoginSuccess(data);
       onClose();

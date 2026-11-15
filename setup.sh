@@ -48,7 +48,15 @@ apt-get install -y --no-install-recommends \
 
 # Configure automated firewall rules (UFW)
 echo "[+] Configuring firewall rules (UFW)..."
+SSH_PORT=$(ss -tlnp 2>/dev/null | grep -E 'sshd|ssh' | awk '{print $4}' | awk -F':' '{print $NF}' | head -n1)
+if [ -z "$SSH_PORT" ]; then
+    SSH_PORT=$(grep -E '^Port ' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -n1)
+fi
+SSH_PORT=${SSH_PORT:-22}
 ufw allow 22
+if [ "$SSH_PORT" != "22" ]; then
+    ufw allow "$SSH_PORT"/tcp
+fi
 ufw allow 80
 ufw allow 8000
 ufw --force enable
@@ -162,6 +170,16 @@ else
                     DO_MOUNT=1
                     ;;
             esac
+        elif [ -t 1 ] && [ -r /dev/tty ]; then
+            read -r -p "    Format $TARGET_DISK as ext4 and mount to $STORAGE_DIR? [Y/n] " prompt_ans < /dev/tty
+            case "$prompt_ans" in
+                [nN][oO]|[nN])
+                    echo "[!] Skipping block storage mount. Using host root drive."
+                    ;;
+                *)
+                    DO_MOUNT=1
+                    ;;
+            esac
         else
             echo "[!] Non-interactive mode without --auto-mount. Skipping automatic formatting."
             echo "[!] To mount $TARGET_DISK automatically, re-run with: sudo bash setup.sh --auto-mount"
@@ -169,7 +187,7 @@ else
 
         if [ "$DO_MOUNT" -eq 1 ]; then
             echo "[+] Wiping signatures on $TARGET_DISK..."
-            wipefs -a "$TARGET_DISK" 2>/dev/null || true
+            wipefs -a "${TARGET_DISK}"?* "$TARGET_DISK" 2>/dev/null || true
             echo "[+] Formatting $TARGET_DISK as ext4..."
             mkfs.ext4 -F -m 1 "$TARGET_DISK"
             mkdir -p "$STORAGE_DIR"
@@ -191,7 +209,7 @@ else
 fi
 
 # Ensure subdirectories and permission hierarchy
-mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader/cfg" "$STORAGE_DIR/jdownloader/folderwatch"
+mkdir -p "$STORAGE_DIR/mongodb" "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/config" "$STORAGE_DIR/jdownloader/cfg" "$STORAGE_DIR/jdownloader/folderwatch"
 if [ ! -f "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.extensions.folderwatch.FolderWatchExtension.json" ]; then
     cat << 'EOF' > "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.extensions.folderwatch.FolderWatchExtension.json"
 {
@@ -206,16 +224,29 @@ if [ ! -f "$STORAGE_DIR/jdownloader/cfg/org.jdownloader.settings.GeneralSettings
 }
 EOF
 fi
+chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/config" "$STORAGE_DIR/jdownloader" 2>/dev/null || true
+chmod 775 "$STORAGE_DIR" 2>/dev/null || true
+chmod -R 775 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/config" "$STORAGE_DIR/jdownloader" 2>/dev/null || true
 chown -R 999:999 "$STORAGE_DIR/mongodb" 2>/dev/null || true
-chmod 777 "$STORAGE_DIR/mongodb" 2>/dev/null || true
-chown -R 1000:1000 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/jdownloader" 2>/dev/null || true
-chmod -R 775 "$STORAGE_DIR"
+chmod 750 "$STORAGE_DIR/mongodb" 2>/dev/null || true
+
+# Ensure safeguard placeholder template JSON files exist in backend
+if [ ! -f "$REPO_DIR/backend/credentials.json" ]; then
+    echo "{}" > "$REPO_DIR/backend/credentials.json"
+fi
+if [ ! -f "$REPO_DIR/backend/token.json" ]; then
+    echo "{}" > "$REPO_DIR/backend/token.json"
+fi
 
 # 6. Configuration & Symlinks
 echo "[+] Step 4/6: Checking environment configuration & installing CLI tools..."
 if [ ! -f .env ]; then
     echo "[+] Generating .env from .env.example..."
     cp .env.example .env
+    RANDOM_JWT=$(openssl rand -hex 32 2>/dev/null || tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 64)
+    if [ -n "$RANDOM_JWT" ]; then
+        sed -i "s#JWT_SECRET_KEY=.*#JWT_SECRET_KEY=$RANDOM_JWT#" .env
+    fi
 fi
 
 # Install global update symlink
