@@ -236,39 +236,6 @@
   <!-- Vite/React Root Anchor (Hidden during standalone NOC HUD) -->
   <div id="root" style="display:none;"></div>
 
-  <!-- ==================== 1. OPTIONAL INLINE AUTH WALL VIEW ==================== -->
-  <div id="login-wall-view" class="hidden fixed inset-0 z-50 flex flex-col bg-[#090d16] overflow-hidden select-none">
-    <div class="relative z-10 flex-1 flex flex-col items-center justify-center px-4 sm:px-6">
-      <div id="login-card" class="w-full max-w-[420px] bg-[#0d1117]/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl p-7 space-y-5">
-        <div class="flex items-center space-x-3 mb-2">
-          <div class="p-2.5 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white shadow-lg shadow-sky-500/25">
-            <i data-lucide="lock" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <h2 class="text-lg font-bold text-white tracking-tight">Sign in</h2>
-            <p class="text-xs text-slate-400">Authenticate to enter Command Center</p>
-          </div>
-        </div>
-        <div class="space-y-4">
-          <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1.5">Username</label>
-            <input id="login-username" type="text" value="admin" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-slate-700 text-sm text-white focus:outline-none focus:border-sky-500" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1.5">Password</label>
-            <input id="login-password" type="password" placeholder="••••••••••••" class="w-full px-3.5 py-2.5 rounded-lg bg-[#010409] border border-slate-700 text-sm text-white focus:outline-none focus:border-sky-500" />
-          </div>
-          <div id="login-error" class="hidden flex items-center space-x-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
-            <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
-            <span id="login-error-text"></span>
-          </div>
-          <button id="login-submit-btn" onclick="handleLoginClick()" class="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#238636] hover:bg-[#2ea043] text-white border border-[#2ea043]/40 shadow-sm transition">
-            Sign In to Command Center
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- ==================== 2. MAIN COMMAND CENTER SHELL ==================== -->
   <div id="main-platform-view" class="flex-1 flex flex-col w-full relative">
@@ -1289,71 +1256,10 @@
       const d = document.getElementById('transfers-drawer');
       if (d) d.classList.toggle('hidden');
     }
-    function toggleTheaterMode() {
-      const box = document.getElementById('player-modal-box');
-      if (box) {
-        box.classList.toggle('sm:max-w-7xl');
-        box.classList.toggle('sm:max-w-5xl');
-      }
-    }
-    function handleLogout() {
-      localStorage.removeItem('drive_auth_token');
-      localStorage.removeItem('ovh_media_token');
-      localStorage.removeItem('drive_connector_token');
-      localStorage.removeItem('drive_auth_user');
-      document.cookie = 'access_token=; path=/; max-age=0; SameSite=Lax';
-      window.location.href = '/login.html';
-    }
-
-    // Keyboard Shortcut '/' Handler Guarding Against Input / Textarea Steal
-    window.addEventListener('keydown', function(e) {
-      if (e.key === '/') {
-        const active = document.activeElement;
-        const tagName = active ? active.tagName.toLowerCase() : '';
-        const isInput = tagName === 'input' || tagName === 'textarea' || active.isContentEditable;
-        if (!isInput) {
-          e.preventDefault();
-          const s = document.getElementById('search-input');
-          if (s) s.focus();
-        }
-      } else if (e.key === 'Escape') {
-        closePlayerModal();
-        closeMongoModal();
-        closeSyncModal();
-        closeUrlModal();
-        closeJDownloaderModal();
-        const d = document.getElementById('transfers-drawer');
-        if (d && !d.classList.contains('hidden')) d.classList.add('hidden');
-      }
-    });
-
-    // Uptime Formatter Guarding Seconds < 60
-    function formatUptime(seconds) {
-      if (seconds < 60) {
-        return `${Math.round(seconds)}s`;
-      }
-      const mins = Math.floor(seconds / 60);
-      const hours = Math.floor(mins / 60);
-      const days = Math.floor(hours / 24);
-      if (days > 0) return `${days}d ${hours % 24}h`;
-      if (hours > 0) return `${hours}h ${mins % 60}m`;
-      return `${mins}m`;
-    }
 
     // Media Playback Check
     function isVideoPlayable(v) {
       return v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
-    }
-
-    // Buffer percentage helper
-    function getBufferedPercent(videoElement) {
-      if (!videoElement || !videoElement.duration || videoElement.duration <= 0) return 0;
-      const b = videoElement.buffered;
-      let total = 0;
-      for (let i = 0; i < b.length; i++) {
-        total += Math.max(0, b.end(i) - b.start(i));
-      }
-      return Math.min(100, Math.max(0, Math.round((total / videoElement.duration) * 100)));
     }
 
     // Fallback stubs for engine toggles & quick actions
@@ -1370,47 +1276,10 @@
       if (window.appSetEngine) window.appSetEngine(engine);
     }
 
-
-
-
-
-
     function resetPlayerProcessing() {
       const hud = document.getElementById('player-processing-hud');
       if (hud) hud.classList.add('hidden');
     }
-
-
-    // Dynamic Live WebSocket Transfer Synchronization to Hero Telemetry Strip
-    (function initHeroTransfersSync() {
-      const tc = document.getElementById('transfers-container');
-      const heroCard = document.getElementById('hero-transfers-card');
-      const heroItems = document.getElementById('hero-transfers-items');
-      const heroCount = document.getElementById('hero-transfers-count');
-      const countEl = document.getElementById('transfers-count');
-
-      function syncHeroTransfers() {
-        if (!tc || !heroCard || !heroItems) return;
-        const totalActive = parseInt(countEl?.textContent || '0', 10);
-        if (totalActive > 0 && tc.children.length > 0) {
-          heroCard.classList.remove('hidden');
-          heroItems.innerHTML = tc.innerHTML;
-          if (heroCount) heroCount.textContent = `${totalActive} Active`;
-          if (window.lucide) lucide.createIcons();
-        } else {
-          heroCard.classList.add('hidden');
-        }
-      }
-
-      if (tc) {
-        const observer = new MutationObserver(syncHeroTransfers);
-        observer.observe(tc, { childList: true, subtree: true });
-        if (countEl) {
-          const countObserver = new MutationObserver(syncHeroTransfers);
-          countObserver.observe(countEl, { characterData: true, childList: true, subtree: true });
-        }
-      }
-    })();
   </script>
 
 </body>

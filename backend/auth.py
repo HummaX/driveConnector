@@ -50,8 +50,18 @@ def decode_access_token(token: str) -> Dict[str, Any]:
         )
 
 async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
-    col = get_db()["users"]
-    return await col.find_one({"username": username})
+    try:
+        col = get_db()["users"]
+        return await col.find_one({"username": username})
+    except Exception:
+        # Fallback when DB is offline / uninitialized: recognize default admin credentials
+        if username == settings.ADMIN_USERNAME:
+            return {
+                "username": settings.ADMIN_USERNAME,
+                "role": "admin",
+                "password_hash": hash_password(settings.ADMIN_DEFAULT_PASSWORD)
+            }
+        return None
 
 async def init_admin_user():
     """Initializes the default admin user on system startup if no admin exists."""

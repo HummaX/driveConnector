@@ -571,7 +571,7 @@
 
     // Register with backend
     try {
-      await fetch('/api/network/register-client', {
+      await fetchWithAuth('/api/network/register-client', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

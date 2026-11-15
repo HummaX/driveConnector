@@ -163,6 +163,72 @@ def get_flag_emoji(country_code: str) -> str:
     except Exception:
         return "🌐"
 
+def clean_ip(raw: Optional[str]) -> str:
+    """Sanitizes raw IP strings, stripping proxy metadata, ports, and IPv6 brackets."""
+    if not raw:
+        return ""
+    val = raw.strip()
+    if "for=" in val.lower():
+        m = re.search(r'for=(?:"?\[?)([^;\],\s"]+)', val, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+    if val.startswith("["):
+        end = val.find("]")
+        if end != -1:
+            return val[1:end].strip()
+    if val.count(":") == 1:
+        val = val.split(":")[0].strip()
+    return val.strip("\"' ")
+
+def is_valid_ip(ip: str) -> bool:
+    """Checks whether a string is a syntactically valid IPv4 or IPv6 address."""
+    try:
+        ipaddress.ip_address(clean_ip(ip))
+        return True
+    except Exception:
+        return False
+
+def is_private_ip(ip: str) -> bool:
+    """Checks whether an IP address is private, loopback, link-local, or reserved."""
+    cleaned = clean_ip(ip)
+    try:
+        addr = ipaddress.ip_address(cleaned)
+        return (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_unspecified
+        )
+    except Exception:
+        return True
+
+def get_client_ip(request: Request) -> str:
+    """Extracts true client IP from proxy headers or direct client socket."""
+    for hdr in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip", "x-client-ip", "forwarded"):
+        val = request.headers.get(hdr)
+        if val:
+            for part in val.split(","):
+                ip = clean_ip(part)
+                if ip and not is_private_ip(ip):
+                    return ip
+    if request.client and request.client.host:
+        direct = clean_ip(request.client.host)
+        if direct and not is_private_ip(direct):
+            return direct
+    for hdr in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip", "x-client-ip", "forwarded"):
+        val = request.headers.get(hdr)
+        if val:
+            for part in val.split(","):
+                ip = clean_ip(part)
+                if ip and is_valid_ip(ip):
+                    return ip
+    if request.client and request.client.host:
+        direct = clean_ip(request.client.host)
+        if direct and is_valid_ip(direct):
+            return direct
+    return "127.0.0.1"
+
 class NetworkTelemetryTracker:
     def __init__(self):
         self._geo_cache: Dict[str, Dict[str, Any]] = {}
@@ -176,37 +242,55 @@ class NetworkTelemetryTracker:
             "flag": "🇫🇷",
             "lat": 50.6927,
             "lng": 3.1746,
-            "ip": "51.195.233.244",
+            "ip": "51.195.233.247",
             "color": "#38bdf8",
             "size": 1.5
         }
 
-    def extract_client_ip(self, request: Request) -> str:
-        for hdr in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip", "x-client-ip", "forwarded"):
-            val = request.headers.get(hdr)
-            if val:
-                ip = val.split(",")[0].strip()
-                if ip and not self.is_private_ip(ip):
-                    return ip
-        if request.client and request.client.host and not self.is_private_ip(request.client.host):
-            return request.client.host
-        val = request.headers.get("x-client-ip")
-        if val:
-            return val.split(",")[0].strip()
-        if request.client and request.client.host:
-            return request.client.host
-        return "127.0.0.1"
+    @staticmethod
+    def is_private_ip(ip: str) -> bool:
+        return is_private_ip(ip)
 
-    def is_private_ip(self, ip: str) -> bool:
-        try:
-            addr = ipaddress.ip_address(ip)
-            return addr.is_private or addr.is_loopback or addr.is_link_local
-        except Exception:
-            return True
+    @staticmethod
+    def extract_client_ip(request: Request) -> str:
+        return get_client_ip(request)
+
+    def update_server_ip(self, request: Optional[Request] = None):
+        """Dynamically set server_node['ip'] from request Host header, defaulting to 51.195.233.247."""
+        if request:
+            try:
+                host_hdr = request.headers.get("host", "")
+                if host_hdr:
+                    host = clean_ip(host_hdr)
+                    if not host:
+                        host = host_hdr.split(":")[0].strip()
+                    if host and host.lower() not in ("localhost", "127.0.0.1", "testserver", "0.0.0.0", "::1"):
+                        self.server_node["ip"] = host
+                        return
+            except Exception:
+                pass
+        self.server_node["ip"] = "51.195.233.247"
+
+    def _cache_geo(self, ip: str, geo: Dict[str, Any]):
+        """Caches GeoIP metadata with FIFO eviction capped at 500 entries."""
+        ip = clean_ip(ip)
+        if not ip:
+            return
+        while len(self._geo_cache) >= 500 and ip not in self._geo_cache:
+            try:
+                oldest_key = next(iter(self._geo_cache))
+                del self._geo_cache[oldest_key]
+            except (StopIteration, KeyError):
+                break
+        self._geo_cache[ip] = geo
 
     async def lookup_geo(self, ip: str) -> Dict[str, Any]:
+        ip = clean_ip(ip)
+        if not ip or not is_valid_ip(ip):
+            ip = "127.0.0.1"
+
         if ip in self._geo_cache:
-            return self._geo_cache[ip]
+            return dict(self._geo_cache[ip])
 
         if self.is_private_ip(ip):
             geo = {
@@ -218,8 +302,8 @@ class NetworkTelemetryTracker:
                 "lat": self.server_node["lat"],
                 "lng": self.server_node["lng"]
             }
-            self._geo_cache[ip] = geo
-            return geo
+            self._cache_geo(ip, geo)
+            return dict(geo)
 
         # Provider 1: ip-api.com
         try:
@@ -238,8 +322,8 @@ class NetworkTelemetryTracker:
                             "lat": float(data.get("lat", self.server_node["lat"])),
                             "lng": float(data.get("lon", self.server_node["lng"]))
                         }
-                        self._geo_cache[ip] = geo
-                        return geo
+                        self._cache_geo(ip, geo)
+                        return dict(geo)
         except Exception:
             pass
 
@@ -261,8 +345,8 @@ class NetworkTelemetryTracker:
                             "lat": float(data.get("latitude", self.server_node["lat"])),
                             "lng": float(data.get("longitude", self.server_node["lng"]))
                         }
-                        self._geo_cache[ip] = geo
-                        return geo
+                        self._cache_geo(ip, geo)
+                        return dict(geo)
         except Exception:
             pass
 
@@ -275,23 +359,29 @@ class NetworkTelemetryTracker:
             "lat": 48.8566,
             "lng": 2.3522
         }
-        self._geo_cache[ip] = geo
-        return geo
+        self._cache_geo(ip, geo)
+        return dict(geo)
 
     async def register_hit(self, ip: str, path: str = "/", client_override: Optional[Dict[str, Any]] = None):
+        ip = clean_ip(ip)
+        if not ip or not is_valid_ip(ip):
+            ip = "127.0.0.1"
         geo = await self.lookup_geo(ip)
         if client_override:
             if client_override.get("country"):
                 geo["country"] = client_override["country"]
             if client_override.get("country_code"):
-                geo["country_code"] = client_override["country_code"]
+                geo["country_code"] = str(client_override["country_code"]).upper()
                 geo["flag"] = get_flag_emoji(geo["country_code"])
             if client_override.get("city"):
                 geo["city"] = client_override["city"]
             if client_override.get("lat") and client_override.get("lng"):
-                geo["lat"] = float(client_override["lat"])
-                geo["lng"] = float(client_override["lng"])
-            self._geo_cache[ip] = geo
+                try:
+                    geo["lat"] = float(client_override["lat"])
+                    geo["lng"] = float(client_override["lng"])
+                except (ValueError, TypeError):
+                    pass
+            self._cache_geo(ip, geo)
 
         now = time.time()
         key = ip
@@ -351,7 +441,9 @@ class NetworkTelemetryTracker:
         except Exception:
             pass
 
-    async def get_telemetry(self, current_ip: Optional[str] = None) -> Dict[str, Any]:
+    async def get_telemetry(self, current_ip: Optional[str] = None, request: Optional[Request] = None) -> Dict[str, Any]:
+        if request:
+            self.update_server_ip(request)
         now = time.time()
 
         # Query recent distinct visitor nodes from MongoDB if available
@@ -476,27 +568,30 @@ app.add_middleware(
 
 @app.middleware("http")
 async def track_network_traffic(request: Request, call_next):
-    ip = network_tracker.extract_client_ip(request)
-    client_override = None
-    c_country = request.headers.get("x-client-country")
-    c_city = request.headers.get("x-client-city")
-    c_lat = request.headers.get("x-client-lat")
-    c_lng = request.headers.get("x-client-lng")
-    if c_country and c_lat and c_lng:
+    path = request.url.path
+    if request.method != "OPTIONS" and (path == "/" or path.rstrip("/") == "/api/videos"):
+        network_tracker.update_server_ip(request)
+        ip = get_client_ip(request)
+        client_override = None
+        c_country = request.headers.get("x-client-country")
+        c_city = request.headers.get("x-client-city")
+        c_lat = request.headers.get("x-client-lat")
+        c_lng = request.headers.get("x-client-lng")
+        if c_country and c_lat and c_lng:
+            try:
+                client_override = {
+                    "country": c_country,
+                    "city": c_city or "Visitor",
+                    "country_code": request.headers.get("x-client-country-code") or "UN",
+                    "lat": float(c_lat),
+                    "lng": float(c_lng)
+                }
+            except Exception:
+                pass
         try:
-            client_override = {
-                "country": c_country,
-                "city": c_city or "Visitor",
-                "country_code": request.headers.get("x-client-country-code") or "UN",
-                "lat": float(c_lat),
-                "lng": float(c_lng)
-            }
+            asyncio.create_task(network_tracker.register_hit(ip, path, client_override))
         except Exception:
             pass
-    try:
-        asyncio.create_task(network_tracker.register_hit(ip, request.url.path, client_override))
-    except Exception:
-        pass
     return await call_next(request)
 
 # WebVTT scrubber cue fallback route (eliminates 404 console errors while sprites generate)
@@ -541,12 +636,9 @@ app.mount("/js", StaticFiles(directory=str(frontend_js_dir)), name="js")
 @app.get("/login", include_in_schema=False)
 @app.get("/login.html", include_in_schema=False)
 async def serve_login():
-    login_file = static_ui_dir / "login.html"
+    login_file = frontend_dir / "login.html"
     if login_file.exists():
         return FileResponse(str(login_file))
-    login_fallback = frontend_dir / "login.html"
-    if login_fallback.exists():
-        return FileResponse(str(login_fallback))
     return Response(status_code=404)
 
 @app.get("/", include_in_schema=False)
@@ -579,16 +671,24 @@ class ClientGeoRegistration(BaseModel):
     lng: Optional[float] = None
 
 @app.get("/api/network/geo")
-async def get_network_geo(request: Request):
+async def get_network_geo(request: Request, current_user: Dict[str, Any] = Depends(get_current_user)):
     """Returns real-time geolocation of server node, connected client nodes, and active countries."""
-    ip = network_tracker.extract_client_ip(request)
-    return await network_tracker.get_telemetry(ip)
+    network_tracker.update_server_ip(request)
+    ip = get_client_ip(request)
+    return await network_tracker.get_telemetry(ip, request=request)
 
 @app.post("/api/network/register-client")
-async def register_client_geo(payload: ClientGeoRegistration, request: Request):
+async def register_client_geo(
+    payload: ClientGeoRegistration,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
     """Allows client browser to register its real external GeoIP (useful when behind Docker bridge NAT)."""
-    ip = payload.ip or network_tracker.extract_client_ip(request)
-    await network_tracker.register_hit(ip, request.url.path, payload.model_dump())
+    network_tracker.update_server_ip(request)
+    ip = clean_ip(payload.ip) if (payload.ip and is_valid_ip(payload.ip)) else get_client_ip(request)
+    override = payload.model_dump()
+    override["ip"] = ip
+    await network_tracker.register_hit(ip, request.url.path, override)
     return {"status": "registered", "geo": await network_tracker.lookup_geo(ip)}
 
 # ----------------- Authentication Endpoints & Rate Limiting -----------------
@@ -598,20 +698,6 @@ LOGIN_FAILED_ATTEMPTS: Dict[str, List[float]] = {}
 LOGIN_MAX_FAILED_ATTEMPTS: int = 10
 LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 300  # 5 minutes
 _login_rate_limit_lock = asyncio.Lock()
-
-def get_client_ip(request: Request) -> str:
-    """Extracts client IP from X-Forwarded-For or direct client socket."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        ip = forwarded.split(",")[0].strip()
-        if ip:
-            return ip
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "127.0.0.1"
 
 async def check_login_rate_limit(client_ip: str):
     """Enforces sliding-window rate limit: raises 429 if failed attempts >= 10 in 5m."""
