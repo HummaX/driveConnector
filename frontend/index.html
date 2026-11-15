@@ -1271,90 +1271,7 @@
       lucide.createIcons();
     }
 
-    // Modal Helper Bridges
-    function openMongoModal() {
-      const m = document.getElementById('mongo-modal');
-      if (m) m.classList.remove('hidden');
-    }
-    function closeMongoModal() {
-      const m = document.getElementById('mongo-modal');
-      if (m) m.classList.add('hidden');
-    }
-    function copyMongoTunnelCmd() {
-      const cmd = document.getElementById('me-tunnel-cmd-text');
-      const label = document.getElementById('me-copy-cmd-label');
-      if (cmd) {
-        navigator.clipboard.writeText(cmd.innerText.trim());
-        if (label) {
-          label.textContent = 'Copied!';
-          setTimeout(() => { label.textContent = 'Copy'; }, 2000);
-        }
-      }
-    }
-    function copyMongoPassword() {
-      const pass = document.getElementById('me-pass-val');
-      if (pass) {
-        navigator.clipboard.writeText(pass.innerText.trim());
-      }
-    }
-    function openSyncModal() {
-      const m = document.getElementById('sync-modal');
-      if (m) m.classList.remove('hidden');
-    }
-    function closeSyncModal() {
-      const m = document.getElementById('sync-modal');
-      if (m) m.classList.add('hidden');
-    }
-    function switchSyncTab(tab) {
-      const apikeySec = document.getElementById('sync-section-apikey');
-      const saSec = document.getElementById('sync-section-sa');
-      const apikeyBtn = document.getElementById('sync-tab-apikey');
-      const saBtn = document.getElementById('sync-tab-sa');
-      if (tab === 'apikey') {
-        if (apikeySec) apikeySec.classList.remove('hidden');
-        if (saSec) saSec.classList.add('hidden');
-        if (apikeyBtn) { apikeyBtn.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition'; }
-        if (saBtn) { saBtn.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition'; }
-      } else {
-        if (apikeySec) apikeySec.classList.add('hidden');
-        if (saSec) saSec.classList.remove('hidden');
-        if (apikeyBtn) { apikeyBtn.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition'; }
-        if (saBtn) { saBtn.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition'; }
-      }
-    }
-    function openUrlModal() {
-      const m = document.getElementById('url-modal');
-      if (m) m.classList.remove('hidden');
-    }
-    function closeUrlModal() {
-      const m = document.getElementById('url-modal');
-      if (m) m.classList.add('hidden');
-    }
-    function switchUrlMode(mode) {
-      const singleC = document.getElementById('url-single-container');
-      const batchC = document.getElementById('url-batch-container');
-      const singleB = document.getElementById('url-mode-single-btn');
-      const batchB = document.getElementById('url-mode-batch-btn');
-      if (mode === 'single') {
-        if (singleC) singleC.classList.remove('hidden');
-        if (batchC) batchC.classList.add('hidden');
-        if (singleB) { singleB.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition'; }
-        if (batchB) { batchB.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition'; }
-      } else {
-        if (singleC) singleC.classList.add('hidden');
-        if (batchC) batchC.classList.remove('hidden');
-        if (singleB) { singleB.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition'; }
-        if (batchB) { batchB.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition'; }
-      }
-    }
-    function openJDownloaderModal() {
-      const m = document.getElementById('jdownloader-modal');
-      if (m) m.classList.remove('hidden');
-    }
-    function closeJDownloaderModal() {
-      const m = document.getElementById('jdownloader-modal');
-      if (m) m.classList.add('hidden');
-    }
+    // Modal Helper Bridges (Handled dynamically via /js/app.js)
     function toggleTransfersDrawer() {
       const d = document.getElementById('transfers-drawer');
       if (d) d.classList.toggle('hidden');
@@ -1438,31 +1355,6 @@
       if (engine === 'native' && nativeBtn) nativeBtn.className = 'min-touch px-3 py-1.5 rounded-lg bg-sky-500 text-white font-semibold shadow-sm transition';
       if (engine === 'jd' && jdBtn) jdBtn.className = 'min-touch px-3 py-1.5 rounded-lg bg-sky-500 text-white font-semibold shadow-sm transition';
       if (window.appSetEngine) window.appSetEngine(engine);
-    }
-
-
-
-
-
-
-    function handleQuickUrlSubmit() {
-      const inp = document.getElementById('url-input');
-      if (!inp || !inp.value.trim()) return;
-      if (window.submitUrlDownload) {
-        window.submitUrlDownload(inp.value.trim());
-        inp.value = '';
-      }
-    }
-
-    function handleModalUrlSubmit() {
-      const inp = document.getElementById('modal-url-input');
-      const titleInp = document.getElementById('url-title-input');
-      if (inp && inp.value.trim()) {
-        if (window.submitUrlDownload) {
-          window.submitUrlDownload(inp.value.trim(), titleInp ? titleInp.value.trim() : '');
-        }
-        closeUrlModal();
-      }
     }
 
 

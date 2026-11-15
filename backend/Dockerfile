@@ -1,11 +1,13 @@
 FROM python:3.11-slim
 
-# Install system dependencies: FFmpeg, ffprobe, curl, ca-certificates, tini (PID 1 init)
+# Install system dependencies: FFmpeg, ffprobe, curl, ca-certificates, tini (PID 1 init), aria2, rclone
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     ca-certificates \
     tini \
+    aria2 \
+    rclone \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

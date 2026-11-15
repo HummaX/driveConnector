@@ -221,8 +221,11 @@ if static_ui_dir.exists():
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 frontend_css_dir = frontend_dir / "css"
 frontend_js_dir = frontend_dir / "js"
-frontend_css_dir.mkdir(parents=True, exist_ok=True)
-frontend_js_dir.mkdir(parents=True, exist_ok=True)
+try:
+    frontend_css_dir.mkdir(parents=True, exist_ok=True)
+    frontend_js_dir.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
 app.mount("/css", StaticFiles(directory=str(frontend_css_dir)), name="css")
 app.mount("/js", StaticFiles(directory=str(frontend_js_dir)), name="js")
@@ -240,6 +243,9 @@ async def serve_login():
 
 @app.get("/", include_in_schema=False)
 async def serve_root():
+    frontend_index = frontend_dir / "index.html"
+    if frontend_index.exists():
+        return FileResponse(str(frontend_index))
     dist_index = frontend_dir / "dist" / "index.html"
     if dist_index.exists():
         return FileResponse(str(dist_index))

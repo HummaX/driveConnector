@@ -347,6 +347,7 @@ def test_vtt_mimetype_and_time_format():
 def test_transcode_and_transcribe_endpoints():
     backend_path = (REPO_DIR / "backend").resolve()
     sys.path.insert(0, str(backend_path))
+    dummy_video_file = REPO_DIR / "backend/test_fixture_video.mp4"
     try:
         import main as backend_main
         import auth as backend_auth
@@ -378,7 +379,6 @@ def test_transcode_and_transcribe_endpoints():
         original_fw_update = ffmpeg_worker.update_video
         original_fw_run = ffmpeg_worker.run_cmd
 
-        dummy_video_file = REPO_DIR / "backend/test_fixture_video.mp4"
         dummy_video_file.write_text("dummy video content", encoding="utf-8")
 
         async def mock_get_video_local(vid):

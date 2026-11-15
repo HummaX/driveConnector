@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import asyncio
 import httpx
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
@@ -385,11 +386,13 @@ async def test_drive_connection(test_params: Optional[Dict[str, Any]] = None) ->
             # Google Drive API v3 does not permit unscoped listing across user storage with an API key.
             if target_folder and target_folder.lower() != "root":
                 try:
-                    folder_meta = service.files().get(
-                        fileId=target_folder,
-                        fields="id, name, mimeType",
-                        supportsAllDrives=True
-                    ).execute()
+                    folder_meta = await asyncio.to_thread(
+                        lambda: service.files().get(
+                            fileId=target_folder,
+                            fields="id, name, mimeType",
+                            supportsAllDrives=True
+                        ).execute()
+                    )
                     folder_info = folder_meta.get("name")
                     folder_msg = f" Verified access to public folder '{folder_info}'."
                 except HttpError as folder_err:
@@ -399,7 +402,9 @@ async def test_drive_connection(test_params: Optional[Dict[str, Any]] = None) ->
             else:
                 # Validate API key validity against Drive API by querying a probe file ID
                 try:
-                    service.files().get(fileId="test_api_key_validity_probe").execute()
+                    await asyncio.to_thread(
+                        lambda: service.files().get(fileId="test_api_key_validity_probe").execute()
+                    )
                 except HttpError as probe_err:
                     if probe_err.resp.status == 404:
                         # 404 Not Found proves the API key itself is active and recognized by Google Drive API!
@@ -413,30 +418,36 @@ async def test_drive_connection(test_params: Optional[Dict[str, Any]] = None) ->
             # Service Account or OAuth credentials test
             if target_folder and target_folder.lower() != "root":
                 try:
-                    folder_meta = service.files().get(
-                        fileId=target_folder,
-                        fields="id, name, mimeType",
-                        supportsAllDrives=True
-                    ).execute()
+                    folder_meta = await asyncio.to_thread(
+                        lambda: service.files().get(
+                            fileId=target_folder,
+                            fields="id, name, mimeType",
+                            supportsAllDrives=True
+                        ).execute()
+                    )
                     folder_info = folder_meta.get("name")
                     folder_msg = f" Verified access to folder '{folder_info}'."
                 except Exception:
-                    folder_items = service.files().list(
-                        q=f"'{target_folder}' in parents and trashed = false",
+                    folder_items = await asyncio.to_thread(
+                        lambda: service.files().list(
+                            q=f"'{target_folder}' in parents and trashed = false",
+                            pageSize=1,
+                            fields="files(id, name)",
+                            supportsAllDrives=True,
+                            includeItemsFromAllDrives=True
+                        ).execute()
+                    )
+                    folder_msg = f" Target folder ID '{target_folder}' is accessible."
+            else:
+                # Test general list access
+                results = await asyncio.to_thread(
+                    lambda: service.files().list(
                         pageSize=1,
                         fields="files(id, name)",
                         supportsAllDrives=True,
                         includeItemsFromAllDrives=True
                     ).execute()
-                    folder_msg = f" Target folder ID '{target_folder}' is accessible."
-            else:
-                # Test general list access
-                results = service.files().list(
-                    pageSize=1,
-                    fields="files(id, name)",
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True
-                ).execute()
+                )
 
         success_msg = f"Successfully connected to Google Drive API v3 via {auth_method.replace('_', ' ').title()}!{folder_msg}"
 
@@ -576,14 +587,16 @@ async def sync_drive_catalog(folder_id: Optional[str] = None) -> Dict[str, Any]:
         page_token = None
 
         while True:
-            results = service.files().list(
-                q=q_videos,
-                pageSize=100,
-                fields="nextPageToken, files(id, name, size, mimeType, thumbnailLink, hasThumbnail)",
-                pageToken=page_token,
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True
-            ).execute()
+            results = await asyncio.to_thread(
+                lambda: service.files().list(
+                    q=q_videos,
+                    pageSize=100,
+                    fields="nextPageToken, files(id, name, size, mimeType, thumbnailLink, hasThumbnail)",
+                    pageToken=page_token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True
+                ).execute()
+            )
 
             files = results.get('files', [])
             for file in files:
@@ -634,14 +647,16 @@ async def sync_drive_catalog(folder_id: Optional[str] = None) -> Dict[str, Any]:
                 q_subfolders = f"mimeType = 'application/vnd.google-apps.folder' and '{sanitized_parent}' in parents and trashed = false"
                 sf_page_token = None
                 while True:
-                    sf_results = service.files().list(
-                        q=q_subfolders,
-                        pageSize=50,
-                        fields="nextPageToken, files(id, name)",
-                        pageToken=sf_page_token,
-                        supportsAllDrives=True,
-                        includeItemsFromAllDrives=True
-                    ).execute()
+                    sf_results = await asyncio.to_thread(
+                        lambda: service.files().list(
+                            q=q_subfolders,
+                            pageSize=50,
+                            fields="nextPageToken, files(id, name)",
+                            pageToken=sf_page_token,
+                            supportsAllDrives=True,
+                            includeItemsFromAllDrives=True
+                        ).execute()
+                    )
 
                     for sf in sf_results.get('files', []):
                         sf_id = sf.get('id')
