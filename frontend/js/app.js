@@ -546,6 +546,19 @@
       }
     }
 
+    // Dynamic Arc Acceleration on Hero 3D Globe during active downloads
+    if (state.globe) {
+      const isDownloading = dlList.some(t => t.status === 'DOWNLOADING' || (t.speed_mbs && t.speed_mbs > 0));
+      const targetAnimTime = isDownloading ? 600 : 1800;
+      if (typeof state.globe.arcDashAnimateTime === 'function') {
+        state.globe.arcDashAnimateTime(targetAnimTime);
+      }
+      const controls = state.globe.controls ? state.globe.controls() : null;
+      if (controls) {
+        controls.autoRotateSpeed = isDownloading ? 2.2 : 0.8;
+      }
+    }
+
     if (!container) return;
 
     if (totalActive === 0) {
