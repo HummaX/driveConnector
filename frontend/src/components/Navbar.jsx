@@ -60,7 +60,7 @@ export default function Navbar({
         </div>
 
         {/* Mobile Micro-Telemetry Strip (Visible on mobile/tablet < md) */}
-        <div className="flex md:hidden items-center space-x-2 text-[10px] font-mono select-none bg-[#161b22] px-2.5 py-1 rounded-lg border border-[#30363d]">
+        <div className="hidden sm:flex md:hidden items-center space-x-2 text-[10px] font-mono select-none bg-[#161b22] px-2.5 py-1 rounded-lg border border-[#30363d] shrink-0">
           {activeTransfersCount > 0 && (
             <>
               <div className="flex items-center space-x-1 text-sky-400" title={`${activeTransfersCount} active transfer(s)`}>
@@ -195,10 +195,10 @@ export default function Navbar({
             <button
               onClick={onOpenMongoDb}
               title="Open MongoDB Live Explorer"
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 text-xs font-medium hover:bg-emerald-950/30 transition shadow-sm"
+              className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 text-xs font-medium hover:bg-emerald-950/30 transition shadow-sm"
             >
               <Database className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">MongoDB</span>
+              <span className="hidden md:inline">MongoDB</span>
             </button>
           )}
 
@@ -207,10 +207,10 @@ export default function Navbar({
             <button
               onClick={onOpenJDownloader}
               title="Open JDownloader 2 Desktop (Port 5800)"
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-sky-500/30 hover:border-sky-500/60 text-sky-400 text-xs font-medium hover:bg-sky-950/30 transition shadow-sm"
+              className="hidden md:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-sky-500/30 hover:border-sky-500/60 text-sky-400 text-xs font-medium hover:bg-sky-950/30 transition shadow-sm"
             >
               <DownloadCloud className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">JDownloader</span>
+              <span className="hidden lg:inline">JDownloader</span>
             </button>
           )}
 
@@ -220,14 +220,14 @@ export default function Navbar({
               onClick={onScanStorage}
               disabled={isScanning}
               title="Scan /mnt/storage/videos for new files"
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-500 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm disabled:opacity-50"
+              className="hidden lg:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-500 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm disabled:opacity-50"
             >
               {isScanning ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
               ) : (
                 <FolderSearch className="w-3.5 h-3.5 text-amber-400" />
               )}
-              <span className="hidden sm:inline">{isScanning ? 'Scanning...' : 'Scan Storage'}</span>
+              <span className="hidden xl:inline">{isScanning ? 'Scanning...' : 'Scan Storage'}</span>
             </button>
           )}
 
@@ -235,7 +235,7 @@ export default function Navbar({
           <button
             onClick={onOpenSync}
             title="Sync Google Drive Catalog"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-600 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm"
+            className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] hover:border-slate-600 text-slate-200 text-xs font-medium hover:bg-[#21262d] transition shadow-sm"
           >
             <Cloud className="w-3.5 h-3.5 text-sky-400" />
             <span className="hidden sm:inline">Sync Drive</span>
@@ -245,10 +245,10 @@ export default function Navbar({
           <button
             onClick={onOpenUrl}
             title="Ingest Media from External URL"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold border border-[#2ea043]/50 shadow-sm transition active:scale-95"
+            className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold border border-[#2ea043]/50 shadow-sm transition active:scale-95"
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>Add URL</span>
+            <span className="hidden sm:inline">Add URL</span>
           </button>
 
           {/* User Status / Log Out */}
