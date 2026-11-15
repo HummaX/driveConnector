@@ -98,7 +98,14 @@ async def init_db():
     # Auto-unstick videos that have local files but got stuck in PROCESSING
     try:
         await videos_col.update_many(
-            {"status": "PROCESSING", "local_path": {"$ne": None}},
+            {
+                "status": "PROCESSING",
+                "$or": [
+                    {"local_path": {"$ne": None}},
+                    {"file_size_bytes": {"$gt": 0}},
+                    {"poster_url": {"$ne": None}}
+                ]
+            },
             {"$set": {"status": "LOCAL_READY", "processing_info": None}}
         )
     except Exception:

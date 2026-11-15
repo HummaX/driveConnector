@@ -557,6 +557,32 @@ async def trigger_video_transcription(
         "message": "AI Subtitle transcription initiated in background"
     }
 
+@app.post("/api/videos/{video_id}/reset-status")
+async def reset_video_status(
+    video_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Manually resets a video's status to LOCAL_READY if stuck in PROCESSING (Requires Auth)."""
+    valid_id = validate_video_id(video_id)
+    video = await get_video(valid_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    active_processing.pop(valid_id, None)
+    active_downloads.pop(valid_id, None)
+
+    updated = await update_video(valid_id, {
+        "status": "LOCAL_READY",
+        "processing_info": None
+    })
+    await manager.broadcast({
+        "event": "PROCESSING_COMPLETE",
+        "video_id": valid_id,
+        "status": "LOCAL_READY",
+        "metadata": updated
+    })
+    return {"status": "success", "message": "Video status reset to LOCAL_READY", "video": updated}
+
 # ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
 ALLOWED_STREAM_QUALITIES = {"720p", "480p", "360p", "1080p", "original", "source"}
 

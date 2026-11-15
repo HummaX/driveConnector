@@ -616,6 +616,7 @@
           </div>
           <span id="player-proc-pct" class="text-purple-300 font-bold">0%</span>
           <span id="player-proc-eta" class="text-slate-400 text-[11px]"></span>
+          <button id="btn-player-proc-reset" type="button" onclick="resetActiveVideoStatus()" class="px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/40 text-[10px] transition" title="Reset status to ready if stuck">Dismiss / Ready</button>
         </div>
       </div>
 
@@ -2101,6 +2102,43 @@
         });
       } catch (err) {
         console.error('Transcribe error:', err);
+      }
+    }
+
+    async function resetActiveVideoStatus() {
+      if (!activeVideoModal) return;
+      const btn = document.getElementById('btn-player-proc-reset');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Resetting...';
+      }
+      try {
+        const res = await fetch(`/api/videos/${activeVideoModal.video_id}/reset-status`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.video) {
+            activeVideoModal = data.video;
+            delete processingJobs[data.video.video_id];
+          }
+          const procHud = document.getElementById('player-processing-hud');
+          if (procHud) {
+            procHud.classList.add('hidden');
+            procHud.classList.remove('flex');
+          }
+          const footerStatus = document.getElementById('player-footer-status');
+          if (footerStatus) footerStatus.innerText = 'LOCAL_READY';
+          if (typeof loadVideos === 'function') loadVideos();
+        }
+      } catch (err) {
+        console.error('Reset status error:', err);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = 'Dismiss / Ready';
+        }
       }
     }
 

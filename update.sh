@@ -70,6 +70,9 @@ ln -sf "$SCRIPT_DIR/update.sh" /usr/local/bin/driveconnector-update 2>/dev/null 
 echo "[+] Rebuilding and launching containers..."
 docker compose up -d --build
 
+echo "[+] Unsticking any stale processing records in database..."
+docker exec media_mongodb mongosh media_db --eval 'db.videos.updateMany({status: "PROCESSING", $or: [{local_path: {$ne: null}}, {file_size_bytes: {$gt: 0}}, {poster_url: {$ne: null}}]}, {$set: {status: "LOCAL_READY", processing_info: null}})' 2>/dev/null || true
+
 echo "[+] Cleaning up dangling Docker images..."
 docker image prune -f
 

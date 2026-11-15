@@ -32,6 +32,22 @@ export default function VideoPlayerModal({
   const [replaceOriginal, setReplaceOriginal] = useState(false);
   const [isBuffering, setIsBuffering] = useState(true);
   const [bufferedPercent, setBufferedPercent] = useState(0);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetStatus = async () => {
+    if (!video?.video_id || isResetting) return;
+    setIsResetting(true);
+    try {
+      await fetch(`/api/videos/${video.video_id}/reset-status`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+    } catch (err) {
+      console.error('Reset status error:', err);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   const isLocal = video.status === 'LOCAL_READY' || video.status === 'PROCESSING' || Boolean(video.local_path);
   const isTransferDone = Boolean(activeTransfer && (
@@ -560,6 +576,15 @@ export default function VideoPlayerModal({
                   <span>{activeProc.eta_seconds}s left</span>
                 </span>
               )}
+              <button
+                type="button"
+                onClick={handleResetStatus}
+                disabled={isResetting}
+                className="px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/40 text-[10px] transition font-sans cursor-pointer"
+                title="Reset status to ready if stuck"
+              >
+                {isResetting ? 'Resetting...' : 'Dismiss / Ready'}
+              </button>
             </div>
           </div>
         )}
