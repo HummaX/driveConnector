@@ -19,7 +19,7 @@ from fastapi import (
     FastAPI, HTTPException, Request, Response, BackgroundTasks,
     WebSocket, WebSocketDisconnect, Depends, status, Query
 )
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -1214,6 +1214,7 @@ async def probe_and_extract_tracks(
 STREAM_BURST_CHUNK_SIZE_BYTES: int = 16 * 1024 * 1024  # 16MB burst chunk for responsive HTTP 206 progressive start & open-ended Range: bytes=start- requests
 
 @app.get("/api/videos/{video_id}/audio/{track_index}")
+@app.head("/api/videos/{video_id}/audio/{track_index}")
 async def stream_audio_track(
     video_id: str,
     track_index: int,
@@ -1252,7 +1253,10 @@ async def stream_audio_track(
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, *",
         }
+        if request.method == "HEAD":
+            return Response(content=b"", status_code=200, headers=headers)
         def full_audio_iterator():
             with open(audio_path, "rb") as f:
                 while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
@@ -1312,13 +1316,17 @@ async def stream_audio_track(
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "*",
         "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, *",
     }
+    if request.method == "HEAD":
+        return Response(content=b"", status_code=206, headers=headers)
     return StreamingResponse(audio_range_stream(), status_code=206, headers=headers)
 
 # ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
 ALLOWED_STREAM_QUALITIES = {"720p", "480p", "360p", "1080p", "original", "source"}
 
 @app.get("/api/stream/{video_id}")
+@app.head("/api/stream/{video_id}")
 async def stream_video(
     video_id: str,
     request: Request,
@@ -1379,17 +1387,24 @@ async def stream_video(
     content_type = content_type_map.get(suffix, "video/mp4")
 
     if not range_header:
-        def file_iterator():
-            with open(video_path, "rb") as f:
-                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
-                    yield chunk
-
         headers = {
             "Content-Type": content_type,
             "Content-Length": str(file_size),
             "Accept-Ranges": "bytes",
             "Cache-Control": "public, max-age=86400",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, *",
         }
+        if request.method == "HEAD":
+            return Response(content=b"", status_code=200, headers=headers)
+
+        def file_iterator():
+            with open(video_path, "rb") as f:
+                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
+                    yield chunk
+
         return StreamingResponse(file_iterator(), headers=headers)
 
     range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
@@ -1425,6 +1440,20 @@ async def stream_video(
 
     content_length = end - start + 1
 
+    headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(content_length),
+        "Content-Type": content_type,
+        "Cache-Control": "public, max-age=86400",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, *",
+    }
+    if request.method == "HEAD":
+        return Response(content=b"", status_code=206, headers=headers)
+
     def range_stream():
         with open(video_path, "rb") as f:
             f.seek(start)
@@ -1436,14 +1465,6 @@ async def stream_video(
                     break
                 remaining -= len(data)
                 yield data
-
-    headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(content_length),
-        "Content-Type": content_type,
-        "Cache-Control": "public, max-age=86400",
-    }
 
     return StreamingResponse(
         range_stream(),

@@ -1,4 +1,5 @@
 import os
+import uuid
 import math
 import json
 import asyncio
@@ -466,7 +467,7 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
         if stream_idx is not None and f"0:{stream_idx}" not in candidate_maps:
             candidate_maps.append(f"0:{stream_idx}")
 
-        temp_dest = meta_dir / f"tmp_audio_track_{track_index}.m4a"
+        temp_dest = meta_dir / f"tmp_audio_track_{track_index}_{uuid.uuid4().hex[:6]}.m4a"
         if temp_dest.exists():
             try:
                 temp_dest.unlink()

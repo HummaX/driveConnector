@@ -1289,20 +1289,26 @@
         try {
           targetVideo._mediaSourceNode = state.audioCtx.createMediaElementSource(targetVideo);
           targetVideo._mediaSourceCtx = state.audioCtx;
-          targetVideo._mediaSourceNode.connect(state.gainNode);
+          targetVideo._videoGain = state.audioCtx.createGain();
+          targetVideo._videoGain.gain.value = (state.activeAudioTrack > 0) ? 0.0 : 1.0;
+          targetVideo._mediaSourceNode.connect(targetVideo._videoGain);
+          targetVideo._videoGain.connect(state.gainNode);
         } catch (err) {
           console.warn('[AudioBooster] Error creating video MediaElementSource:', err);
         }
       }
 
       // Connect companion audio element (only once per audio element instance)
-      const audioEl = document.getElementById('player-companion-audio');
+      const audioEl = document.getElementById('player-companion-audio') || document.querySelector('#companion-audio');
       if (audioEl && (!audioEl._mediaSourceNode || audioEl._mediaSourceCtx !== state.audioCtx)) {
         try {
           audioEl.crossOrigin = 'anonymous';
           audioEl._mediaSourceNode = state.audioCtx.createMediaElementSource(audioEl);
           audioEl._mediaSourceCtx = state.audioCtx;
-          audioEl._mediaSourceNode.connect(state.gainNode);
+          audioEl._companionGain = state.audioCtx.createGain();
+          audioEl._companionGain.gain.value = (state.activeAudioTrack > 0) ? 1.0 : 0.0;
+          audioEl._mediaSourceNode.connect(audioEl._companionGain);
+          audioEl._companionGain.connect(state.gainNode);
         } catch (err) {
           console.warn('[AudioBooster] Error creating audio MediaElementSource:', err);
         }
@@ -1348,7 +1354,7 @@
       state.companionAudioCleanup();
       state.companionAudioCleanup = null;
     }
-    const audioEl = document.getElementById('player-companion-audio');
+    const audioEl = document.getElementById('player-companion-audio') || document.querySelector('#companion-audio');
     if (!audioEl || !videoEl) return;
 
     // Route both main video and companion audio through audio booster gainNode
@@ -1356,10 +1362,12 @@
 
     const handlePlay = () => {
       if (state.activeAudioTrack > 0 && audioEl.src) {
-        audioEl.currentTime = videoEl.currentTime;
+        if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.4) {
+          audioEl.currentTime = videoEl.currentTime;
+        }
         audioEl.playbackRate = videoEl.playbackRate;
         audioEl.volume = videoEl.volume;
-        audioEl.muted = false;
+        audioEl.muted = (state.activePlayer && typeof state.activePlayer.muted === 'function') ? state.activePlayer.muted() : videoEl.muted;
         if (state.audioCtx && state.audioCtx.state === 'suspended') {
           state.audioCtx.resume().catch(() => {});
         }
@@ -1370,13 +1378,13 @@
       if (state.activeAudioTrack > 0) audioEl.pause();
     };
     const handleSeeking = () => {
-      if (state.activeAudioTrack > 0) audioEl.currentTime = videoEl.currentTime;
+      if (state.activeAudioTrack > 0) audioEl.pause();
     };
     const handleSeeked = () => {
       if (state.activeAudioTrack > 0) {
         audioEl.currentTime = videoEl.currentTime;
         audioEl.playbackRate = videoEl.playbackRate;
-        audioEl.muted = false;
+        audioEl.muted = (state.activePlayer && typeof state.activePlayer.muted === 'function') ? state.activePlayer.muted() : videoEl.muted;
         if (!videoEl.paused && audioEl.src) {
           if (state.audioCtx && state.audioCtx.state === 'suspended') {
             state.audioCtx.resume().catch(() => {});
@@ -1389,18 +1397,27 @@
       if (state.activeAudioTrack > 0) audioEl.playbackRate = videoEl.playbackRate;
     };
     const handleVolumeChange = () => {
-      if (state.activeAudioTrack > 0) audioEl.volume = videoEl.volume;
+      if (state.activeAudioTrack > 0 && audioEl) {
+        audioEl.volume = videoEl.volume;
+        if (state.activePlayer && typeof state.activePlayer.muted === 'function') {
+          audioEl.muted = state.activePlayer.muted();
+        } else {
+          audioEl.muted = videoEl.muted;
+        }
+      }
     };
     // Pause companion audio immediately while video buffers
     const handleBuffering = () => {
       if (state.activeAudioTrack > 0) audioEl.pause();
     };
-    // Resync currentTime and resume audio when video resumes playing or can play
+    // Resync and resume audio when video resumes playing or can play
     const handleResumeSync = () => {
       if (state.activeAudioTrack > 0 && audioEl.src) {
-        audioEl.currentTime = videoEl.currentTime;
+        if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.4) {
+          audioEl.currentTime = videoEl.currentTime;
+        }
         audioEl.playbackRate = videoEl.playbackRate;
-        audioEl.muted = false;
+        audioEl.muted = (state.activePlayer && typeof state.activePlayer.muted === 'function') ? state.activePlayer.muted() : videoEl.muted;
         if (!videoEl.paused) {
           if (state.audioCtx && state.audioCtx.state === 'suspended') {
             state.audioCtx.resume().catch(() => {});
@@ -1409,12 +1426,43 @@
         }
       }
     };
-    // Drift correction threshold guarded against active seeking, buffering, or pauses
+    // Smooth drift correction via playbackRate micro-adjustments:
+    // Prevents hard seek cancellations and audio stuttering
     const handleTimeUpdate = () => {
       if (state.activeAudioTrack > 0 && audioEl.src) {
-        if (!audioEl.seeking && audioEl.readyState >= 2 && !videoEl.paused && !audioEl.paused) {
-          if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.25) {
-            audioEl.currentTime = videoEl.currentTime;
+        if (audioEl.readyState >= 2 && !videoEl.paused) {
+          if (audioEl.paused) {
+            if (state.audioCtx && state.audioCtx.state === 'suspended') {
+              state.audioCtx.resume().catch(() => {});
+            }
+            audioEl.play().catch(() => {});
+          }
+
+          if (!audioEl.seeking) {
+            const drift = audioEl.currentTime - videoEl.currentTime;
+            const absDrift = Math.abs(drift);
+
+            if (absDrift > 1.2) {
+              // Large drift: Hard seek with 1.5s cooldown
+              const now = performance.now();
+              if (!audioEl._lastHardSeek || (now - audioEl._lastHardSeek) > 1500) {
+                audioEl._lastHardSeek = now;
+                audioEl.currentTime = videoEl.currentTime;
+                audioEl.playbackRate = videoEl.playbackRate;
+              }
+            } else if (absDrift > 0.1) {
+              // Moderate drift: Micro-adjust playbackRate smoothly without seeking
+              if (drift < 0) {
+                audioEl.playbackRate = videoEl.playbackRate * 1.05;
+              } else {
+                audioEl.playbackRate = videoEl.playbackRate * 0.95;
+              }
+            } else {
+              // Synchronized within acceptable delta
+              if (audioEl.playbackRate !== videoEl.playbackRate) {
+                audioEl.playbackRate = videoEl.playbackRate;
+              }
+            }
           }
         }
       }
@@ -1454,7 +1502,7 @@
     if (!state.activeVideo) return;
 
     const videoEl = state.activePlayer?.el ? state.activePlayer.el().querySelector('video') : document.querySelector('#player-container video');
-    const audioEl = document.getElementById('player-companion-audio');
+    const audioEl = document.getElementById('player-companion-audio') || document.querySelector('#companion-audio');
     if (!videoEl || !audioEl) return;
 
     // Route both main video and companion audio through audio booster gainNode
@@ -1465,20 +1513,28 @@
     }
 
     if (idx === 0) {
+      if (videoEl._videoGain) videoEl._videoGain.gain.value = 1.0;
+      if (audioEl._companionGain) audioEl._companionGain.gain.value = 0.0;
       audioEl.pause();
       audioEl.removeAttribute('src');
       audioEl.load();
       videoEl.muted = false;
+      if (state.activePlayer && typeof state.activePlayer.muted === 'function') {
+        state.activePlayer.muted(false);
+      }
     } else {
+      if (videoEl._videoGain) videoEl._videoGain.gain.value = 0.0;
+      if (audioEl._companionGain) audioEl._companionGain.gain.value = 1.0;
       videoEl.muted = true;
       audioEl.crossOrigin = 'anonymous';
       audioEl.preload = 'auto';
-      audioEl.muted = false;
+      audioEl.muted = (state.activePlayer && typeof state.activePlayer.muted === 'function') ? state.activePlayer.muted() : false;
       audioEl.volume = videoEl.volume;
       audioEl.playbackRate = videoEl.playbackRate;
 
-      const token = getAuthToken();
-      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+      const rawToken = getAuthToken() || localStorage.getItem('drive_auth_token') || localStorage.getItem('token') || '';
+      const cleanToken = rawToken ? rawToken.replace(/^Bearer\s+/i, '').trim() : '';
+      const tokenParam = cleanToken ? `?token=${encodeURIComponent(cleanToken)}` : '';
       const newSrc = `/api/videos/${state.activeVideo.video_id}/audio/${idx}${tokenParam}`;
 
       if (audioEl.getAttribute('src') !== newSrc && audioEl.src !== newSrc) {
@@ -1488,12 +1544,12 @@
 
       const syncAndPlay = () => {
         try {
-          if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.15) {
+          if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.4) {
             audioEl.currentTime = videoEl.currentTime;
           }
           audioEl.playbackRate = videoEl.playbackRate;
           audioEl.volume = videoEl.volume;
-          audioEl.muted = false;
+          audioEl.muted = (state.activePlayer && typeof state.activePlayer.muted === 'function') ? state.activePlayer.muted() : false;
           if (!videoEl.paused) {
             if (state.audioCtx && state.audioCtx.state === 'suspended') {
               state.audioCtx.resume().catch(() => {});
@@ -1507,7 +1563,7 @@
         syncAndPlay();
       };
       audioEl.oncanplay = () => {
-        if (!videoEl.paused && audioEl.paused) {
+        if (!videoEl.paused && (audioEl.paused || Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.4)) {
           syncAndPlay();
         }
       };
