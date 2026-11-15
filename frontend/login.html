@@ -149,7 +149,7 @@
     <!-- Top Navigation & System Status Bar -->
     <header class="w-full flex items-center justify-between gap-4">
       <!-- Brand Emblem & Typography -->
-      <a href="/" class="flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-xl">
+      <a href="/" class="min-touch flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-xl">
         <div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/25 via-indigo-500/15 to-slate-900 border border-sky-400/40 shadow-lg shadow-sky-500/20 group-hover:border-sky-400 transition-all duration-300">
           <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5 text-sky-400 drop-shadow-[0_2px_8px_rgba(56,189,248,0.6)]">
             <path d="M7 16H16.5C18.433 16 20 14.433 20 12.5C20 10.67 18.6 9.17 16.8 9.02C16.4 6.75 14.4 5 12 5C10.2 5 8.65 6.05 7.8 7.6C7.55 7.53 7.28 7.5 7 7.5C5.34 7.5 4 8.84 4 10.5C4 10.72 4.02 10.94 4.07 11.15C2.85 11.75 2 13.03 2 14.5C2 16.43 3.57 16 5.5 16" stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -203,10 +203,10 @@
 
         <!-- Glassmorphic Auth Card (Centered cleanly on mobile <1024px, split on >=1024px) -->
         <div id="login-card"
-             class="w-full bg-[#0d1117]/85 backdrop-blur-xl border border-slate-700/60 rounded-2xl shadow-2xl shadow-black/80 p-6 sm:p-8 transition-all duration-300 glass-card-border">
+             class="w-full bg-[#0d1117]/85 backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/80 p-6 sm:p-8 transition-all duration-300 glass-card-border">
 
           <!-- Card Header -->
-          <div class="flex items-center gap-3.5 pb-4 mb-4 border-b border-slate-700/50">
+          <div class="flex items-center gap-3.5 pb-4 mb-4 border-b border-white/[0.08]">
             <div class="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 text-white shadow-lg shadow-cyan-500/25">
               <i data-lucide="lock" class="w-5 h-5"></i>
             </div>
@@ -243,7 +243,7 @@
                   autocapitalize="none"
                   placeholder="admin"
                   style="font-size: 16px;"
-                  class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                  class="w-full min-touch pl-10 pr-4 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                 />
               </div>
             </div>
@@ -257,7 +257,7 @@
                 <button
                   type="button"
                   id="fill-creds-btn"
-                  class="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline transition-colors focus:outline-none"
+                  class="min-touch text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline transition-colors focus:outline-none px-2 py-1 inline-flex items-center"
                   title="Click to fill default credentials"
                 >
                   Use default
@@ -275,14 +275,14 @@
                   autocomplete="current-password"
                   placeholder="••••••••••••"
                   style="font-size: 16px;"
-                  class="w-full pl-10 pr-11 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                  class="w-full min-touch pl-10 pr-11 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                 />
                 <button
                   type="button"
                   id="toggle-password-btn"
                   tabindex="-1"
                   aria-label="Toggle password visibility"
-                  class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 touch-target-44 justify-center focus:outline-none"
+                  class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 min-touch touch-target-44 justify-center focus:outline-none"
                 >
                   <i id="password-eye-icon" data-lucide="eye" class="w-4 h-4"></i>
                 </button>
@@ -291,7 +291,7 @@
 
             <!-- Remember Me & Security Status -->
             <div class="flex items-center justify-between text-xs pt-1">
-              <label class="flex items-center gap-2 text-slate-400 cursor-pointer select-none">
+              <label class="flex items-center gap-2 text-slate-400 cursor-pointer select-none min-touch py-1">
                 <input
                   type="checkbox"
                   id="remember-me"
@@ -307,7 +307,7 @@
             <button
               type="submit"
               id="submit-button"
-              class="w-full min-h-[44px] h-[44px] sm:h-11 mt-2 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 border border-emerald-400/30 shadow-lg shadow-emerald-950/60 active:scale-[0.99] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+              class="w-full min-touch min-h-[44px] h-[44px] sm:h-11 mt-2 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 border border-emerald-400/30 shadow-lg shadow-emerald-950/60 active:scale-[0.99] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
             >
               <span id="button-text">Authenticate Session</span>
               <i id="button-icon" data-lucide="arrow-right" class="w-4 h-4"></i>
@@ -315,7 +315,7 @@
           </form>
 
           <!-- Default Credentials Helper Banner -->
-          <div class="mt-5 pt-4 border-t border-slate-800/80 flex flex-col gap-2">
+          <div class="mt-5 pt-4 border-t border-white/[0.08] flex flex-col gap-2">
             <div class="flex items-center justify-between text-[11px] text-slate-400">
               <span class="flex items-center gap-1.5">
                 <i data-lucide="terminal" class="w-3.5 h-3.5 text-slate-500"></i>
@@ -324,12 +324,12 @@
               <button
                 type="button"
                 id="copy-creds-btn"
-                class="text-slate-400 hover:text-cyan-300 font-mono text-[10px] bg-slate-800/50 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-700/50 transition-colors"
+                class="min-touch text-slate-400 hover:text-cyan-300 font-mono text-[11px] bg-slate-800/50 hover:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700/50 transition-colors inline-flex items-center justify-center"
               >
                 Copy
               </button>
             </div>
-            <div class="flex items-center justify-between font-mono text-[11px] bg-[#010409]/80 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-300">
+            <div class="flex items-center justify-between font-mono text-[11px] bg-[#010409]/80 px-3 py-2 rounded-lg border border-white/[0.06] text-slate-300">
               <span>admin</span>
               <span class="text-slate-600">/</span>
               <span>Admin@Drive2026!</span>
@@ -564,11 +564,11 @@
             .ringPropagationSpeed('propagationSpeed')
             .ringRepeatPeriod('repeatPeriod');
 
-          // Mobile GPU Optimization: Cap renderer pixel ratio to max 1.5 on screens < 768px
+          // Mobile GPU Optimization: Cap renderer pixel ratio to max 1.25 on screens < 768px
           const renderer = globeInstance.renderer();
           if (renderer) {
             if (isMobile) {
-              renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+              renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
             } else {
               renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
             }
@@ -619,7 +619,7 @@
         const renderer = globeInstance.renderer();
         if (renderer) {
           if (isMobile) {
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
           } else {
             renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
           }

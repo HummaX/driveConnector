@@ -49,10 +49,55 @@ manager = ConnectionManager()
 _download_lock = asyncio.Lock()
 active_downloads: Dict[str, Dict[str, Any]] = {}
 
+BLOCKED_IP_NETWORKS = [
+    # IPv4 loopback, private, carrier-grade, and reserved ranges
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.0.0.0/24"),
+    ipaddress.ip_network("192.0.2.0/24"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("198.18.0.0/15"),
+    ipaddress.ip_network("198.51.100.0/24"),
+    ipaddress.ip_network("203.0.113.0/24"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("240.0.0.0/4"),
+    ipaddress.ip_network("255.255.255.255/32"),
+    # IPv6 loopback, unspecified, unique local (fc00::/7), link-local (fe80::/10), multicast, docs
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("::/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+    ipaddress.ip_network("2001:db8::/32"),
+]
+
+def is_ip_restricted(ip_obj: ipaddress._BaseAddress) -> bool:
+    """Checks if an IP address falls into private, loopback, link-local, multicast or reserved ranges."""
+    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_reserved or ip_obj.is_unspecified:
+        return True
+    if isinstance(ip_obj, ipaddress.IPv6Address):
+        if ip_obj.ipv4_mapped and is_ip_restricted(ip_obj.ipv4_mapped):
+            return True
+        if ip_obj.sixtofour and is_ip_restricted(ip_obj.sixtofour):
+            return True
+        if ip_obj.teredo:
+            server, client = ip_obj.teredo
+            if is_ip_restricted(server) or is_ip_restricted(client):
+                return True
+    for net in BLOCKED_IP_NETWORKS:
+        if ip_obj in net:
+            return True
+    return False
+
 def validate_external_url(url: str):
     """
-    CYB-01: SSRF and Local File Inclusion (LFI) Validator.
-    Ensures URL uses http/https and does not resolve to private, loopback, or cloud metadata IPs.
+    CYB-01: SSRF, IPv6 and DNS Rebinding Protection.
+    Ensures URL uses http/https, blocks private/reserved IPv4, blocks ::1, fc00::/7, fe80::/10,
+    and defends against DNS rebinding by resolving all IPv4/IPv6 records before download.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -62,19 +107,246 @@ def validate_external_url(url: str):
     if not hostname:
         raise ValueError("Invalid URL: Missing hostname.")
 
-    # Block known cloud metadata hostnames directly
-    if hostname.lower() in ("169.254.169.254", "metadata.google.internal", "instance-data"):
-        raise ValueError("Access to cloud metadata services is strictly forbidden.")
+    hostname_clean = hostname.strip().lower().strip("[]")
 
+    # Block direct metadata / local hostnames
+    if hostname_clean in ("localhost", "127.0.0.1", "::1", "169.254.169.254", "metadata.google.internal", "instance-data"):
+        raise ValueError("Access to loopback or cloud metadata services is strictly forbidden.")
+
+    if hostname_clean.endswith(".localhost") or hostname_clean.endswith(".local") or hostname_clean.endswith(".internal"):
+        raise ValueError(f"Access to internal domain {hostname} is strictly forbidden.")
+
+    # Check if hostname itself is an IP literal
     try:
-        addr_info = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        direct_ip = ipaddress.ip_address(hostname_clean)
+        if is_ip_restricted(direct_ip):
+            raise ValueError(f"Security Alert: Destination IP {direct_ip} is in a restricted or private network range.")
+    except ValueError as ve:
+        if "Security Alert" in str(ve):
+            raise
+        # Not an IP literal, will resolve via DNS
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        # Resolve all addresses (dual-stack: AF_UNSPEC) to prevent DNS rebinding or dual-stack SSRF bypass
+        addr_info = socket.getaddrinfo(hostname_clean, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
         raise ValueError(f"Could not resolve hostname: {hostname}")
 
-    for family, _, _, _, sockaddr in addr_info:
-        ip = ipaddress.ip_address(sockaddr[0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+    if not addr_info:
+        raise ValueError(f"No address records found for hostname: {hostname}")
+
+    for _, _, _, _, sockaddr in addr_info:
+        raw_ip = sockaddr[0]
+        if "%" in raw_ip:  # IPv6 scope ID
+            raw_ip = raw_ip.split("%")[0]
+        ip = ipaddress.ip_address(raw_ip)
+        if is_ip_restricted(ip):
             raise ValueError(f"Security Alert: Destination IP {ip} is in a restricted or private network range.")
+
+def get_rclone_config_path() -> Optional[Path]:
+    """Checks standard locations for rclone.conf."""
+    candidates = [
+        Path(settings.STORAGE_DIR) / "rclone.conf",
+        Path(settings.STORAGE_DIR) / "rclone" / "rclone.conf",
+        Path(__file__).parent / "rclone.conf",
+        Path.home() / ".config" / "rclone" / "rclone.conf",
+        Path("/etc/rclone/rclone.conf"),
+    ]
+    for p in candidates:
+        if p.exists() and p.is_file():
+            return p
+    return None
+
+async def try_download_drive_via_rclone(
+    video_id: str,
+    title: str,
+    url: str,
+    auth_headers: Dict[str, str],
+    part_path: Path,
+    expected_size: int
+) -> bool:
+    """
+    Accelerated multi-stream rclone download (--multi-thread-streams 8 --buffer-size 64M).
+    Falls back cleanly if rclone is unavailable or returns an error.
+    """
+    rclone_bin = shutil.which("rclone")
+    if not rclone_bin:
+        return False
+
+    rclone_conf = get_rclone_config_path()
+    cmd = [
+        rclone_bin,
+        "copyurl",
+        url,
+        str(part_path),
+        "--multi-thread-streams", "8",
+        "--buffer-size", "64M",
+        "--retries", "3",
+        "--low-level-retries", "5",
+        "--stats", "1s",
+    ]
+    if rclone_conf:
+        cmd.extend(["--config", str(rclone_conf)])
+    for k, v in auth_headers.items():
+        cmd.extend(["--header", f"{k}: {v}"])
+
+    print(f"[Downloader] Attempting multi-stream rclone download for {video_id} (--multi-thread-streams 8 --buffer-size 64M)...")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        last_time = time.time()
+        last_bytes = 0
+        while proc.returncode is None:
+            await asyncio.sleep(0.5)
+            if proc.returncode is not None:
+                break
+            if part_path.exists():
+                cur_size = part_path.stat().st_size
+                now = time.time()
+                dt = now - last_time
+                if dt >= 0.5:
+                    speed = (cur_size - last_bytes) / dt if dt > 0 else 0
+                    await broadcast_progress(
+                        video_id=video_id,
+                        title=title,
+                        source="Google Drive (rclone multi-stream)",
+                        downloaded_bytes=cur_size,
+                        total_bytes=expected_size or cur_size,
+                        speed_bytes_sec=speed,
+                        status="DOWNLOADING"
+                    )
+                    last_time = now
+                    last_bytes = cur_size
+
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0 and part_path.exists() and part_path.stat().st_size > 0:
+            print(f"[Downloader] rclone multi-stream completed successfully for {video_id}")
+            return True
+        else:
+            err_msg = stderr.decode("utf-8", errors="ignore")[:300]
+            print(f"[Downloader] rclone exited with code {proc.returncode}: {err_msg}. Falling back to httpx stream.")
+            if part_path.exists():
+                try:
+                    os.remove(part_path)
+                except OSError:
+                    pass
+            return False
+    except Exception as e:
+        print(f"[Downloader] rclone execution failed: {e}. Falling back to httpx stream.")
+        if part_path.exists():
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
+        return False
+
+async def try_download_direct_via_aria2(
+    video_id: str,
+    url: str,
+    title: str,
+    part_path: Path,
+    expected_size: int = 0
+) -> bool:
+    """
+    Accelerated multi-connection aria2c download (-x 16 -s 16 -k 1M).
+    Falls back cleanly if aria2c is unavailable or returns an error.
+    """
+    aria2_bin = shutil.which("aria2c")
+    if not aria2_bin:
+        return False
+
+    out_filename = part_path.name
+    out_dir = str(part_path.parent)
+
+    cmd = [
+        aria2_bin,
+        "-x", "16",
+        "-s", "16",
+        "-k", "1M",
+        "--dir", out_dir,
+        "--out", out_filename,
+        "--allow-overwrite=true",
+        "--auto-file-renaming=false",
+        "--summary-interval=1",
+        "--file-allocation=none",
+        "--max-tries=3",
+        "--retry-wait=2",
+        "--timeout=30",
+        "--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        url
+    ]
+
+    print(f"[Downloader] Attempting multi-connection aria2c download for {video_id} (-x 16 -s 16 -k 1M): {url}")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        last_time = time.time()
+        last_bytes = 0
+
+        while proc.returncode is None:
+            await asyncio.sleep(0.5)
+            if proc.returncode is not None:
+                break
+            if part_path.exists():
+                cur_size = part_path.stat().st_size
+                now = time.time()
+                dt = now - last_time
+                if dt >= 0.5:
+                    speed = (cur_size - last_bytes) / dt if dt > 0 else 0
+                    await broadcast_progress(
+                        video_id=video_id,
+                        title=title,
+                        source="Direct Media (aria2c multi-connection)",
+                        downloaded_bytes=cur_size,
+                        total_bytes=expected_size or cur_size,
+                        speed_bytes_sec=speed,
+                        status="DOWNLOADING"
+                    )
+                    last_time = now
+                    last_bytes = cur_size
+
+        stdout, stderr = await proc.communicate()
+
+        control_file = part_path.parent / f"{out_filename}.aria2"
+        if control_file.exists():
+            try:
+                os.remove(control_file)
+            except OSError:
+                pass
+
+        if proc.returncode == 0 and part_path.exists() and part_path.stat().st_size > 0:
+            print(f"[Downloader] aria2c download succeeded for {video_id} ({format_bytes(part_path.stat().st_size)})")
+            return True
+        else:
+            err_msg = stderr.decode("utf-8", errors="ignore")[:300]
+            print(f"[Downloader] aria2c exited with code {proc.returncode}: {err_msg}. Falling back to httpx stream.")
+            if part_path.exists():
+                try:
+                    os.remove(part_path)
+                except OSError:
+                    pass
+            return False
+    except Exception as e:
+        print(f"[Downloader] aria2c execution failed: {e}. Falling back to httpx stream.")
+        control_file = part_path.parent / f"{out_filename}.aria2"
+        if control_file.exists():
+            try:
+                os.remove(control_file)
+            except OSError:
+                pass
+        if part_path.exists():
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
+        return False
 
 def check_disk_space(required_bytes: int):
     """OPS-03: Pre-download disk space guard."""
@@ -248,47 +520,62 @@ async def download_drive_video(video_id: str):
 
         url, auth_headers = drive_catalog.get_drive_download_params(drive_file_id)
 
-        async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
-            async with client.stream("GET", url, headers=auth_headers) as response:
-                if response.status_code != 200:
-                    err_bytes = await response.aread()
-                    try:
-                        err_json = json.loads(err_bytes.decode('utf-8'))
-                        msg = err_json.get("error", {}).get("message", f"HTTP {response.status_code}")
-                    except Exception:
-                        msg = err_bytes.decode('utf-8', errors='ignore')[:300] or f"HTTP {response.status_code}"
-                    raise RuntimeError(f"Google Drive returned HTTP {response.status_code}: {msg}")
+        # Multi-stream rclone acceleration with fallback to httpx streaming
+        rclone_downloaded = False
+        if shutil.which("rclone"):
+            rclone_downloaded = await try_download_drive_via_rclone(
+                video_id=video_id,
+                title=title,
+                url=url,
+                auth_headers=auth_headers,
+                part_path=part_path,
+                expected_size=expected_size
+            )
 
-                total_bytes = int(response.headers.get("Content-Length") or expected_size)
-                check_disk_space(total_bytes)
+        if rclone_downloaded and part_path.exists():
+            downloaded_bytes = part_path.stat().st_size
+        else:
+            async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
+                async with client.stream("GET", url, headers=auth_headers) as response:
+                    if response.status_code != 200:
+                        err_bytes = await response.aread()
+                        try:
+                            err_json = json.loads(err_bytes.decode('utf-8'))
+                            msg = err_json.get("error", {}).get("message", f"HTTP {response.status_code}")
+                        except Exception:
+                            msg = err_bytes.decode('utf-8', errors='ignore')[:300] or f"HTTP {response.status_code}"
+                        raise RuntimeError(f"Google Drive returned HTTP {response.status_code}: {msg}")
 
-                downloaded_bytes = 0
-                start_time = time.time()
-                last_time = start_time
-                last_bytes = 0
+                    total_bytes = int(response.headers.get("Content-Length") or expected_size)
+                    check_disk_space(total_bytes)
 
-                # Write to .part temporary file first (OPS-03)
-                with open(part_path, "wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=settings.DOWNLOAD_CHUNK_SIZE_BYTES):
-                        f.write(chunk)
-                        chunk_len = len(chunk)
-                        downloaded_bytes += chunk_len
+                    downloaded_bytes = 0
+                    start_time = time.time()
+                    last_time = start_time
+                    last_bytes = 0
 
-                        now = time.time()
-                        time_diff = now - last_time
-                        if time_diff >= 0.5 or downloaded_bytes == total_bytes:
-                            speed = (downloaded_bytes - last_bytes) / time_diff if time_diff > 0 else 0
-                            await broadcast_progress(
-                                video_id=video_id,
-                                title=title,
-                                source="Google Drive (On-Demand)",
-                                downloaded_bytes=downloaded_bytes,
-                                total_bytes=total_bytes,
-                                speed_bytes_sec=speed,
-                                status="DOWNLOADING"
-                            )
-                            last_time = now
-                            last_bytes = downloaded_bytes
+                    # Write to .part temporary file first (OPS-03)
+                    with open(part_path, "wb") as f:
+                        async for chunk in response.aiter_bytes(chunk_size=settings.DOWNLOAD_CHUNK_SIZE_BYTES):
+                            f.write(chunk)
+                            chunk_len = len(chunk)
+                            downloaded_bytes += chunk_len
+
+                            now = time.time()
+                            time_diff = now - last_time
+                            if time_diff >= 0.5 or downloaded_bytes == total_bytes:
+                                speed = (downloaded_bytes - last_bytes) / time_diff if time_diff > 0 else 0
+                                await broadcast_progress(
+                                    video_id=video_id,
+                                    title=title,
+                                    source="Google Drive (On-Demand)",
+                                    downloaded_bytes=downloaded_bytes,
+                                    total_bytes=total_bytes,
+                                    speed_bytes_sec=speed,
+                                    status="DOWNLOADING"
+                                )
+                                last_time = now
+                                last_bytes = downloaded_bytes
 
         # Atomic rename once complete
         if part_path.exists():
@@ -367,10 +654,46 @@ async def download_direct_http_stream(video_id: str, url: str):
 
     await update_video(video_id, {"status": "DOWNLOADING", "title": title})
 
+    total_bytes = int(video.get("file_size_bytes") or 0) if video else 0
+
+    # High-speed multi-connection aria2c integration (-x 16 -s 16 -k 1M)
+    if shutil.which("aria2c"):
+        aria2_ok = await try_download_direct_via_aria2(
+            video_id=video_id,
+            url=url,
+            title=title,
+            part_path=part_path,
+            expected_size=total_bytes
+        )
+        if aria2_ok:
+            if part_path.exists():
+                if dest_path.exists():
+                    os.remove(dest_path)
+                part_path.rename(dest_path)
+
+            final_size = dest_path.stat().st_size if dest_path.exists() else 0
+            await update_video(video_id, {
+                "title": title,
+                "status": "PROCESSING",
+                "local_path": str(dest_path),
+                "file_size_bytes": final_size
+            })
+            await broadcast_progress(
+                video_id=video_id,
+                title=title,
+                source="Direct Stream",
+                downloaded_bytes=final_size,
+                total_bytes=final_size,
+                speed_bytes_sec=0,
+                status="DOWNLOAD_COMPLETE"
+            )
+            from ffmpeg_worker import process_video_background
+            asyncio.create_task(process_video_background(video_id))
+            return
+
     max_retries = 5
     base_backoff = 2.0
     downloaded_bytes = 0
-    total_bytes = int(video.get("file_size_bytes") or 0) if video else 0
 
     base_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",

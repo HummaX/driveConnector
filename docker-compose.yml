@@ -101,6 +101,19 @@ services:
     networks:
       - media_net
 
+  nginx:
+    image: nginx:alpine
+    container_name: media_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - media_net
+
 networks:
   media_net:
     driver: bridge

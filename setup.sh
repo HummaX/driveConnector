@@ -42,7 +42,16 @@ apt-get install -y --no-install-recommends \
     git \
     ufw \
     e2fsprogs \
-    util-linux
+    util-linux \
+    aria2 \
+    rclone
+
+# Configure automated firewall rules (UFW)
+echo "[+] Configuring firewall rules (UFW)..."
+ufw allow 22
+ufw allow 80
+ufw allow 8000
+ufw --force enable
 
 # 3. Ensure Repository Code is Present (Handle running outside repo or via curl | bash)
 REPO_DIR="$(pwd)"
@@ -231,7 +240,7 @@ echo ""
 echo "======================================================================"
 echo "    🚀 DriveConnector Media Server is ONLINE & READY!"
 echo "======================================================================"
-echo "  Web Streaming UI  : http://$SERVER_IP:8000/"
+echo "  Web Streaming UI  : http://$SERVER_IP/ (or direct http://$SERVER_IP:8000/)"
 echo "  API Documentation : http://$SERVER_IP:8000/docs"
 echo "  Mongo Express UI  : http://127.0.0.1:8081/ (or public if configured in .env)"
 echo "  Storage Mount     : $STORAGE_DIR ($(df -h "$STORAGE_DIR" | awk 'NR==2 {print $2 " total, " $4 " available"}'))"

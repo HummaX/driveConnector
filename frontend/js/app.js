@@ -255,9 +255,9 @@
         .atmosphereColor('#38bdf8')
         .atmosphereAltitude(0.18);
 
-      // Mobile GPU optimization: cap pixel ratio to prevent GPU throttling and lock 60fps
+      // Mobile GPU optimization: cap pixel ratio at 1.0 on mobile screens (< 768px) to lock 60fps and eliminate battery drain
       const isMobile = window.innerWidth < 768;
-      const pixelRatio = isMobile ? Math.min(window.devicePixelRatio, 1.5) : window.devicePixelRatio;
+      const pixelRatio = isMobile ? Math.min(window.devicePixelRatio || 1, 1.0) : Math.min(window.devicePixelRatio || 1, 2.0);
 
       const renderer = globe.renderer();
       if (renderer && typeof renderer.setPixelRatio === 'function') {
@@ -271,7 +271,7 @@
       if (controls) {
         controls.autoRotate = true;
         controls.autoRotateSpeed = 0.8;
-        controls.enableZoom = false;
+        controls.enableZoom = !isMobile;
       }
 
       // Responsive window resize listener
@@ -283,9 +283,12 @@
           globe.width(w).height(h);
         }
         const mobileNow = window.innerWidth < 768;
-        const pr = mobileNow ? Math.min(window.devicePixelRatio, 1.5) : window.devicePixelRatio;
+        const pr = mobileNow ? Math.min(window.devicePixelRatio || 1, 1.0) : Math.min(window.devicePixelRatio || 1, 2.0);
         if (renderer && typeof renderer.setPixelRatio === 'function') {
           renderer.setPixelRatio(pr);
+        }
+        if (controls) {
+          controls.enableZoom = !mobileNow;
         }
       });
 
@@ -351,7 +354,15 @@
   }
 
   function handleWebSocketMessage(msg) {
-    if (!msg || !msg.event) return;
+    if (!msg) return;
+
+    // Direct Telemetry / System Metrics Broadcast
+    if (msg.event === 'TELEMETRY_UPDATE' || msg.event === 'METRICS_UPDATE' || msg.event === 'SYSTEM_UPDATE' || msg.metrics) {
+      updateSystemMetricsUI(msg.data || msg.metrics || msg);
+      return;
+    }
+
+    if (!msg.event) return;
 
     // 1. Transfer Progress Updates
     if (msg.event === 'TRANSFER_UPDATE') {
@@ -370,6 +381,16 @@
       state.transfers[msg.video_id] = msg;
       renderTransfers();
 
+      // Dynamically compute aggregate live download throughput and update Hero Network Card & Header
+      const activeDlList = Object.values(state.transfers).filter(t => t.status === 'DOWNLOADING');
+      const totalDlSpeed = activeDlList.reduce((acc, t) => acc + (parseFloat(t.speed_mbs) || 0), 0);
+      const kpiInSpeed = document.getElementById('kpi-in-speed');
+      if (kpiInSpeed) kpiInSpeed.textContent = `${totalDlSpeed.toFixed(1)} MB/s`;
+      const headerNetIn = document.getElementById('header-net-in');
+      if (headerNetIn) headerNetIn.textContent = `${totalDlSpeed.toFixed(1)} MB/s`;
+      const kpiQueue = document.getElementById('kpi-queue-count');
+      if (kpiQueue) kpiQueue.textContent = activeDlList.length;
+
       // Auto-dismiss completed transfer after 8 seconds
       if (isDone) {
         setTimeout(() => {
@@ -378,6 +399,9 @@
             renderTransfers();
           }
         }, 8000);
+        // Refresh catalog and storage metrics on transfer completion
+        fetchMetrics();
+        fetchVideos();
       }
 
       // Update in-player modal on-demand download HUD if open on this video
@@ -394,6 +418,20 @@
       state.processingJobs[msg.video_id] = msg;
       renderTransfers();
       updateVideoCardTelemetry(msg.video_id);
+
+      // Smoothly update Hero Processing Pipeline KPI Card
+      const procCount = Object.keys(state.processingJobs).length;
+      const kpiProc = document.getElementById('kpi-proc-count');
+      if (kpiProc) kpiProc.textContent = procCount;
+      const kpiActive = document.getElementById('kpi-pipeline-active');
+      if (kpiActive) {
+        kpiActive.textContent = procCount > 0 ? `Active (${procCount})` : 'Idle / Ready';
+        kpiActive.className = procCount > 0 ? 'text-purple-400 font-bold' : 'text-slate-300';
+      }
+      const kpiDesc = document.getElementById('kpi-pipeline-desc');
+      if (kpiDesc) {
+        kpiDesc.textContent = procCount > 0 ? `${procCount} FFmpeg job(s) running` : 'WebVTT Sprites & Audio';
+      }
 
       // In-player processing HUD update
       if (state.activeVideo && state.activeVideo.video_id === msg.video_id) {
@@ -442,14 +480,32 @@
       }
       renderTransfers();
 
+      // Smoothly update Hero Pipeline counts
+      const procCount = Object.keys(state.processingJobs).length;
+      const kpiProc = document.getElementById('kpi-proc-count');
+      if (kpiProc) kpiProc.textContent = procCount;
+      const kpiActive = document.getElementById('kpi-pipeline-active');
+      if (kpiActive) {
+        kpiActive.textContent = procCount > 0 ? `Active (${procCount})` : 'Idle / Ready';
+        kpiActive.className = procCount > 0 ? 'text-purple-400 font-bold' : 'text-slate-300';
+      }
+
       if (state.activeVideo && state.activeVideo.video_id === msg.video_id) {
         const hud = document.getElementById('player-processing-hud');
         if (hud) {
           hud.classList.add('hidden');
           hud.classList.remove('flex');
         }
+        const dlOverlay = document.getElementById('player-download-overlay');
+        if (dlOverlay) {
+          dlOverlay.classList.add('hidden');
+          dlOverlay.classList.remove('flex');
+        }
         const footerStatus = document.getElementById('player-footer-status');
-        if (footerStatus) footerStatus.textContent = 'LOCAL_READY';
+        if (footerStatus) {
+          footerStatus.textContent = 'LOCAL_READY';
+          footerStatus.className = 'shrink-0 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase font-semibold';
+        }
         state.activeVideo.status = 'LOCAL_READY';
 
         if (msg.metadata) {
@@ -461,9 +517,17 @@
           if (msg.metadata.subtitle_tracks) state.activeVideo.subtitle_tracks = msg.metadata.subtitle_tracks;
           populatePlayerTracksUI(state.activeVideo);
         }
+
+        // Auto-play the instant local processing completes
+        if (!state.activePlayer) {
+          openPlayerModal(state.activeVideo);
+        } else if (typeof state.activePlayer.play === 'function') {
+          state.activePlayer.play().catch(() => {});
+        }
       }
 
       fetchVideos();
+      fetchMetrics();
     }
   }
 
@@ -478,10 +542,15 @@
     if (speed) speed.textContent = `${t.speed_mbs || 0} MB/s`;
 
     if (isDone) {
-      if (dlOverlay) dlOverlay.classList.add('hidden');
+      if (dlOverlay) {
+        dlOverlay.classList.add('hidden');
+        dlOverlay.classList.remove('flex');
+      }
       state.activeVideo.status = 'LOCAL_READY';
+      // Auto-play the instant local processing completes
       openPlayerModal(state.activeVideo);
       fetchVideos();
+      fetchMetrics();
     }
   }
 
@@ -771,11 +840,17 @@
 
       const cue = cues.find(c => hoverTime >= c.start && hoverTime < c.end) || cues[0];
       if (cue) {
+        let spriteUrl = cue.sprite || cue.url;
+        if (spriteUrl && !spriteUrl.startsWith('http') && !spriteUrl.startsWith('/')) {
+          const lastSlash = vttUrl.lastIndexOf('/');
+          spriteUrl = vttUrl.substring(0, lastSlash + 1) + spriteUrl;
+        }
+
         if (thumbEl) {
-          thumbEl.style.backgroundImage = `url("${cue.sprite}")`;
+          thumbEl.style.backgroundImage = `url("${spriteUrl}")`;
           thumbEl.style.backgroundPosition = `-${cue.x}px -${cue.y}px`;
         } else {
-          previewEl.style.backgroundImage = `url("${cue.sprite}")`;
+          previewEl.style.backgroundImage = `url("${spriteUrl}")`;
           previewEl.style.backgroundPosition = `-${cue.x}px -${cue.y}px`;
         }
 
@@ -784,11 +859,12 @@
         const timeStr = `${m}:${s < 10 ? '0' : ''}${s}`;
         if (timeEl) timeEl.textContent = timeStr;
 
-        // CRITICAL: Clamp tooltip horizontally within viewport edges
-        // Math.max(10, Math.min(window.innerWidth - 170, targetX))
-        // Ensures thumbnail preview box never clips outside screen edges on 360px mobile devices!
-        const targetX = clientX - 80;
-        const clampedX = Math.max(10, Math.min(window.innerWidth - 170, targetX));
+        // Strict viewport edge clamping:
+        // Clamps thumbnail preview tooltip horizontally so it never clips past left (0px)
+        // or right (viewport width - thumbWidth) on 360px mobile screens.
+        const thumbWidth = cue.w || 160;
+        const targetX = clientX - Math.round(thumbWidth / 2);
+        const clampedX = Math.max(0, Math.min(window.innerWidth - thumbWidth, targetX));
         const targetY = Math.max(10, rect.top - 105);
 
         previewEl.style.position = 'fixed';
@@ -796,6 +872,7 @@
         previewEl.style.top = `${targetY}px`;
         previewEl.style.zIndex = '60';
         previewEl.classList.remove('hidden');
+        previewEl.classList.add('flex');
       }
     };
 
@@ -804,7 +881,10 @@
     };
 
     const onMouseLeave = () => {
-      if (previewEl) previewEl.classList.add('hidden');
+      if (previewEl) {
+        previewEl.classList.add('hidden');
+        previewEl.classList.remove('flex');
+      }
     };
 
     const onTouchStart = (e) => {
@@ -819,8 +899,23 @@
       }
     };
 
-    const onTouchEnd = () => {
-      if (previewEl) previewEl.classList.add('hidden');
+    const onTouchEnd = (e) => {
+      if (previewEl) {
+        previewEl.classList.add('hidden');
+        previewEl.classList.remove('flex');
+      }
+      const touch = (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0] : null;
+      if (touch) {
+        const rect = prog.getBoundingClientRect();
+        const duration = typeof player.duration === 'function' ? player.duration() : (player.duration || 0);
+        if (duration > 0 && rect.width > 0) {
+          const offsetX = Math.max(0, Math.min(rect.width, touch.clientX - rect.left));
+          const seekTime = (offsetX / rect.width) * duration;
+          if (typeof player.currentTime === 'function') {
+            player.currentTime(seekTime);
+          }
+        }
+      }
     };
 
     prog.addEventListener('mousemove', onMouseMove, { passive: true });
@@ -1312,6 +1407,9 @@
           // Setup WebVTT thumbnail scrubbing
           setupVideojsThumbnails(state.activePlayer, vttSrc);
           updatePlayerBufferUI(rawVideo);
+
+          // Auto-play the instant local processing / loading completes
+          state.activePlayer.play().catch(() => {});
         });
 
         // Player Event Handlers
@@ -1587,14 +1685,35 @@
       return (b.created_at || '').localeCompare(a.created_at || '');
     });
 
-    // Update Category Counters
+    // Update Category Counters & Hero Media Breakdown (Card 1)
+    const totalFiles = state.videos.length;
+    const localVideos = state.videos.filter(v => v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path));
+    const cloudVideos = state.videos.filter(v => v.status === 'REMOTE_ONLY');
+    const localCount = localVideos.length;
+    const cloudCount = cloudVideos.length;
+
     const countAll = document.getElementById('count-all');
     const countLocal = document.getElementById('count-local');
     const countCloud = document.getElementById('count-cloud');
 
-    if (countAll) countAll.textContent = state.videos.length;
-    if (countLocal) countLocal.textContent = state.videos.filter(v => v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path)).length;
-    if (countCloud) countCloud.textContent = state.videos.filter(v => v.status === 'REMOTE_ONLY').length;
+    if (countAll) countAll.textContent = totalFiles;
+    if (countLocal) countLocal.textContent = localCount;
+    if (countCloud) countCloud.textContent = cloudCount;
+
+    const kpiTotal = document.getElementById('kpi-total-files');
+    if (kpiTotal) kpiTotal.textContent = totalFiles;
+    const kpiLocal = document.getElementById('kpi-local-count');
+    if (kpiLocal) kpiLocal.textContent = localCount;
+    const kpiCloud = document.getElementById('kpi-cloud-count');
+    if (kpiCloud) kpiCloud.textContent = cloudCount;
+
+    const totalF = Math.max(1, totalFiles);
+    const localRatio = Math.round((localCount / totalF) * 100);
+    const cloudRatio = 100 - localRatio;
+    const ratioLocal = document.getElementById('kpi-ratio-local');
+    if (ratioLocal) ratioLocal.style.width = `${localRatio}%`;
+    const ratioCloud = document.getElementById('kpi-ratio-cloud');
+    if (ratioCloud) ratioCloud.style.width = `${cloudRatio}%`;
 
     const grid = document.getElementById('video-grid');
     const emptyState = document.getElementById('video-empty-state');
@@ -1827,29 +1946,34 @@
   function updateSystemMetricsUI(data) {
     if (!data) return;
 
-    // CPU Pill
+    // CPU Metrics (Top Navbar, Mobile Strip, & Hero HUD)
     if (data.cpu) {
-      const cpuPill = document.getElementById('telemetry-cpu');
       const cpuPct = Math.round(data.cpu.percent || 0);
+      const cpuDotColor = cpuPct > 80 ? 'bg-rose-400' : cpuPct > 50 ? 'bg-amber-400' : 'bg-emerald-400';
+
+      const headerCpuPct = document.getElementById('header-cpu-pct');
+      if (headerCpuPct) headerCpuPct.textContent = `${cpuPct}%`;
+      const headerCpuBar = document.getElementById('header-cpu-bar');
+      if (headerCpuBar) headerCpuBar.style.width = `${cpuPct}%`;
+      const headerCpuDot = document.getElementById('header-cpu-dot');
+      if (headerCpuDot) headerCpuDot.className = `w-1.5 h-1.5 rounded-full ${cpuDotColor}`;
+
+      const mobCpuPct = document.getElementById('mobile-cpu-pct');
+      if (mobCpuPct) mobCpuPct.textContent = `${cpuPct}%`;
+      const mobCpuDot = document.getElementById('mobile-cpu-dot');
+      if (mobCpuDot) mobCpuDot.className = `w-1.5 h-1.5 rounded-full ${cpuDotColor}`;
+
+      const cpuPill = document.getElementById('telemetry-cpu');
       if (cpuPill) cpuPill.textContent = `CPU ${cpuPct}%`;
       const cpuBar = document.getElementById('telemetry-cpu-bar');
       if (cpuBar) cpuBar.style.width = `${cpuPct}%`;
     }
 
-    // RAM Pill
+    // RAM Metrics (32GB Architecture: 10% Host Reserve, 90% Cloud Pipeline)
     if (data.ram) {
-      const ramPill = document.getElementById('telemetry-ram');
       const ramUsed = (data.ram.used_gb || 0).toFixed(1);
       const ramTotal = Math.round(data.ram.total_gb || 32);
-      const ramPct = Math.round(data.ram.percent || 0);
-      if (ramPill) {
-        ramPill.textContent = `RAM ${ramUsed}/${ramTotal} GB [${ramPct}%]`;
-        if (data.ram.reserved_system_gb) {
-          ramPill.title = `32GB Architecture: ${ramUsed}/${ramTotal} GB | Host: ${data.ram.reserved_system_gb}GB (10%) | Cloud Pipeline: ${data.ram.cloud_pipeline_allocated_gb}GB (90%)`;
-        }
-      }
-      const ramBar = document.getElementById('telemetry-ram-bar');
-      if (ramBar) ramBar.style.width = `${ramPct}%`;
+      const ramPct = Math.min(100, Math.round(data.ram.percent || 0));
 
       const headerRamUsed = document.getElementById('header-ram-used');
       if (headerRamUsed) headerRamUsed.textContent = `${ramUsed}G`;
@@ -1857,51 +1981,147 @@
       if (headerRamPct) headerRamPct.textContent = `/ ${ramTotal}G`;
       const headerRamBar = document.getElementById('header-ram-bar');
       if (headerRamBar) headerRamBar.style.width = `${ramPct}%`;
+
+      const ramPill = document.getElementById('header-ram-pill') || document.getElementById('telemetry-ram');
+      if (ramPill && data.ram.reserved_system_gb) {
+        ramPill.title = `32GB Architecture: ${ramUsed}/${ramTotal} GB | Host: ${data.ram.reserved_system_gb}GB (10%) | Cloud Pipeline: ${data.ram.cloud_pipeline_allocated_gb}GB (90%)`;
+      }
+
       const mobRam = document.getElementById('mobile-ram-used');
       if (mobRam) mobRam.textContent = `${ramUsed}G`;
+
+      const legacyRamPill = document.getElementById('telemetry-ram');
+      if (legacyRamPill) legacyRamPill.textContent = `RAM ${ramUsed}/${ramTotal} GB [${ramPct}%]`;
+      const legacyRamBar = document.getElementById('telemetry-ram-bar');
+      if (legacyRamBar) legacyRamBar.style.width = `${ramPct}%`;
     }
 
-    // Disk / Storage
+    // Disk / Storage - Hardware & Hero Gauges (1TB NVMe Array /mnt/storage)
     if (data.disk) {
-      const diskPill = document.getElementById('telemetry-disk');
-      const diskUsed = Math.round(data.disk.used_gb || 0);
-      const diskTotal = Math.round(data.disk.total_gb || 1000);
-      const diskPct = Math.round(data.disk.percent || 0);
-      if (diskPill) diskPill.textContent = `Disk ${diskUsed}/${diskTotal} GB (${diskPct}%)`;
-      const diskBar = document.getElementById('telemetry-disk-bar');
-      if (diskBar) diskBar.style.width = `${diskPct}%`;
+      const diskUsed = typeof data.disk.used_gb === 'number' ? Math.round(data.disk.used_gb) : 0;
+      const diskTotal = typeof data.disk.total_gb === 'number' ? Math.round(data.disk.total_gb) : 1000;
+      const diskFree = typeof data.disk.free_gb === 'number' ? Math.round(data.disk.free_gb) : Math.max(0, diskTotal - diskUsed);
+      const diskPct = Math.min(100, Math.round(data.disk.percent || (diskTotal > 0 ? (diskUsed / diskTotal) * 100 : 0)));
+
+      // Top navbar & mobile hardware strip
+      const headerDiskUsed = document.getElementById('header-disk-used');
+      if (headerDiskUsed) headerDiskUsed.textContent = `${diskUsed}G`;
+      const headerDiskTotal = document.getElementById('header-disk-total');
+      if (headerDiskTotal) headerDiskTotal.textContent = `/ ${diskTotal}G`;
+      const headerDiskBar = document.getElementById('header-disk-bar');
+      if (headerDiskBar) headerDiskBar.style.width = `${diskPct}%`;
+      const mobDiskPct = document.getElementById('mobile-disk-pct');
+      if (mobDiskPct) mobDiskPct.textContent = `${diskPct}%`;
+
+      // Hero Storage Gauges (Card 2: 1TB NVMe Array)
+      const kpiDiskUsed = document.getElementById('kpi-disk-used');
+      if (kpiDiskUsed) kpiDiskUsed.textContent = diskUsed;
+      const kpiDiskFree = document.getElementById('kpi-disk-free');
+      if (kpiDiskFree) kpiDiskFree.textContent = `${diskFree} GB`;
+      const kpiDiskTotal = document.getElementById('kpi-disk-total');
+      if (kpiDiskTotal) kpiDiskTotal.textContent = `${diskTotal} GB`;
+      const kpiDiskPct = document.getElementById('kpi-disk-pct');
+      if (kpiDiskPct) kpiDiskPct.textContent = `${diskPct}%`;
+      const kpiDiskBar = document.getElementById('kpi-disk-bar');
+      if (kpiDiskBar) kpiDiskBar.style.width = `${diskPct}%`;
+
+      const legacyDiskPill = document.getElementById('telemetry-disk');
+      if (legacyDiskPill) legacyDiskPill.textContent = `Disk ${diskUsed}/${diskTotal} GB (${diskPct}%)`;
+      const legacyDiskBar = document.getElementById('telemetry-disk-bar');
+      if (legacyDiskBar) legacyDiskBar.style.width = `${diskPct}%`;
     }
 
-    // Network Inbound / Outbound
+    // Network & Throughput (Card 3 & Top Navbar)
+    const inRate = (data.throughput?.live_download_speed_mb_s ?? data.network?.input_mb_s ?? 0).toFixed(1);
+    const outRate = (data.throughput?.live_stream_speed_mb_s ?? data.network?.output_mb_s ?? 0).toFixed(1);
+
+    const headerNetIn = document.getElementById('header-net-in');
+    if (headerNetIn) headerNetIn.textContent = `${inRate} MB/s`;
+    const headerNetOut = document.getElementById('header-net-out');
+    if (headerNetOut) headerNetOut.textContent = `${outRate} MB/s`;
+
+    const kpiInSpeed = document.getElementById('kpi-in-speed');
+    if (kpiInSpeed) kpiInSpeed.textContent = `${inRate} MB/s`;
+    const kpiOutSpeed = document.getElementById('kpi-out-speed');
+    if (kpiOutSpeed) kpiOutSpeed.textContent = `${outRate} MB/s`;
+
     if (data.network) {
+      const rxMb = Math.round(data.network.total_received_mb || 0);
+      const txMb = Math.round(data.network.total_sent_mb || 0);
+      const kpiRx = document.getElementById('kpi-rx-total');
+      if (kpiRx) kpiRx.textContent = `${rxMb} MB`;
+      const kpiTx = document.getElementById('kpi-tx-total');
+      if (kpiTx) kpiTx.textContent = `${txMb} MB`;
+
       const netIn = document.getElementById('telemetry-input');
-      if (netIn) netIn.textContent = `In: ${(data.network.input_mb_s || 0).toFixed(1)} MB/s`;
+      if (netIn) netIn.textContent = `In: ${inRate} MB/s`;
       const netOut = document.getElementById('telemetry-output');
-      if (netOut) netOut.textContent = `Out: ${(data.network.output_mb_s || 0).toFixed(1)} MB/s`;
+      if (netOut) netOut.textContent = `Out: ${outRate} MB/s`;
     }
 
-    // Throughput Live Speeds
-    if (data.throughput) {
-      const dlSpeed = document.getElementById('telemetry-dl-speed');
-      if (dlSpeed) dlSpeed.textContent = `${(data.throughput.live_download_speed_mb_s || 0).toFixed(1)} MB/s`;
-      const upSpeed = document.getElementById('telemetry-up-speed');
-      if (upSpeed) upSpeed.textContent = `${(data.throughput.live_stream_speed_mb_s || 0).toFixed(1)} MB/s`;
-    }
-
-    // Pipeline Stats
+    // Pipeline Stats & Hero Cards (Card 4: FFmpeg Pipeline)
     if (data.pipeline) {
-      const qEl = document.getElementById('telemetry-queue');
-      if (qEl) qEl.textContent = data.pipeline.in_queue || 0;
-      const procEl = document.getElementById('telemetry-processing');
-      if (procEl) procEl.textContent = data.pipeline.in_processing || 0;
-      const readyEl = document.getElementById('telemetry-ready');
-      if (readyEl) readyEl.textContent = data.pipeline.local_files || 0;
+      const qCount = data.pipeline.in_queue || 0;
+      const procCount = data.pipeline.in_processing || 0;
+      const readyCount = data.pipeline.local_files || 0;
+      const totalCount = data.pipeline.total_files || (state.videos ? state.videos.length : 0);
+      const cloudCount = data.pipeline.cloud_files || 0;
+
+      const kpiTotal = document.getElementById('kpi-total-files');
+      if (kpiTotal) kpiTotal.textContent = totalCount;
+      const kpiLocal = document.getElementById('kpi-local-count');
+      if (kpiLocal) kpiLocal.textContent = readyCount;
+      const kpiCloud = document.getElementById('kpi-cloud-count');
+      if (kpiCloud) kpiCloud.textContent = cloudCount;
+
+      const totalF = Math.max(1, totalCount);
+      const localRatio = Math.round((readyCount / totalF) * 100);
+      const cloudRatio = 100 - localRatio;
+      const ratioLocal = document.getElementById('kpi-ratio-local');
+      if (ratioLocal) ratioLocal.style.width = `${localRatio}%`;
+      const ratioCloud = document.getElementById('kpi-ratio-cloud');
+      if (ratioCloud) ratioCloud.style.width = `${cloudRatio}%`;
+
+      const kpiProc = document.getElementById('kpi-proc-count');
+      if (kpiProc) kpiProc.textContent = procCount;
+      const kpiQueue = document.getElementById('kpi-queue-count');
+      if (kpiQueue) kpiQueue.textContent = qCount;
+      const kpiReady = document.getElementById('kpi-stream-ready');
+      if (kpiReady) kpiReady.textContent = readyCount;
+
+      const kpiActive = document.getElementById('kpi-pipeline-active');
+      if (kpiActive) {
+        kpiActive.textContent = procCount > 0 ? `Active (${procCount})` : 'Idle / Ready';
+        kpiActive.className = procCount > 0 ? 'text-purple-400 font-bold' : 'text-slate-300';
+      }
+      const kpiDesc = document.getElementById('kpi-pipeline-desc');
+      if (kpiDesc) {
+        kpiDesc.textContent = procCount > 0 ? `${procCount} FFmpeg job(s) running` : 'WebVTT Sprites & Audio';
+      }
+
+      const legacyQ = document.getElementById('telemetry-queue');
+      if (legacyQ) legacyQ.textContent = qCount;
+      const legacyProc = document.getElementById('telemetry-processing');
+      if (legacyProc) legacyProc.textContent = procCount;
+      const legacyReady = document.getElementById('telemetry-ready');
+      if (legacyReady) legacyReady.textContent = readyCount;
     }
 
-    // Server Uptime
-    if (data.server && typeof data.server.uptime_seconds === 'number') {
+    // Server Uptime & Status
+    if (data.server) {
+      const srvStatus = data.server.status || 'optimal';
+      const srvStatusEl = document.getElementById('dashboard-server-status');
+      if (srvStatusEl) {
+        srvStatusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block"></span><span>${srvStatus}</span>`;
+      }
+      const srvInfo = document.getElementById('dashboard-server-info');
+      if (srvInfo && typeof data.server.uptime_seconds === 'number') {
+        srvInfo.textContent = `Dedicated Host • ${data.server.os || 'Linux'} • Uptime ${formatUptime(data.server.uptime_seconds)}`;
+      }
       const uptimeEl = document.getElementById('telemetry-uptime');
-      if (uptimeEl) uptimeEl.textContent = formatUptime(data.server.uptime_seconds);
+      if (uptimeEl && typeof data.server.uptime_seconds === 'number') {
+        uptimeEl.textContent = formatUptime(data.server.uptime_seconds);
+      }
     }
   }
 
@@ -1969,6 +2189,11 @@
           if (typeof state.activePlayer.isFullscreen === 'function') {
             if (state.activePlayer.isFullscreen()) state.activePlayer.exitFullscreen();
             else state.activePlayer.requestFullscreen();
+          }
+        } else if (key === 'm') {
+          e.preventDefault();
+          if (typeof state.activePlayer.muted === 'function') {
+            state.activePlayer.muted(!state.activePlayer.muted());
           }
         }
       }

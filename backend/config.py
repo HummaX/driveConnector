@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     # High-Throughput Buffer Sizing
     STREAM_CHUNK_SIZE_BYTES: int = 4 * 1024 * 1024     # 4 MB read chunks (accelerates seek & high bitrate streaming)
+    STREAM_BURST_CHUNK_SIZE_BYTES: int = 1024 * 1024   # 1 MB burst chunks (instant progressive start & byte-range streaming)
     DOWNLOAD_CHUNK_SIZE_BYTES: int = 8 * 1024 * 1024   # 8 MB download stream chunks (accelerates Google Drive / URL downloads)
 
     # CORS

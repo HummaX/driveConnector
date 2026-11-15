@@ -403,7 +403,7 @@
             <span class="hidden sm:inline">Add URL</span>
           </button>
 
-          <button onclick="openMongoModal()" title="Mongo Express Live Web UI (:8081)" class="min-touch hidden sm:flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-[#161b22] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 text-xs font-medium hover:bg-emerald-950/30 transition shadow-sm">
+          <button onclick="openMongoModal()" title="Mongo Express Live Web UI (:8081)" class="min-touch flex items-center justify-center space-x-1.5 px-2.5 sm:px-3 py-2 rounded-lg bg-[#161b22] border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 text-xs font-medium hover:bg-emerald-950/30 transition shadow-sm">
             <i data-lucide="database" class="w-4 h-4"></i>
             <span class="hidden md:inline">Mongo Express</span>
           </button>
@@ -619,6 +619,18 @@
                   </div>
                 </div>
 
+              </div>
+
+              <!-- Live Ingestion & WebSocket Transfer Cards in Hero Strip -->
+              <div id="hero-transfers-card" class="hidden glass-card rounded-xl p-4 border border-sky-500/30 space-y-3 shadow-lg">
+                <div class="flex items-center justify-between text-xs">
+                  <div class="flex items-center space-x-2 font-semibold text-sky-400">
+                    <i data-lucide="arrow-down-circle" class="w-4 h-4 animate-bounce"></i>
+                    <span>Live WebSocket Transfers & Ingestion</span>
+                  </div>
+                  <span id="hero-transfers-count" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold">0 Active</span>
+                </div>
+                <div id="hero-transfers-items" class="space-y-2 max-h-48 overflow-y-auto no-scrollbar"></div>
               </div>
 
               <!-- Quick Action Strip: Sync Drive Catalog + External URL Paste Bar -->
@@ -1183,7 +1195,9 @@
       </div>
     </div>
     <div id="transfers-list" class="flex-1 overflow-y-auto p-4 space-y-3">
-      <!-- Injected transfer cards -->
+      <div id="transfers-container" class="space-y-3">
+        <!-- Injected transfer cards -->
+      </div>
     </div>
   </div>
 
@@ -1514,6 +1528,37 @@
     function triggerWhisperTranscribe() {
       if (window.startWhisper) window.startWhisper();
     }
+
+    // Dynamic Live WebSocket Transfer Synchronization to Hero Telemetry Strip
+    (function initHeroTransfersSync() {
+      const tc = document.getElementById('transfers-container');
+      const heroCard = document.getElementById('hero-transfers-card');
+      const heroItems = document.getElementById('hero-transfers-items');
+      const heroCount = document.getElementById('hero-transfers-count');
+      const countEl = document.getElementById('transfers-count');
+
+      function syncHeroTransfers() {
+        if (!tc || !heroCard || !heroItems) return;
+        const totalActive = parseInt(countEl?.textContent || '0', 10);
+        if (totalActive > 0 && tc.children.length > 0) {
+          heroCard.classList.remove('hidden');
+          heroItems.innerHTML = tc.innerHTML;
+          if (heroCount) heroCount.textContent = `${totalActive} Active`;
+          if (window.lucide) lucide.createIcons();
+        } else {
+          heroCard.classList.add('hidden');
+        }
+      }
+
+      if (tc) {
+        const observer = new MutationObserver(syncHeroTransfers);
+        observer.observe(tc, { childList: true, subtree: true });
+        if (countEl) {
+          const countObserver = new MutationObserver(syncHeroTransfers);
+          countObserver.observe(countEl, { characterData: true, childList: true, subtree: true });
+        }
+      }
+    })();
   </script>
 
 </body>

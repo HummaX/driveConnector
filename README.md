@@ -230,6 +230,27 @@ For private corporate or personal Google Drive folders:
 
 ---
 
+## 🚀 High-Throughput Streaming & Security Architecture
+
+### Edge Reverse Proxy (Port 80 HTTP-Only)
+DriveConnector includes an HTTP-only Nginx reverse proxy running on **Port 80** that routes directly to FastAPI on **Port 8000**:
+- **Zero SSL / Zero Certbot**: Strictly plain HTTP on the OVHcloud server IP (`http://<SERVER_IP>/`).
+- **Proxy Buffering Disabled (`proxy_buffering off`)**: Media streaming (`/api/stream/`) and real-time WebSocket telemetry (`/ws/transfers`) bypass proxy buffers for zero-latency chunk delivery.
+- **1MB Progressive Range Streaming**: Video and audio streams use 1MB HTTP 206 Partial Content burst chunking for instant playback start.
+
+### High-Speed Ingestion
+- **Multi-Stream Rclone**: Saturates Google Drive downloads using `--multi-thread-streams 8 --buffer-size 64M`.
+- **16-Connection Aria2c**: Segments direct HTTP/HTTPS media downloads across 16 parallel connections (`-x 16 -s 16 -k 1M`).
+- **FastStart Video Encoding**: All transcode and preview jobs enforce `-movflags +faststart` and `-preset veryfast`.
+
+### Production Security Hardening
+- **Login Rate Limiting**: In-memory sliding-window limiter blocks brute-force login attempts (maximum 10 failed attempts per client IP per 5 minutes -> HTTP 429).
+- **Path Traversal Protection**: Enforces `os.path.realpath` checks verifying that all video and metadata operations strictly reside within `/mnt/storage`.
+- **SSRF & DNS Rebind Defense**: Blocks private IPv4/IPv6 ranges (`::1`, `fc00::/7`, `fe80::/10`, `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and cloud metadata services (`169.254.169.254`).
+- **Automated UFW Firewall**: `setup.sh` automatically configures UFW rules allowing only ports 22, 80, and 8000.
+
+---
+
 ## 🤖 Automated PR Review & CI Pipeline
 
 Every Pull Request can be automatically reviewed and pushed using the automated PR tool (`scripts/auto_pr.py`) and GitHub Actions CI (`ci/auto-review.yml`):

@@ -7,7 +7,7 @@ import platform
 import mimetypes
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 # Ensure text/vtt MIME type is globally recognized for HTML5 captions & Plyr on all platforms
 mimetypes.add_type("text/vtt", ".vtt")
@@ -75,6 +75,47 @@ def validate_video_id(video_id: str) -> str:
             detail="Invalid video identifier format."
         )
     return clean_id
+
+def validate_storage_path(target_path: Union[str, Path]) -> Path:
+    """
+    CYB-06: Strict path traversal guard using os.path.realpath.
+    Ensures that resolved path strictly resides within settings.STORAGE_DIR.
+    """
+    if not target_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid empty path specified."
+        )
+    real_target = os.path.realpath(str(target_path))
+    real_storage = os.path.realpath(str(settings.STORAGE_DIR))
+    try:
+        common = os.path.commonpath([real_target, real_storage])
+        if common != real_storage:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Path traversal detected outside storage boundary."
+            )
+    except (ValueError, Exception):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Path traversal detected outside storage boundary."
+        )
+    return Path(real_target)
+
+def resolve_storage_path(relative_or_abs_path: Union[str, Path], subfolder: Optional[str] = None) -> Path:
+    """
+    CYB-06: Resolves and strictly validates that video and metadata file paths
+    reside within settings.STORAGE_DIR using os.path.realpath.
+    """
+    base_dir = Path(settings.STORAGE_DIR)
+    if subfolder:
+        base_dir = base_dir / subfolder
+    
+    target = Path(relative_or_abs_path)
+    if not target.is_absolute():
+        target = base_dir / target
+        
+    return validate_storage_path(target)
 
 # Global state for server throughput tracking
 SERVER_START_TIME = time.time()
@@ -192,18 +233,77 @@ async def serve_favicon():
         return FileResponse(str(favicon_file), media_type="image/x-icon")
     return Response(status_code=404)
 
-# ----------------- Authentication Endpoints -----------------
+# ----------------- Authentication Endpoints & Rate Limiting -----------------
+# In-memory sliding-window rate limiting for login endpoints (CYB-07)
+# Enforces maximum 10 failed login attempts per client IP per 5 minutes
+LOGIN_FAILED_ATTEMPTS: Dict[str, List[float]] = {}
+LOGIN_MAX_FAILED_ATTEMPTS: int = 10
+LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 300  # 5 minutes
+_login_rate_limit_lock = asyncio.Lock()
+
+def get_client_ip(request: Request) -> str:
+    """Extracts client IP from X-Forwarded-For or direct client socket."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+        if ip:
+            return ip
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
+
+async def check_login_rate_limit(client_ip: str):
+    """Enforces sliding-window rate limit: raises 429 if failed attempts >= 10 in 5m."""
+    now = time.time()
+    async with _login_rate_limit_lock:
+        timestamps = LOGIN_FAILED_ATTEMPTS.get(client_ip, [])
+        valid_timestamps = [t for t in timestamps if now - t < LOGIN_RATE_LIMIT_WINDOW_SECONDS]
+        LOGIN_FAILED_ATTEMPTS[client_ip] = valid_timestamps
+        if len(valid_timestamps) >= LOGIN_MAX_FAILED_ATTEMPTS:
+            earliest = valid_timestamps[0]
+            retry_after = max(1, int(LOGIN_RATE_LIMIT_WINDOW_SECONDS - (now - earliest)))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Too many failed login attempts. Account temporarily locked for {retry_after} seconds.",
+                headers={"Retry-After": str(retry_after)}
+            )
+
+async def record_login_failure(client_ip: str):
+    """Records a failed login attempt for sliding-window calculation."""
+    now = time.time()
+    async with _login_rate_limit_lock:
+        timestamps = LOGIN_FAILED_ATTEMPTS.setdefault(client_ip, [])
+        timestamps.append(now)
+        LOGIN_FAILED_ATTEMPTS[client_ip] = [t for t in timestamps if now - t < LOGIN_RATE_LIMIT_WINDOW_SECONDS]
+
+async def record_login_success(client_ip: str):
+    """Clears failed login attempts for client IP upon successful login."""
+    async with _login_rate_limit_lock:
+        LOGIN_FAILED_ATTEMPTS.pop(client_ip, None)
+
 @app.post("/api/auth/login")
 @app.post("/api/login")
-async def login(credentials: UserLogin):
-    """Authenticates credentials and returns a signed JWT access token."""
-    user = await get_user_by_username(credentials.username.strip())
+async def login(credentials: UserLogin, request: Request):
+    """Authenticates credentials and returns a signed JWT access token with brute-force rate limiting."""
+    client_ip = get_client_ip(request)
+    await check_login_rate_limit(client_ip)
+
+    try:
+        user = await get_user_by_username(credentials.username.strip())
+    except Exception:
+        user = None
+
     if not user or not verify_password(credentials.password, user["password_hash"]):
+        await record_login_failure(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"
         )
     
+    await record_login_success(client_ip)
     token = create_access_token({"sub": user["username"], "role": user.get("role", "admin")})
     return {
         "access_token": token,
@@ -491,21 +591,24 @@ async def remove_video(
     local_p = video.get("local_path")
     if local_p and Path(local_p).exists():
         try:
-            os.remove(Path(local_p))
-        except OSError:
+            safe_local = validate_storage_path(Path(local_p))
+            os.remove(safe_local)
+        except (OSError, HTTPException):
             pass
 
     for match in settings.videos_dir.glob(f"{valid_id}.*"):
         try:
-            os.remove(match)
-        except OSError:
+            safe_match = validate_storage_path(match)
+            os.remove(safe_match)
+        except (OSError, HTTPException):
             pass
 
     meta_dir = settings.metadata_dir / valid_id
     if meta_dir.exists():
         try:
-            shutil.rmtree(meta_dir)
-        except OSError:
+            safe_meta = validate_storage_path(meta_dir)
+            shutil.rmtree(safe_meta)
+        except (OSError, HTTPException):
             pass
 
     # Clean up multi-resolution renditions if present
@@ -513,8 +616,9 @@ async def remove_video(
         r_file = settings.videos_dir / f"{valid_id}_{q}.mp4"
         if r_file.exists():
             try:
-                os.remove(r_file)
-            except OSError:
+                safe_r = validate_storage_path(r_file)
+                os.remove(safe_r)
+            except (OSError, HTTPException):
                 pass
 
     await delete_video(valid_id)
@@ -628,8 +732,8 @@ async def probe_and_extract_tracks(
     if not local_p or not Path(local_p).exists():
         raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
 
-    video_path = Path(local_p)
-    meta_dir = settings.get_video_metadata_dir(valid_id)
+    video_path = validate_storage_path(Path(local_p))
+    meta_dir = validate_storage_path(settings.get_video_metadata_dir(valid_id))
 
     info = await probe_video(video_path)
     audio_tracks = info.get("audio_tracks", [])
@@ -663,6 +767,8 @@ async def probe_and_extract_tracks(
         "video": updated
     }
 
+STREAM_BURST_CHUNK_SIZE_BYTES: int = 1024 * 1024  # 1MB burst chunk for responsive HTTP 206 progressive start
+
 @app.get("/api/videos/{video_id}/audio/{track_index}")
 async def stream_audio_track(
     video_id: str,
@@ -678,6 +784,7 @@ async def stream_audio_track(
     audio_path = await extract_audio_track(valid_id, track_index)
     if not audio_path or not audio_path.exists():
         raise HTTPException(status_code=404, detail=f"Audio track {track_index} not found or extraction failed")
+    audio_path = validate_storage_path(audio_path)
 
     file_size = audio_path.stat().st_size
     range_header = request.headers.get("range")
@@ -692,7 +799,7 @@ async def stream_audio_track(
         }
         def full_audio_iterator():
             with open(audio_path, "rb") as f:
-                while chunk := f.read(256 * 1024):
+                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
                     yield chunk
         return StreamingResponse(full_audio_iterator(), headers=headers)
 
@@ -721,6 +828,11 @@ async def stream_audio_track(
             detail="Requested range not satisfiable",
             headers={"Content-Range": f"bytes */{file_size}"}
         )
+
+    # Responsive 1MB HTTP 206 Partial Content byte-range burst cap
+    max_chunk = STREAM_BURST_CHUNK_SIZE_BYTES
+    if (end - start + 1) > max_chunk:
+        end = start + max_chunk - 1
 
     content_length = end - start + 1
     def audio_range_stream():
@@ -789,6 +901,8 @@ async def stream_video(
             elif rendition_file.exists():
                 video_path = rendition_file
 
+    video_path = validate_storage_path(video_path)
+
     if not video_path.exists() or video.get("status") == "REMOTE_ONLY":
         raise HTTPException(
             status_code=409,
@@ -814,13 +928,14 @@ async def stream_video(
     if not range_header:
         def file_iterator():
             with open(video_path, "rb") as f:
-                while chunk := f.read(1024 * 1024):
+                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
                     yield chunk
 
         headers = {
             "Content-Type": content_type,
             "Content-Length": str(file_size),
-            "Accept-Ranges": "bytes"
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=86400",
         }
         return StreamingResponse(file_iterator(), headers=headers)
 
@@ -851,7 +966,7 @@ async def stream_video(
             headers={"Content-Range": f"bytes */{file_size}"}
         )
 
-    max_chunk = 4 * 1024 * 1024
+    max_chunk = STREAM_BURST_CHUNK_SIZE_BYTES
     if (end - start + 1) > max_chunk:
         end = start + max_chunk - 1
 
@@ -874,7 +989,7 @@ async def stream_video(
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
         "Content-Type": content_type,
-        "Cache-Control": "no-cache",
+        "Cache-Control": "public, max-age=86400",
     }
 
     return StreamingResponse(

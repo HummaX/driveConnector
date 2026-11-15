@@ -381,6 +381,7 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
         "-map", f"0:{stream_idx}",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-movflags", "+faststart",
         str(temp_dest)
     ]
     code, _, err = await run_cmd(cmd, timeout=300)
@@ -718,7 +719,7 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                 "-i", str(video_path),
                 "-vf", preset["vf"],
                 "-c:v", "libx264",
-                "-preset", "fast",
+                "-preset", "veryfast",
                 "-crf", preset["crf"],
                 "-maxrate", preset["maxrate"],
                 "-bufsize", preset["bufsize"],
