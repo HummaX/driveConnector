@@ -230,12 +230,18 @@ chmod -R 775 "$STORAGE_DIR/videos" "$STORAGE_DIR/metadata" "$STORAGE_DIR/config"
 chown -R 999:999 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 chmod 750 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 
-# Ensure safeguard placeholder template JSON files exist in backend
+# Ensure safeguard placeholder template JSON files exist in backend before docker compose up
 if [ ! -f "$REPO_DIR/backend/credentials.json" ]; then
     echo "{}" > "$REPO_DIR/backend/credentials.json"
 fi
 if [ ! -f "$REPO_DIR/backend/token.json" ]; then
     echo "{}" > "$REPO_DIR/backend/token.json"
+fi
+if [ ! -f "./backend/credentials.json" ]; then
+    echo "{}" > "./backend/credentials.json"
+fi
+if [ ! -f "./backend/token.json" ]; then
+    echo "{}" > "./backend/token.json"
 fi
 
 # 6. Configuration & Symlinks

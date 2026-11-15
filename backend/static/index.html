@@ -256,6 +256,43 @@
     <!-- Ambient Network Canvas Background (Subtle continuation of login aesthetic) -->
     <canvas id="dashboard-network-canvas" class="fixed inset-0 w-full h-full pointer-events-none" style="z-index:0;opacity:0.35"></canvas>
 
+    <!-- LIVE SERVER RACK BLADE HEADER (PROXMOX VE / GRAFANA NOC) -->
+    <div class="w-full bg-[#06090f] border-b border-[#21262d] text-[11px] font-mono select-none px-4 sm:px-6 lg:px-8 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-slate-400">
+      <!-- Left: Node ID & Kernel/OS & Uptime Counter -->
+      <div class="flex items-center space-x-3">
+        <span class="flex items-center space-x-1.5 text-slate-200 font-semibold tracking-wider">
+          <span class="w-2 h-2 rounded-full bg-[#10b981] shadow-[0_0_8px_#10b981] animate-pulse"></span>
+          <span>NODE: <span class="text-white">OVH-EU-1TB</span></span>
+        </span>
+        <span class="text-slate-600">|</span>
+        <span class="text-slate-400 hidden sm:inline">KERNEL/OS: <span class="text-slate-300">Linux 6.8.0-48 · Ubuntu 24.04 (x86_64)</span></span>
+        <span class="text-slate-600 hidden md:inline">|</span>
+        <span class="flex items-center space-x-1 text-emerald-400">
+          <span>UPTIME:</span>
+          <span id="dashboard-uptime-counter" class="text-white font-semibold tabular-nums">99.98%</span>
+        </span>
+      </div>
+
+      <!-- Right: Thread Allocation, 32GB RAM Split, 1TB Block Array Health Bar -->
+      <div class="flex items-center space-x-2.5 text-[10px]">
+        <div class="hidden lg:flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="CPU Governance Allocation: 1 Reserved Core for Web UI, N-1 for Video Pipeline">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#38bdf8] shadow-[0_0_6px_#38bdf8]"></span>
+          <span class="text-slate-400">CPU THREADS:</span>
+          <span class="text-sky-300 font-medium">Reserved: 1 Core | Workers: N-1</span>
+        </div>
+        <div class="hidden sm:flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="32GB RAM Pipeline Distribution: 10% System / 90% Media Pipeline">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#a855f7] shadow-[0_0_6px_#a855f7]"></span>
+          <span class="text-slate-400">RAM SPLIT:</span>
+          <span class="text-purple-300 font-medium">32GB (10% OS / 90% Cloud Pipeline)</span>
+        </div>
+        <div class="flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="1TB /mnt/storage NVMe Block Array Health">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#10b981] shadow-[0_0_6px_#10b981]"></span>
+          <span class="text-slate-400">ARRAY:</span>
+          <span class="text-emerald-400 font-medium">1TB /mnt/storage [100% HEALTHY]</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Header with Hardware Telemetry Ribbon -->
     <header class="sticky top-0 z-40 w-full bg-[#0d1117]/95 backdrop-blur-xl border-b border-[#30363d]/80 shadow-lg">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
@@ -592,6 +629,18 @@
           </div>
         </div>
       </section>
+
+      <!-- Live Ingestion & WebSocket Transfer Cards in Hero Strip -->
+      <div id="hero-transfers-card" class="hidden rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-sky-500/30 p-4 space-y-3 shadow-lg">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center space-x-2 font-semibold text-sky-400">
+            <i data-lucide="arrow-down-circle" class="w-4 h-4 animate-bounce"></i>
+            <span>Live WebSocket Transfers & Ingestion</span>
+          </div>
+          <span id="hero-transfers-count" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold">0 Active</span>
+        </div>
+        <div id="hero-transfers-items" class="space-y-2 max-h-48 overflow-y-auto no-scrollbar"></div>
+      </div>
 
       <!-- Toolbar: Search, Filters & View Options -->
       <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pt-1">
@@ -1583,6 +1632,23 @@
           // KPI Card 5: Stream Ready
           const streamReadyEl = document.getElementById('kpi-stream-ready');
           if (streamReadyEl) streamReadyEl.innerText = data.pipeline.local_files;
+
+          // Live Transfers Strip in Hero
+          const heroCard = document.getElementById('hero-transfers-card');
+          const heroCount = document.getElementById('hero-transfers-count');
+          const heroItems = document.getElementById('hero-transfers-items');
+          const totalActiveTransfers = (data.pipeline.in_queue || 0) + (data.pipeline.in_processing || 0);
+          if (totalActiveTransfers > 0) {
+            if (heroCard) heroCard.classList.remove('hidden');
+            if (heroCount) heroCount.innerText = `${totalActiveTransfers} Active`;
+            const tc = document.getElementById('transfers-list');
+            if (heroItems && tc && tc.children.length > 0 && !heroItems.innerHTML.trim()) {
+              heroItems.innerHTML = tc.innerHTML;
+            }
+          } else if (Object.keys(transfers).length === 0 && Object.keys(processingJobs).length === 0) {
+            if (heroCard) heroCard.classList.add('hidden');
+            if (heroCount) heroCount.innerText = '0 Active';
+          }
         }
       } catch (e) {}
     }
@@ -3592,6 +3658,12 @@
           mobileTransfersBadge.classList.add('hidden');
           mobileTransfersBadge.classList.remove('flex');
         }
+        const heroCard = document.getElementById('hero-transfers-card');
+        const heroCount = document.getElementById('hero-transfers-count');
+        const heroItems = document.getElementById('hero-transfers-items');
+        if (heroCard) heroCard.classList.add('hidden');
+        if (heroCount) heroCount.innerText = '0 Active';
+        if (heroItems) heroItems.innerHTML = '';
         return;
       }
       if (drawer) drawer.classList.remove('hidden');
@@ -3735,6 +3807,14 @@
       }).join('');
 
       if (container) container.innerHTML = procHtml + dlHtml;
+      const heroCard = document.getElementById('hero-transfers-card');
+      const heroCount = document.getElementById('hero-transfers-count');
+      const heroItems = document.getElementById('hero-transfers-items');
+      if (heroCard) {
+        heroCard.classList.remove('hidden');
+        if (heroCount) heroCount.innerText = `${activeTasksCount || allTasksCount} Active`;
+        if (heroItems) heroItems.innerHTML = procHtml + dlHtml;
+      }
       updateIcons();
     }
 
@@ -3907,6 +3987,30 @@
         }
       }
     });
+
+    window.openSyncModal = openSyncModal;
+    window.closeSyncModal = closeSyncModal;
+    window.switchSyncTab = switchDriveTab;
+    window.handleSyncTest = testDriveConnection;
+    window.handleSyncSave = saveDriveConfig;
+    window.handleSyncDisconnect = disconnectDrive;
+    window.testDriveConnection = testDriveConnection;
+    window.saveDriveConfig = saveDriveConfig;
+    window.disconnectDrive = disconnectDrive;
+
+    window.openMongoModal = openMongoModal;
+    window.closeMongoModal = closeMongoModal;
+    window.copyMongoTunnelCmd = copyMongoTunnelCmd;
+    window.copyMongoPassword = copyMongoPassword;
+
+    window.openJDownloaderModal = openJDownloaderModal;
+    window.closeJDownloaderModal = closeJDownloaderModal;
+    window.copyJdCmd = copyJdCmd;
+
+    window.openUrlModal = openUrlModal;
+    window.closeUrlModal = closeUrlModal;
+    window.handleModalUrlSubmit = triggerUrlDownload;
+    window.triggerUrlDownload = triggerUrlDownload;
 
     // Startup Execution
     checkAuthWall();

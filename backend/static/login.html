@@ -170,14 +170,14 @@
       </a>
 
       <!-- Live Node Ping Indicator Badge -->
-      <div id="node-ping-badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0d1117]/90 backdrop-blur-md border border-slate-700/60 shadow-lg text-xs font-mono">
+      <div id="node-ping-badge" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0d1117]/95 backdrop-blur-md border border-[#30363d] shadow-lg text-xs font-mono">
         <span class="relative flex h-2 w-2">
-          <span id="ping-pulse-indicator" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span id="ping-dot-indicator" class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          <span id="ping-pulse-indicator" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10b981] opacity-75"></span>
+          <span id="ping-dot-indicator" class="relative inline-flex rounded-full h-2 w-2 bg-[#10b981] shadow-[0_0_6px_#10b981]"></span>
         </span>
-        <span class="text-slate-200 font-semibold tracking-tight">OVH-EU-1TB Online</span>
+        <span class="text-slate-200 font-semibold tracking-tight uppercase">NODE: OVH-EU-1TB</span>
         <span class="text-slate-600 hidden sm:inline">·</span>
-        <span id="ping-latency" class="text-emerald-400 font-medium hidden sm:inline">18ms</span>
+        <span id="ping-latency" class="text-emerald-400 font-semibold hidden sm:inline tabular-nums">18ms</span>
       </div>
     </header>
 
@@ -201,18 +201,28 @@
           </p>
         </div>
 
-        <!-- Glassmorphic Auth Card (Centered cleanly on mobile <1024px, split on >=1024px) -->
+        <!-- Server Blade Auth Card (Proxmox VE Dark / Grafana NOC) -->
         <div id="login-card"
-             class="w-full bg-[#0d1117]/85 backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/80 p-6 sm:p-8 transition-all duration-300 glass-card-border">
+             class="w-full bg-gradient-to-b from-[#0d1117] to-[#06090f] backdrop-blur-2xl border border-[#30363d] rounded-2xl shadow-2xl shadow-black/90 p-6 sm:p-8 transition-all duration-300 relative overflow-hidden">
+          <!-- Top Chassis Metallic Accent Bar -->
+          <div class="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#38bdf8]/40 to-transparent"></div>
 
-          <!-- Card Header -->
-          <div class="flex items-center gap-3.5 pb-4 mb-4 border-b border-white/[0.08]">
-            <div class="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 text-white shadow-lg shadow-cyan-500/25">
-              <i data-lucide="lock" class="w-5 h-5"></i>
+          <!-- Card Header with Rack Blade Details -->
+          <div class="flex items-center justify-between pb-4 mb-4 border-b border-[#21262d]">
+            <div class="flex items-center gap-3.5">
+              <div class="p-2.5 rounded-xl bg-[#010409] border border-[#21262d] text-cyan-400 shadow-md">
+                <i data-lucide="server" class="w-5 h-5"></i>
+              </div>
+              <div class="text-left">
+                <h2 class="text-lg font-bold text-white tracking-tight">Rack Console Access</h2>
+                <p class="text-xs text-slate-400 font-mono">Blade 01 · Proxmox VE Dark NOC</p>
+              </div>
             </div>
-            <div class="text-left">
-              <h2 class="text-lg font-bold text-white tracking-tight">Sign in to console</h2>
-              <p class="text-xs text-slate-400">Authenticate credentials to access control panel</p>
+            <div class="flex items-center gap-1.5" title="Hardware Server Status Beacons">
+              <span class="led-beacon led-beacon-emerald" title="Online (#10b981)"></span>
+              <span class="led-beacon led-beacon-cyan" title="Network I/O (#38bdf8)"></span>
+              <span class="led-beacon led-beacon-amber" title="NVMe Block Array (#f59e0b)"></span>
+              <span class="led-beacon led-beacon-purple" title="FFmpeg Pipeline (#a855f7)"></span>
             </div>
           </div>
 
@@ -243,7 +253,7 @@
                   autocapitalize="none"
                   placeholder="admin"
                   style="font-size: 16px;"
-                  class="w-full min-touch pl-10 pr-4 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                  class="w-full min-touch pl-10 pr-4 py-2.5 rounded-xl bg-[#010409] border border-[#21262d] text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/30 font-mono transition-all"
                 />
               </div>
             </div>
@@ -275,7 +285,7 @@
                   autocomplete="current-password"
                   placeholder="••••••••••••"
                   style="font-size: 16px;"
-                  class="w-full min-touch pl-10 pr-11 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                  class="w-full min-touch pl-10 pr-11 py-2.5 rounded-xl bg-[#010409] border border-[#21262d] text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/30 font-mono transition-all"
                 />
                 <button
                   type="button"
@@ -314,42 +324,42 @@
             </button>
           </form>
 
-          <!-- Default Credentials Helper Banner -->
-          <div class="mt-5 pt-4 border-t border-white/[0.08] flex flex-col gap-2">
-            <div class="flex items-center justify-between text-[11px] text-slate-400">
+          <!-- Default Credentials Helper Banner (Recessed Terminal Readout) -->
+          <div class="mt-5 pt-4 border-t border-[#21262d] flex flex-col gap-2">
+            <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono">
               <span class="flex items-center gap-1.5">
-                <i data-lucide="terminal" class="w-3.5 h-3.5 text-slate-500"></i>
-                <span>Default credentials:</span>
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-cyan-400"></i>
+                <span>Chassis Factory Credentials:</span>
               </span>
               <button
                 type="button"
                 id="copy-creds-btn"
-                class="min-touch text-slate-400 hover:text-cyan-300 font-mono text-[11px] bg-slate-800/50 hover:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700/50 transition-colors inline-flex items-center justify-center"
+                class="min-touch text-slate-400 hover:text-cyan-300 font-mono text-[11px] bg-[#010409] hover:bg-[#161b22] px-3 py-1.5 rounded-lg border border-[#21262d] transition-colors inline-flex items-center justify-center"
               >
                 Copy
               </button>
             </div>
-            <div class="flex items-center justify-between font-mono text-[11px] bg-[#010409]/80 px-3 py-2 rounded-lg border border-white/[0.06] text-slate-300">
-              <span>admin</span>
+            <div class="flex items-center justify-between font-mono text-[11px] bg-[#010409] px-3 py-2 rounded-lg border border-[#21262d] text-slate-300 tabular-nums">
+              <span class="text-white font-semibold">admin</span>
               <span class="text-slate-600">/</span>
-              <span>Admin@Drive2026!</span>
+              <span class="text-white font-semibold">Admin@Drive2026!</span>
             </div>
           </div>
         </div>
 
-        <!-- Security & Platform Capability Pills Below Card -->
-        <div class="mt-4 flex flex-wrap items-center justify-center lg:justify-start gap-2 text-[11px] text-slate-400">
-          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1117]/80 backdrop-blur-md border border-slate-800">
-            <i data-lucide="shield" class="w-3.5 h-3.5 text-cyan-400"></i>
-            <span>JWT Dual-Key Verified</span>
+        <!-- Hardware Server NOC Status Strip Below Card -->
+        <div class="mt-4 flex flex-wrap items-center justify-center lg:justify-start gap-2 text-[11px] font-mono text-slate-400">
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0d1117] border border-[#21262d]">
+            <span class="led-beacon led-beacon-emerald" style="width:6px;height:6px"></span>
+            <span class="text-slate-300">1TB /mnt/storage Array</span>
           </div>
-          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1117]/80 backdrop-blur-md border border-slate-800">
-            <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-emerald-400"></i>
-            <span>1TB Dedicated NVMe</span>
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0d1117] border border-[#21262d]">
+            <span class="led-beacon led-beacon-cyan" style="width:6px;height:6px"></span>
+            <span class="text-slate-300">FastAPI Async Edge</span>
           </div>
-          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1117]/80 backdrop-blur-md border border-slate-800">
-            <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
-            <span>60fps WebGL Earth</span>
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0d1117] border border-[#21262d]">
+            <span class="led-beacon led-beacon-purple" style="width:6px;height:6px"></span>
+            <span class="text-slate-300">FFmpeg Worker Pool</span>
           </div>
         </div>
 
@@ -358,8 +368,8 @@
       <!-- Right Column: Interactive 3D Earth Telemetry Overlay HUD (Desktop lg+) -->
       <section class="hidden lg:flex flex-1 flex-col items-end justify-between self-stretch pointer-events-none py-4">
 
-        <!-- Top Telemetry HUD Badge -->
-        <div class="pointer-events-auto bg-[#0d1117]/85 backdrop-blur-xl border border-slate-700/60 rounded-xl p-3.5 shadow-xl text-left max-w-xs transition-all hover:border-cyan-500/40">
+        <!-- Top Telemetry HUD Blade -->
+        <div class="pointer-events-auto bg-[#0d1117]/95 backdrop-blur-xl border border-[#30363d] rounded-xl p-3.5 shadow-xl text-left max-w-xs transition-all hover:border-cyan-500/40">
           <div class="flex items-center justify-between gap-3 text-xs mb-1.5">
             <span class="font-mono text-cyan-400 font-semibold flex items-center gap-1.5">
               <i data-lucide="server" class="w-3.5 h-3.5"></i>
@@ -367,8 +377,9 @@
             </span>
             <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-800/40">ACTIVE</span>
           </div>
-          <div class="text-xs text-slate-300 font-mono space-y-0.5">
+          <div class="text-xs text-slate-300 font-mono space-y-0.5 tabular-nums">
             <div>Node: <strong class="text-white">OVH-EU-1TB</strong></div>
+            <div>Kernel/OS: <span class="text-slate-400">Linux 6.8 · Ubuntu 24.04</span></div>
             <div>Geo: <span class="text-slate-400">Roubaix, France (50.69°N, 3.17°E)</span></div>
             <div>Ingress Arcs: <span class="text-emerald-400 font-semibold">10 Global PoPs</span></div>
           </div>

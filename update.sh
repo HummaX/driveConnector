@@ -81,6 +81,20 @@ chmod 750 "$STORAGE_DIR/mongodb" 2>/dev/null || true
 chmod +x "$SCRIPT_DIR/update.sh" 2>/dev/null || true
 ln -sf "$SCRIPT_DIR/update.sh" /usr/local/bin/driveconnector-update 2>/dev/null || true
 
+# Ensure safeguard placeholder template JSON files exist in backend before docker compose up
+if [ ! -f "$SCRIPT_DIR/backend/credentials.json" ]; then
+    echo "{}" > "$SCRIPT_DIR/backend/credentials.json"
+fi
+if [ ! -f "$SCRIPT_DIR/backend/token.json" ]; then
+    echo "{}" > "$SCRIPT_DIR/backend/token.json"
+fi
+if [ ! -f "./backend/credentials.json" ]; then
+    echo "{}" > "./backend/credentials.json"
+fi
+if [ ! -f "./backend/token.json" ]; then
+    echo "{}" > "./backend/token.json"
+fi
+
 echo "[+] Rebuilding and launching containers..."
 docker compose up -d --build
 

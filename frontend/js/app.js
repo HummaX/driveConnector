@@ -642,15 +642,31 @@
       }
     }
 
-    if (!container) return;
+    const heroCard = document.getElementById('hero-transfers-card');
+    const heroCount = document.getElementById('hero-transfers-count');
+    const heroItems = document.getElementById('hero-transfers-items');
+    const miniBarWrap = document.getElementById('transfers-mini-bar-wrap');
+    const miniPct = document.getElementById('transfers-mini-pct');
+    const miniBar = document.getElementById('transfers-mini-bar');
 
     if (totalActive === 0) {
-      container.innerHTML = `
-        <div class="text-center py-8 text-slate-500 text-xs font-mono">
-          <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-slate-600 stroke-[1.5]"></i>
-          <span>All transfer and ingestion queues idle</span>
-        </div>
-      `;
+      if (container) {
+        container.innerHTML = `
+          <div class="text-center py-8 text-slate-500 text-xs font-mono">
+            <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-slate-600 stroke-[1.5]"></i>
+            <span>All transfer and ingestion queues idle</span>
+          </div>
+        `;
+      }
+      if (heroCard) heroCard.classList.add('hidden');
+      if (heroCount) heroCount.textContent = '0 Active';
+      if (heroItems) heroItems.innerHTML = '';
+      if (miniBarWrap) {
+        miniBarWrap.classList.add('hidden');
+        miniBarWrap.classList.remove('flex');
+      }
+      if (miniPct) miniPct.classList.add('hidden');
+      if (miniBar) miniBar.style.width = '0%';
       if (window.lucide) lucide.createIcons();
       return;
     }
@@ -735,7 +751,43 @@
       })
       .join('');
 
-    container.innerHTML = procHtml + dlHtml;
+    const fullTransfersHtml = procHtml + dlHtml;
+    if (container) container.innerHTML = fullTransfersHtml;
+
+    // Update Hero Transfers Card & Items
+    if (heroCard) {
+      heroCard.classList.remove('hidden');
+      if (heroCount) heroCount.textContent = `${totalActive} Active`;
+      if (heroItems) heroItems.innerHTML = fullTransfersHtml;
+    }
+
+    // Update Mini Progress Bar in Sticky Ribbon
+    const activeDlList = dlList.filter(t => t.status === 'DOWNLOADING' || (t.speed_mbs && t.speed_mbs > 0) || (typeof t.percentage === 'number' && t.percentage < 100));
+    const activeProcList = procList.filter(p => (typeof p.percent === 'number' && p.percent < 100) || (typeof p.stage_percent === 'number' && p.stage_percent < 100));
+    const activeItems = [...activeDlList, ...activeProcList];
+
+    if (activeItems.length > 0) {
+      const avgPct = Math.round(
+        activeItems.reduce((acc, t) => acc + (t.percentage ?? t.percent ?? t.stage_percent ?? 0), 0) / activeItems.length
+      );
+      if (miniBarWrap) {
+        miniBarWrap.classList.remove('hidden');
+        miniBarWrap.classList.add('flex');
+      }
+      if (miniPct) {
+        miniPct.textContent = `${avgPct}%`;
+        miniPct.classList.remove('hidden');
+      }
+      if (miniBar) miniBar.style.width = `${avgPct}%`;
+    } else {
+      if (miniBarWrap) {
+        miniBarWrap.classList.add('hidden');
+        miniBarWrap.classList.remove('flex');
+      }
+      if (miniPct) miniPct.classList.add('hidden');
+      if (miniBar) miniBar.style.width = '0%';
+    }
+
     if (window.lucide) lucide.createIcons();
   }
 
@@ -944,18 +996,42 @@
   function setupAudioBooster(videoEl) {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx || !videoEl) return;
-      if (state.audioCtx) {
-        try { state.audioCtx.close(); } catch (e) {}
-        state.audioCtx = null;
-        state.gainNode = null;
+      if (!AudioCtx) return;
+
+      if (!state.audioCtx || state.audioCtx.state === 'closed') {
+        state.audioCtx = new AudioCtx();
+        state.gainNode = state.audioCtx.createGain();
+        state.gainNode.gain.value = (state.currentGain || 100) / 100;
+        state.gainNode.connect(state.audioCtx.destination);
+      } else if (!state.gainNode) {
+        state.gainNode = state.audioCtx.createGain();
+        state.gainNode.gain.value = (state.currentGain || 100) / 100;
+        state.gainNode.connect(state.audioCtx.destination);
       }
-      state.audioCtx = new AudioCtx();
-      const source = state.audioCtx.createMediaElementSource(videoEl);
-      state.gainNode = state.audioCtx.createGain();
-      state.gainNode.gain.value = state.currentGain / 100;
-      source.connect(state.gainNode);
-      state.gainNode.connect(state.audioCtx.destination);
+
+      // Connect main video element (only once per video element instance)
+      const targetVideo = videoEl || (state.activePlayer?.el ? state.activePlayer.el().querySelector('video') : null) || document.querySelector('#player-container video');
+      if (targetVideo && (!targetVideo._mediaSourceNode || targetVideo._mediaSourceCtx !== state.audioCtx)) {
+        try {
+          targetVideo._mediaSourceNode = state.audioCtx.createMediaElementSource(targetVideo);
+          targetVideo._mediaSourceCtx = state.audioCtx;
+          targetVideo._mediaSourceNode.connect(state.gainNode);
+        } catch (err) {
+          console.warn('[AudioBooster] Error creating video MediaElementSource:', err);
+        }
+      }
+
+      // Connect companion audio element (only once per audio element instance)
+      const audioEl = document.getElementById('player-companion-audio');
+      if (audioEl && (!audioEl._mediaSourceNode || audioEl._mediaSourceCtx !== state.audioCtx)) {
+        try {
+          audioEl._mediaSourceNode = state.audioCtx.createMediaElementSource(audioEl);
+          audioEl._mediaSourceCtx = state.audioCtx;
+          audioEl._mediaSourceNode.connect(state.gainNode);
+        } catch (err) {
+          console.warn('[AudioBooster] Error creating audio MediaElementSource:', err);
+        }
+      }
     } catch (err) {
       console.warn('[AudioBooster] Error initializing AudioContext gain node:', err);
     }
@@ -1000,8 +1076,17 @@
     const audioEl = document.getElementById('player-companion-audio');
     if (!audioEl || !videoEl) return;
 
+    // Route both main video and companion audio through audio booster gainNode
+    setupAudioBooster(videoEl);
+
     const handlePlay = () => {
       if (state.activeAudioTrack > 0 && audioEl.src) {
+        audioEl.currentTime = videoEl.currentTime;
+        audioEl.playbackRate = videoEl.playbackRate;
+        audioEl.volume = videoEl.volume;
+        if (state.audioCtx && state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume().catch(() => {});
+        }
         audioEl.play().catch(() => {});
       }
     };
@@ -1012,7 +1097,12 @@
       if (state.activeAudioTrack > 0) audioEl.currentTime = videoEl.currentTime;
     };
     const handleSeeked = () => {
-      if (state.activeAudioTrack > 0) audioEl.currentTime = videoEl.currentTime;
+      if (state.activeAudioTrack > 0) {
+        audioEl.currentTime = videoEl.currentTime;
+        if (!videoEl.paused && audioEl.src) {
+          audioEl.play().catch(() => {});
+        }
+      }
     };
     const handleRateChange = () => {
       if (state.activeAudioTrack > 0) audioEl.playbackRate = videoEl.playbackRate;
@@ -1020,9 +1110,29 @@
     const handleVolumeChange = () => {
       if (state.activeAudioTrack > 0) audioEl.volume = videoEl.volume;
     };
-    const handleTimeUpdate = () => {
-      if (state.activeAudioTrack > 0 && Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.3) {
+    // Pause companion audio immediately while video buffers
+    const handleBuffering = () => {
+      if (state.activeAudioTrack > 0) audioEl.pause();
+    };
+    // Resync currentTime and resume audio when video resumes playing or can play
+    const handleResumeSync = () => {
+      if (state.activeAudioTrack > 0 && audioEl.src) {
         audioEl.currentTime = videoEl.currentTime;
+        audioEl.playbackRate = videoEl.playbackRate;
+        if (!videoEl.paused) {
+          if (state.audioCtx && state.audioCtx.state === 'suspended') {
+            state.audioCtx.resume().catch(() => {});
+          }
+          audioEl.play().catch(() => {});
+        }
+      }
+    };
+    // Tightened drift correction threshold to 0.15s
+    const handleTimeUpdate = () => {
+      if (state.activeAudioTrack > 0 && audioEl.src) {
+        if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.15) {
+          audioEl.currentTime = videoEl.currentTime;
+        }
       }
     };
 
@@ -1032,6 +1142,10 @@
     videoEl.addEventListener('seeked', handleSeeked);
     videoEl.addEventListener('ratechange', handleRateChange);
     videoEl.addEventListener('volumechange', handleVolumeChange);
+    videoEl.addEventListener('waiting', handleBuffering);
+    videoEl.addEventListener('stalled', handleBuffering);
+    videoEl.addEventListener('playing', handleResumeSync);
+    videoEl.addEventListener('canplay', handleResumeSync);
     videoEl.addEventListener('timeupdate', handleTimeUpdate);
 
     state.companionAudioCleanup = () => {
@@ -1041,6 +1155,10 @@
       videoEl.removeEventListener('seeked', handleSeeked);
       videoEl.removeEventListener('ratechange', handleRateChange);
       videoEl.removeEventListener('volumechange', handleVolumeChange);
+      videoEl.removeEventListener('waiting', handleBuffering);
+      videoEl.removeEventListener('stalled', handleBuffering);
+      videoEl.removeEventListener('playing', handleResumeSync);
+      videoEl.removeEventListener('canplay', handleResumeSync);
       videoEl.removeEventListener('timeupdate', handleTimeUpdate);
     };
   }
@@ -1053,6 +1171,9 @@
     const videoEl = state.activePlayer?.el ? state.activePlayer.el().querySelector('video') : document.querySelector('#player-container video');
     const audioEl = document.getElementById('player-companion-audio');
     if (!videoEl || !audioEl) return;
+
+    // Route both main video and companion audio through audio booster gainNode
+    setupAudioBooster(videoEl);
 
     if (idx === 0) {
       audioEl.pause();
@@ -1067,6 +1188,9 @@
       audioEl.playbackRate = videoEl.playbackRate;
       audioEl.volume = videoEl.volume;
       if (!videoEl.paused) {
+        if (state.audioCtx && state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume().catch(() => {});
+        }
         audioEl.play().catch(() => {});
       }
     }
@@ -1223,12 +1347,48 @@
     }
   }
 
+  // Helper to attach/re-attach WebVTT <track> elements to video element
+  function attachSubtitleTracksToPlayer(videoEl, v) {
+    if (!videoEl || !v) return;
+    videoEl.querySelectorAll('track').forEach(t => t.remove());
+
+    const subTracks = v.subtitle_tracks || [];
+    subTracks.forEach(st => {
+      if (st.url) {
+        const trackEl = document.createElement('track');
+        trackEl.kind = 'captions';
+        trackEl.label = st.label || `${st.language_name || 'Sub'} (${st.codec})`;
+        trackEl.srclang = st.language || 'en';
+        trackEl.src = st.url;
+        if (st.is_default) trackEl.default = true;
+        videoEl.appendChild(trackEl);
+      }
+    });
+
+    if (v.subtitles_url && !subTracks.some(st => st.url === v.subtitles_url)) {
+      const trackEl = document.createElement('track');
+      trackEl.kind = 'captions';
+      trackEl.label = 'AI Whisper (English)';
+      trackEl.srclang = 'en';
+      trackEl.src = v.subtitles_url;
+      if (subTracks.length === 0) trackEl.default = true;
+      videoEl.appendChild(trackEl);
+    }
+  }
+
   // Quality Switching
   function changePlayerQuality(q) {
     if (!state.activeVideo || !state.activePlayer) return;
     showBufferingIndicator(true);
     state.currentQuality = q;
+
+    const wasPaused = typeof state.activePlayer.paused === 'function' ? state.activePlayer.paused() : false;
     const curTime = typeof state.activePlayer.currentTime === 'function' ? state.activePlayer.currentTime() : 0;
+    const currentRate = typeof state.activePlayer.playbackRate === 'function' ? state.activePlayer.playbackRate() : (state.currentSpeed || 1);
+    const savedAudioTrack = state.activeAudioTrack || 0;
+    const sSelect = document.getElementById('player-subtitles-select');
+    const savedSubTrack = sSelect ? sSelect.value : null;
+
     const streamBase = `/api/stream/${state.activeVideo.video_id}`;
     const params = new URLSearchParams();
     const token = getAuthToken();
@@ -1238,12 +1398,45 @@
     const srcUrl = qs ? `${streamBase}?${qs}` : streamBase;
 
     state.activePlayer.src({ src: srcUrl, type: 'video/mp4' });
+
     state.activePlayer.one('loadedmetadata', () => {
-      if (curTime > 0) state.activePlayer.currentTime(curTime);
-      if (typeof state.activePlayer.playbackRate === 'function') {
-        state.activePlayer.playbackRate(state.currentSpeed);
+      const rawVideo = state.activePlayer.el()?.querySelector('video') || document.querySelector('#player-container video');
+
+      // Re-attach WebVTT <track> elements after player.src(...) loads
+      if (rawVideo && state.activeVideo) {
+        attachSubtitleTracksToPlayer(rawVideo, state.activeVideo);
       }
-      state.activePlayer.play().catch(() => {});
+      if (savedSubTrack !== null) {
+        changePlayerSubtitleTrack(savedSubTrack);
+      }
+
+      // Preserve currentTime
+      if (curTime > 0 && typeof state.activePlayer.currentTime === 'function') {
+        state.activePlayer.currentTime(curTime);
+      }
+
+      // Preserve playbackRate
+      if (typeof state.activePlayer.playbackRate === 'function') {
+        state.activePlayer.playbackRate(currentRate);
+      }
+
+      // Preserve active audio track (re-invoke changePlayerAudioTrack)
+      changePlayerAudioTrack(savedAudioTrack);
+
+      // Re-ensure audio booster and companion sync on raw video
+      if (rawVideo) {
+        setupAudioBooster(rawVideo);
+        setupCompanionAudioSync(rawVideo);
+      }
+
+      showBufferingIndicator(false);
+
+      // Preserve wasPaused state
+      if (!wasPaused) {
+        state.activePlayer.play().catch(() => {});
+      } else {
+        state.activePlayer.pause();
+      }
     });
   }
 
@@ -1316,27 +1509,7 @@
       videoEl.controls = true;
 
       // Inject Subtitle tracks
-      const subTracks = v.subtitle_tracks || [];
-      subTracks.forEach(st => {
-        if (st.url) {
-          const trackEl = document.createElement('track');
-          trackEl.kind = 'captions';
-          trackEl.label = st.label || `${st.language_name || 'Sub'} (${st.codec})`;
-          trackEl.srclang = st.language || 'en';
-          trackEl.src = st.url;
-          if (st.is_default) trackEl.default = true;
-          videoEl.appendChild(trackEl);
-        }
-      });
-      if (v.subtitles_url && !subTracks.some(st => st.url === v.subtitles_url)) {
-        const trackEl = document.createElement('track');
-        trackEl.kind = 'captions';
-        trackEl.label = 'AI Whisper (English)';
-        trackEl.srclang = 'en';
-        trackEl.src = v.subtitles_url;
-        if (subTracks.length === 0) trackEl.default = true;
-        videoEl.appendChild(trackEl);
-      }
+      attachSubtitleTracksToPlayer(videoEl, v);
 
       container.appendChild(videoEl);
 
@@ -1533,6 +1706,10 @@
     if (audioEl) {
       audioEl.pause();
       audioEl.removeAttribute('src');
+      audioEl._mediaSourceNode = null;
+      audioEl._mediaSourceCtx = null;
+      const freshAudio = audioEl.cloneNode(false);
+      audioEl.parentNode?.replaceChild(freshAudio, audioEl);
     }
     state.activeAudioTrack = 0;
 
@@ -1941,7 +2118,279 @@
     }
   }
 
-  // MongoDB Live UI Modal & Dynamic SSH Tunnel Fetch
+  // ============================================================================
+  // GOOGLE DRIVE SYNC MODAL HANDLERS
+  // ============================================================================
+  let currentSyncTab = 'apikey';
+  function switchSyncTab(tab) {
+    currentSyncTab = tab;
+    const apikeySec = document.getElementById('sync-section-apikey');
+    const saSec = document.getElementById('sync-section-sa');
+    const apikeyBtn = document.getElementById('sync-tab-apikey');
+    const saBtn = document.getElementById('sync-tab-sa');
+    if (tab === 'apikey') {
+      if (apikeySec) apikeySec.classList.remove('hidden');
+      if (saSec) saSec.classList.add('hidden');
+      if (apikeyBtn) apikeyBtn.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition';
+      if (saBtn) saBtn.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition';
+    } else {
+      if (apikeySec) apikeySec.classList.add('hidden');
+      if (saSec) saSec.classList.remove('hidden');
+      if (apikeyBtn) apikeyBtn.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition';
+      if (saBtn) saBtn.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition';
+    }
+  }
+
+  async function openSyncModal() {
+    const modal = document.getElementById('sync-modal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    const status = document.getElementById('sync-status');
+    if (status) {
+      status.classList.add('hidden');
+      status.textContent = '';
+    }
+
+    try {
+      const res = await fetchWithAuth('/api/drive/config');
+      if (res && res.ok) {
+        const cfg = await res.json();
+        const badge = document.getElementById('sync-connection-badge');
+        if (badge) {
+          if (cfg.status === 'connected') {
+            badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+            badge.textContent = 'Status: Connected';
+          } else if (cfg.configured) {
+            badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/25';
+            badge.textContent = 'Status: Configured';
+          } else {
+            badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700';
+            badge.textContent = 'Status: Unconfigured';
+          }
+        }
+
+        const disBtn = document.getElementById('sync-disconnect-btn');
+        if (disBtn) {
+          if (cfg.configured) disBtn.classList.remove('hidden');
+          else disBtn.classList.add('hidden');
+        }
+
+        const folderInp = document.getElementById('sync-folder-input');
+        if (folderInp && cfg.folder_id && !folderInp.value) {
+          folderInp.value = cfg.folder_id;
+        }
+
+        const apiKeyInp = document.getElementById('sync-api-key-input');
+        if (apiKeyInp && cfg.has_api_key && cfg.api_key_masked) {
+          apiKeyInp.placeholder = `Active: ${cfg.api_key_masked} (Paste new key to change)`;
+        }
+
+        if (cfg.has_service_account && !cfg.has_api_key) {
+          switchSyncTab('sa');
+        }
+      }
+    } catch (e) {
+      console.warn('[SyncModal] Error fetching drive config:', e);
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function closeSyncModal() {
+    const modal = document.getElementById('sync-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+  }
+
+  async function handleSyncTest() {
+    const btn = document.getElementById('sync-test-btn');
+    const status = document.getElementById('sync-status');
+    const apiKey = document.getElementById('sync-api-key-input')?.value.trim() || '';
+    const saJson = document.getElementById('sync-sa-input')?.value.trim() || '';
+    const folder = document.getElementById('sync-folder-input')?.value.trim() || '';
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+    }
+    if (status) {
+      status.className = 'text-xs mb-2 p-2 rounded-lg border bg-sky-500/10 border-sky-500/20 text-sky-400';
+      status.textContent = 'Testing connectivity to Google Drive API v3...';
+      status.classList.remove('hidden');
+    }
+
+    try {
+      const payload = {
+        auth_type: currentSyncTab === 'apikey' ? 'api_key' : 'service_account',
+        api_key: apiKey || undefined,
+        service_account_json: saJson || undefined,
+        folder_id: folder || undefined
+      };
+
+      const res = await fetchWithAuth('/api/drive/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (data.success) {
+        if (status) {
+          status.className = 'text-xs mb-2 p-2 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
+          status.textContent = data.message || 'Connection successful!';
+        }
+        const badge = document.getElementById('sync-connection-badge');
+        if (badge) {
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+          badge.textContent = 'Status: Connected';
+        }
+      } else {
+        if (status) {
+          status.className = 'text-xs mb-2 p-2 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
+          status.textContent = data.message || 'Connection test failed.';
+        }
+      }
+    } catch (err) {
+      if (status) {
+        status.className = 'text-xs mb-2 p-2 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
+        status.textContent = `Error: ${err.message}`;
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Test Connection';
+      }
+    }
+  }
+
+  async function handleSyncSave() {
+    const btn = document.getElementById('sync-save-btn');
+    const status = document.getElementById('sync-status');
+    const apiKey = document.getElementById('sync-api-key-input')?.value.trim() || '';
+    const saJson = document.getElementById('sync-sa-input')?.value.trim() || '';
+    const folder = document.getElementById('sync-folder-input')?.value.trim() || '';
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Saving & Syncing...';
+    }
+
+    try {
+      const payload = {
+        auth_type: currentSyncTab === 'apikey' ? 'api_key' : 'service_account',
+        folder_id: folder
+      };
+      if (apiKey) payload.api_key = apiKey;
+      if (saJson) payload.service_account_json = saJson;
+
+      const res = await fetchWithAuth('/api/drive/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to save configuration');
+      }
+
+      const data = await res.json().catch(() => ({}));
+
+      // Trigger Drive sync
+      await fetchWithAuth('/api/videos/sync-drive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_id: folder || undefined })
+      }).catch(() => null);
+
+      if (status) {
+        status.className = 'text-xs mb-2 p-2 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400';
+        status.textContent = 'Google Drive configuration saved and catalog synced successfully!';
+        status.classList.remove('hidden');
+      }
+
+      const badge = document.getElementById('sync-connection-badge');
+      if (badge) {
+        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+        badge.textContent = 'Status: Configured';
+      }
+
+      const disBtn = document.getElementById('sync-disconnect-btn');
+      if (disBtn) disBtn.classList.remove('hidden');
+
+      const apiKeyInp = document.getElementById('sync-api-key-input');
+      if (apiKeyInp) {
+        apiKeyInp.value = '';
+        if (data.config && data.config.api_key_masked) {
+          apiKeyInp.placeholder = `Active: ${data.config.api_key_masked} (Paste new key to change)`;
+        }
+      }
+      const saInp = document.getElementById('sync-sa-input');
+      if (saInp) saInp.value = '';
+
+      showToast('Google Drive synced successfully', 'success');
+      fetchVideos();
+      fetchMetrics();
+      return true;
+    } catch (err) {
+      if (status) {
+        status.className = 'text-xs mb-2 p-2 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400';
+        status.textContent = `Save error: ${err.message}`;
+        status.classList.remove('hidden');
+      }
+      showToast(err.message, 'error');
+      return false;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Save & Sync Now';
+      }
+    }
+  }
+
+  async function handleSyncDisconnect() {
+    if (!confirm('Are you sure you want to disconnect and clear saved Google Drive credentials?')) {
+      return;
+    }
+    const btn = document.getElementById('sync-disconnect-btn');
+    if (btn) btn.disabled = true;
+
+    try {
+      const res = await fetchWithAuth('/api/drive/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clear_credentials: true })
+      });
+      if (res.ok) {
+        const apiKeyInp = document.getElementById('sync-api-key-input');
+        if (apiKeyInp) {
+          apiKeyInp.value = '';
+          apiKeyInp.placeholder = 'AIzaSy...';
+        }
+        const saInp = document.getElementById('sync-sa-input');
+        if (saInp) saInp.value = '';
+
+        const badge = document.getElementById('sync-connection-badge');
+        if (badge) {
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700';
+          badge.textContent = 'Status: Unconfigured';
+        }
+        if (btn) btn.classList.add('hidden');
+        showToast('Google Drive credentials cleared', 'info');
+      }
+    } catch (err) {
+      showToast('Failed to disconnect Google Drive', 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ============================================================================
+  // MONGO EXPRESS MODAL & COLLECTION EXPLORER
+  // ============================================================================
   async function openMongoModal() {
     const modal = document.getElementById('mongo-modal');
     if (modal) {
@@ -1969,10 +2418,38 @@
         if (passEl) passEl.textContent = pass;
         const portEl = document.getElementById('me-port-num');
         if (portEl) portEl.textContent = port;
+
+        const colsBar = document.getElementById('mongo-cols-bar');
+        if (colsBar && Array.isArray(data.collections)) {
+          colsBar.innerHTML = data.collections
+            .map(c => `<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">${escapeHtml(c.name)} (${c.count})</span>`)
+            .join(' ');
+        }
       }
     } catch (err) {
       console.warn('[MongoModal] Error fetching db stats:', err);
     }
+
+    try {
+      const docsRes = await fetchWithAuth('/api/db/collections/videos');
+      if (docsRes && docsRes.ok) {
+        const docs = await docsRes.json();
+        const docsContainer = document.getElementById('mongo-docs-container');
+        if (docsContainer) {
+          if (Array.isArray(docs) && docs.length > 0) {
+            docsContainer.innerHTML = docs
+              .slice(0, 10)
+              .map(d => `<div class="p-2 rounded bg-slate-900/60 border border-slate-800 text-[11px] font-mono text-slate-300 truncate">${escapeHtml(d.title || d.video_id || JSON.stringify(d))}</div>`)
+              .join('');
+          } else {
+            docsContainer.innerHTML = `<span class="text-xs text-slate-500">No documents in collection videos</span>`;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[MongoModal] Error fetching videos collection:', e);
+    }
+
     if (window.lucide) lucide.createIcons();
   }
 
@@ -1984,7 +2461,29 @@
     }
   }
 
-  // JDownloader 2 Modal & Dynamic SSH Tunnel Command
+  function copyMongoTunnelCmd() {
+    const cmd = document.getElementById('me-tunnel-cmd-text');
+    const label = document.getElementById('me-copy-cmd-label');
+    if (cmd) {
+      navigator.clipboard.writeText(cmd.innerText.trim());
+      if (label) {
+        label.textContent = 'Copied!';
+        setTimeout(() => { label.textContent = 'Copy'; }, 2000);
+      }
+    }
+  }
+
+  function copyMongoPassword() {
+    const pass = document.getElementById('me-pass-val');
+    if (pass) {
+      navigator.clipboard.writeText(pass.innerText.trim());
+      showToast('Password copied to clipboard', 'info');
+    }
+  }
+
+  // ============================================================================
+  // JDOWNLOADER 2 MODAL HANDLERS
+  // ============================================================================
   function openJDownloaderModal() {
     const modal = document.getElementById('jdownloader-modal');
     const host = window.location.hostname || 'localhost';
@@ -2006,6 +2505,136 @@
       modal.classList.add('hidden');
       modal.classList.remove('flex');
     }
+  }
+
+  function copyJdCmd() {
+    const host = window.location.hostname || 'localhost';
+    const cmd = `ssh -L 5800:127.0.0.1:5800 ubuntu@${host}`;
+    navigator.clipboard.writeText(cmd);
+    showToast('JDownloader SSH command copied', 'info');
+  }
+
+  // ============================================================================
+  // EXTERNAL URL INGESTION MODAL & BATCH SUBMIT HANDLERS
+  // ============================================================================
+  let modalUrlMode = 'single';
+  function switchUrlMode(mode) {
+    modalUrlMode = mode;
+    const singleContainer = document.getElementById('url-single-container');
+    const batchContainer = document.getElementById('url-batch-container');
+    const singleBtn = document.getElementById('url-mode-single-btn');
+    const batchBtn = document.getElementById('url-mode-batch-btn');
+
+    if (mode === 'single') {
+      if (singleContainer) singleContainer.classList.remove('hidden');
+      if (batchContainer) batchContainer.classList.add('hidden');
+      if (singleBtn) singleBtn.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition';
+      if (batchBtn) batchBtn.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition';
+    } else {
+      if (singleContainer) singleContainer.classList.add('hidden');
+      if (batchContainer) batchContainer.classList.remove('hidden');
+      if (singleBtn) singleBtn.className = 'min-touch flex-1 py-2 rounded-lg text-slate-400 hover:text-white transition';
+      if (batchBtn) batchBtn.className = 'min-touch flex-1 py-2 rounded-lg bg-sky-500 text-white font-semibold shadow transition';
+    }
+  }
+
+  function openUrlModal() {
+    const modal = document.getElementById('url-modal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    const errEl = document.getElementById('url-error-msg');
+    if (errEl) errEl.classList.add('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function closeUrlModal() {
+    const modal = document.getElementById('url-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+  }
+
+  async function handleModalUrlSubmit() {
+    const errEl = document.getElementById('url-error-msg');
+    if (errEl) errEl.classList.add('hidden');
+
+    const singleInput = document.getElementById('modal-url-input') || document.getElementById('url-input');
+    const titleInput = document.getElementById('url-title-input');
+    const batchInput = document.getElementById('url-batch-input');
+
+    if (modalUrlMode === 'single') {
+      const url = singleInput ? singleInput.value.trim() : '';
+      const title = titleInput ? titleInput.value.trim() : '';
+      if (!url) {
+        if (errEl) {
+          errEl.textContent = 'Please enter a media URL.';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+      await submitUrlDownload(url, title);
+      closeUrlModal();
+      if (singleInput) singleInput.value = '';
+      if (titleInput) titleInput.value = '';
+    } else {
+      const batchText = batchInput ? batchInput.value.trim() : '';
+      const urls = batchText.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+      if (urls.length === 0) {
+        if (errEl) {
+          errEl.textContent = 'Please enter at least one URL (one per line).';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+      showToast(`Submitting ${urls.length} batch download(s)...`, 'info');
+      try {
+        let res = await fetchWithAuth('/api/videos/download-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls })
+        }).catch(() => null);
+
+        if (!res || !res.ok) {
+          res = await fetchWithAuth('/api/download-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls })
+          });
+        }
+
+        if (res && res.ok) {
+          showToast(`Batch queued: ${urls.length} downloads started`, 'success');
+          closeUrlModal();
+          if (batchInput) batchInput.value = '';
+          fetchVideos();
+          const drawer = document.getElementById('transfers-drawer');
+          if (drawer) drawer.classList.remove('hidden');
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          if (errEl) {
+            errEl.textContent = errData.detail || 'Failed to submit batch download';
+            errEl.classList.remove('hidden');
+          }
+          showToast(errData.detail || 'Batch submission failed', 'error');
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = err.message;
+          errEl.classList.remove('hidden');
+        }
+        showToast('Batch submission error', 'error');
+      }
+    }
+  }
+
+  function handleQuickUrlSubmit() {
+    const inp = document.getElementById('url-input');
+    if (!inp || !inp.value.trim()) return;
+    submitUrlDownload(inp.value.trim());
+    inp.value = '';
   }
 
   /* ============================================================================
@@ -2204,6 +2833,51 @@
         uptimeEl.textContent = formatUptime(data.server.uptime_seconds);
       }
     }
+
+    // Live Transfers Strip & Mini Telemetry Ribbon
+    const dlList = Object.values(state.transfers || {});
+    const procList = Object.values(state.processingJobs || {});
+    const qCount = data.pipeline?.in_queue || 0;
+    const procCount = data.pipeline?.in_processing || 0;
+    const totalActiveTransfers = Math.max(dlList.length + procList.length, qCount + procCount);
+
+    const heroCard = document.getElementById('hero-transfers-card');
+    const heroCount = document.getElementById('hero-transfers-count');
+    const heroItems = document.getElementById('hero-transfers-items');
+    const miniBarWrap = document.getElementById('transfers-mini-bar-wrap');
+    const miniPct = document.getElementById('transfers-mini-pct');
+    const miniBar = document.getElementById('transfers-mini-bar');
+
+    if (totalActiveTransfers > 0) {
+      if (heroCard) heroCard.classList.remove('hidden');
+      if (heroCount) heroCount.textContent = `${totalActiveTransfers} Active`;
+      const tc = document.getElementById('transfers-container') || document.getElementById('transfers-list');
+      if (heroItems && tc && tc.children.length > 0 && !heroItems.innerHTML.trim()) {
+        heroItems.innerHTML = tc.innerHTML;
+      }
+      const activeItems = [...dlList, ...procList].filter(t => (t.percentage && t.percentage < 100) || (t.percent && t.percent < 100) || t.status === 'DOWNLOADING' || t.status === 'PROCESSING');
+      const avgPct = activeItems.length > 0
+        ? Math.round(activeItems.reduce((acc, t) => acc + (t.percentage ?? t.percent ?? t.stage_percent ?? 0), 0) / activeItems.length)
+        : (procCount > 0 ? 50 : 0);
+      if (miniBarWrap) {
+        miniBarWrap.classList.remove('hidden');
+        miniBarWrap.classList.add('flex');
+      }
+      if (miniPct) {
+        miniPct.textContent = `${avgPct}%`;
+        miniPct.classList.remove('hidden');
+      }
+      if (miniBar) miniBar.style.width = `${avgPct}%`;
+    } else {
+      if (heroCard) heroCard.classList.add('hidden');
+      if (heroCount) heroCount.textContent = '0 Active';
+      if (miniBarWrap) {
+        miniBarWrap.classList.add('hidden');
+        miniBarWrap.classList.remove('flex');
+      }
+      if (miniPct) miniPct.classList.add('hidden');
+      if (miniBar) miniBar.style.width = '0%';
+    }
   }
 
   async function fetchAllData() {
@@ -2302,6 +2976,9 @@
   window.switchAudioTrack = changePlayerAudioTrack;
   window.changePlayerSubtitleTrack = changePlayerSubtitleTrack;
   window.switchSubtitleTrack = changePlayerSubtitleTrack;
+  window.attachSubtitleTracksToPlayer = attachSubtitleTracksToPlayer;
+  window.setupCompanionAudioSync = setupCompanionAudioSync;
+  window.setupAudioBooster = setupAudioBooster;
   window.triggerWhisperTranscribe = triggerWhisperTranscribe;
   window.startWhisper = triggerWhisperTranscribe;
   window.setAudioGain = setAudioGain;
@@ -2322,10 +2999,33 @@
   window.setCatalogView = setCatalogView;
   window.setAppCatalogView = setCatalogView;
 
+  window.openSyncModal = openSyncModal;
+  window.closeSyncModal = closeSyncModal;
+  window.switchSyncTab = switchSyncTab;
+  window.handleSyncTest = handleSyncTest;
+  window.handleSyncSave = handleSyncSave;
+  window.handleSyncDisconnect = handleSyncDisconnect;
+  window.testDriveConnection = handleSyncTest;
+  window.saveDriveConfig = handleSyncSave;
+  window.disconnectDrive = handleSyncDisconnect;
+
   window.openMongoModal = openMongoModal;
   window.closeMongoModal = closeMongoModal;
+  window.copyMongoTunnelCmd = copyMongoTunnelCmd;
+  window.copyMongoPassword = copyMongoPassword;
+
   window.openJDownloaderModal = openJDownloaderModal;
   window.closeJDownloaderModal = closeJDownloaderModal;
+  window.copyJdCmd = copyJdCmd;
+
+  window.openUrlModal = openUrlModal;
+  window.closeUrlModal = closeUrlModal;
+  window.switchUrlMode = switchUrlMode;
+  window.handleModalUrlSubmit = handleModalUrlSubmit;
+  window.triggerUrlDownload = handleModalUrlSubmit;
+  window.handleQuickUrlSubmit = handleQuickUrlSubmit;
+
+  window.updateSystemMetricsUI = updateSystemMetricsUI;
   window.persistAuth = persistAuth;
   window.handleLogout = handleLogout;
 

@@ -71,6 +71,7 @@ services:
     volumes:
       # Mount 1TB block storage for media, metadata, and database
       - ${STORAGE_DIR:-/mnt/storage}:${STORAGE_DIR:-/mnt/storage}
+      - ./frontend:/frontend:ro
     depends_on:
       mongodb:
         condition: service_healthy

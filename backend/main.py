@@ -770,7 +770,7 @@ async def probe_and_extract_tracks(
         "video": updated
     }
 
-STREAM_BURST_CHUNK_SIZE_BYTES: int = 1024 * 1024  # 1MB burst chunk for responsive HTTP 206 progressive start
+STREAM_BURST_CHUNK_SIZE_BYTES: int = 16 * 1024 * 1024  # 16MB burst chunk for responsive HTTP 206 progressive start & open-ended Range: bytes=start- requests
 
 @app.get("/api/videos/{video_id}/audio/{track_index}")
 async def stream_audio_track(
@@ -832,7 +832,7 @@ async def stream_audio_track(
             headers={"Content-Range": f"bytes */{file_size}"}
         )
 
-    # Responsive 1MB HTTP 206 Partial Content byte-range burst cap
+    # Responsive 16MB HTTP 206 Partial Content byte-range burst cap
     max_chunk = STREAM_BURST_CHUNK_SIZE_BYTES
     if (end - start + 1) > max_chunk:
         end = start + max_chunk - 1
