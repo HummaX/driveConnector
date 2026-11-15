@@ -2372,6 +2372,7 @@
     async function openPlayerModal(v) {
       activeVideoModal = v;
       activeAudioTrackIndex = 0;
+      const isPlayable = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
       document.getElementById('player-title').innerText = v.title;
       document.getElementById('player-footer-path').innerText = v.local_path || `/mnt/storage/videos/${v.video_id}.mp4`;
       document.getElementById('player-footer-status').innerText = v.status;
@@ -2450,8 +2451,6 @@
 
       const container = document.getElementById('player-container');
       container.innerHTML = '';
-
-      const isPlayable = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
 
       if (isPlayable) {
         showBufferingIndicator(true);
