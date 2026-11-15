@@ -12,7 +12,7 @@ import UrlDownloadModal from './components/UrlDownloadModal';
 import MongoDbModal from './components/MongoDbModal';
 import JDownloaderModal from './components/JDownloaderModal';
 import TransfersDrawer from './components/TransfersDrawer';
-import LoginPage from './components/LoginPage';
+import LoginPage, { NetworkCanvas } from './components/LoginPage';
 import StatsDashboard from './components/StatsDashboard';
 
 export default function App() {
@@ -475,7 +475,12 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0c14] text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
+    <div className="min-h-screen bg-[#0a0c14] text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white relative">
+      {/* Ambient Network Canvas Background */}
+      <div className="fixed inset-0 pointer-events-none opacity-25 z-0">
+        <NetworkCanvas />
+      </div>
+
       {/* Top Hardware Telemetry Header */}
       <Navbar
         user={user}
@@ -716,31 +721,43 @@ export default function App() {
           )
         ) : (
           /* Empty State */
-          <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-[#0d1117]/60 border border-dashed border-[#30363d] rounded-2xl">
-            <div className="p-3.5 rounded-2xl bg-[#161b22] text-slate-500 mb-3 border border-[#30363d]">
-              <Film className="w-8 h-8 text-sky-400" />
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-[#0d1117]/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl shadow-black/40 max-w-xl mx-auto my-8">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white mb-4 shadow-lg shadow-sky-500/30">
+              <Film className="w-8 h-8 stroke-[1.75]" />
             </div>
-            <h3 className="text-sm font-semibold text-white mb-1">No media files in catalog</h3>
-            <p className="text-xs text-slate-400 max-w-sm mb-5">
-              Sync your Google Drive library with zero disk storage footprint, or ingest high-resolution web streams.
+            <h3 className="text-base font-bold text-white mb-1.5 tracking-tight">Your catalog is waiting</h3>
+            <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
+              Sync your Google Drive library with zero disk storage footprint, or ingest high-resolution web streams directly into 1TB NVMe storage.
             </p>
-            <div className="flex items-center space-x-2.5">
+            <div className="flex items-center space-x-3 mb-5">
               <button
                 onClick={() => setIsSyncModalOpen(true)}
-                className="px-3.5 py-2 rounded-lg bg-[#161b22] hover:bg-[#21262d] text-white text-xs font-semibold border border-[#30363d] shadow-sm transition"
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-[#161b22] hover:bg-[#21262d] text-slate-200 hover:text-white text-xs font-semibold border border-[#30363d] hover:border-slate-600 shadow-sm transition"
               >
-                Sync Google Drive
+                <Cloud className="w-3.5 h-3.5 text-sky-400" />
+                <span>Sync Google Drive</span>
               </button>
               <button
                 onClick={() => setIsUrlModalOpen(true)}
-                className="px-3.5 py-2 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold border border-[#2ea043]/50 shadow-sm transition"
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold border border-[#2ea043]/50 shadow-sm transition"
               >
-                Add External URL
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Add External URL</span>
               </button>
+            </div>
+            <div className="flex items-center space-x-3 text-[11px] text-slate-500">
+              <span className="flex items-center space-x-1"><HardDrive className="w-3 h-3 text-sky-400" /><span>1TB NVMe</span></span>
+              <span>•</span>
+              <span className="flex items-center space-x-1"><Sparkles className="w-3 h-3 text-amber-400" /><span>Byte Range Ready</span></span>
             </div>
           </div>
         )}
       </main>
+
+      {/* Dashboard Footer matching Login View */}
+      <footer className="relative z-10 py-6 border-t border-[#30363d]/60 mt-auto text-center text-[10px] text-slate-600 font-mono">
+        DriveConnector · Self-Hosted Media Platform · Powered by FastAPI + MongoDB + FFmpeg
+      </footer>
 
       {/* Video Player Modal with Authenticated Range Streaming */}
       {selectedVideo && (

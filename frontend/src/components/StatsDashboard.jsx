@@ -87,8 +87,10 @@ export default function StatsDashboard({
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h2 className="text-sm font-semibold tracking-tight text-white">
-                Operations & Streaming Telemetry
+              <h2 className="text-sm font-bold tracking-tight text-white">
+                <span className="bg-gradient-to-r from-white via-sky-200 to-indigo-300 bg-clip-text text-transparent">
+                  Operations & Streaming Telemetry
+                </span>
               </h2>
               <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
@@ -114,10 +116,10 @@ export default function StatsDashboard({
         {/* Card 1: Media Library & Ingestion Distribution (Spans 2 cols on md for balanced 3-col rows) */}
         <div
           onClick={() => onFilterChange && onFilterChange('ALL')}
-          className={`group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-md md:col-span-2 xl:col-span-1 ${
+          className={`group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border p-4 transition-all duration-300 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-sky-500/5 hover:-translate-y-0.5 md:col-span-2 xl:col-span-1 ${
             activeFilter === 'ALL'
               ? 'border-sky-500/50 ring-1 ring-sky-500/20'
-              : 'border-[#30363d]/80 hover:border-slate-600'
+              : 'border-[#30363d]/80 hover:border-sky-500/50'
           }`}
         >
           <div className="flex items-center justify-between mb-2">
@@ -190,7 +192,7 @@ export default function StatsDashboard({
         </div>
 
         {/* Card 2: Ingestion & FFmpeg Processing Pipeline */}
-        <div className="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-md">
+        <div className="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-purple-500/50 p-4 transition-all duration-300 flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-purple-500/5 hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">
               Ingest Pipeline
@@ -232,7 +234,7 @@ export default function StatsDashboard({
         </div>
 
         {/* Card 3: 1TB NVMe High-Speed Storage */}
-        <div className="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-md">
+        <div className="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-emerald-500/50 p-4 transition-all duration-300 flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-emerald-500/5 hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">
               1TB NVMe Disk
@@ -273,7 +275,7 @@ export default function StatsDashboard({
         </div>
 
         {/* Card 4: Live I/O Throughput & Bandwidth */}
-        <div className="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-slate-600 p-4 transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-md">
+        <div className="group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-[#30363d]/80 hover:border-cyan-500/50 p-4 transition-all duration-300 flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-cyan-500/5 hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-medium text-slate-400 tracking-wide uppercase font-mono">
               Throughput I/O
@@ -311,10 +313,10 @@ export default function StatsDashboard({
         {/* Card 5: Streaming Readiness & Seekable Files */}
         <div
           onClick={() => onFilterChange && onFilterChange('LOCAL')}
-          className={`group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-md ${
+          className={`group rounded-xl bg-[#0d1117]/80 backdrop-blur-md border p-4 transition-all duration-300 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-emerald-500/5 hover:-translate-y-0.5 ${
             activeFilter === 'LOCAL'
               ? 'border-emerald-500/50 ring-1 ring-emerald-500/20'
-              : 'border-[#30363d]/80 hover:border-slate-600'
+              : 'border-[#30363d]/80 hover:border-emerald-500/50'
           }`}
         >
           <div className="flex items-center justify-between mb-2">

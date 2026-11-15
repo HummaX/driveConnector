@@ -3,7 +3,7 @@ import BrandLogo from './BrandLogo';
 import { Lock, User, Shield, AlertCircle, Loader2, ArrowRight, Globe, Server, Database, Zap } from 'lucide-react';
 
 // ─── Animated Network Graph Background (GitHub-style constellation) ───
-function NetworkCanvas() {
+export function NetworkCanvas() {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
   const nodesRef = useRef([]);

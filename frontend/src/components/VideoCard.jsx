@@ -71,7 +71,7 @@ export default function VideoCard({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={() => onPlay(video)}
-      className="group relative flex flex-col bg-[#0d1117]/80 hover:bg-[#161b22] border border-[#30363d]/80 hover:border-slate-600 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-200 cursor-pointer"
+      className="group relative flex flex-col bg-[#0d1117]/80 hover:bg-[#161b22]/90 border border-[#30363d]/80 hover:border-sky-500/50 rounded-xl overflow-hidden shadow-sm hover:shadow-2xl hover:shadow-sky-500/10 transition-all duration-300 cursor-pointer backdrop-blur-md hover:-translate-y-1"
     >
       {/* Media / Thumbnail / Preview Container */}
       <div className="relative aspect-video w-full bg-[#010409] overflow-hidden border-b border-[#30363d]/60">
