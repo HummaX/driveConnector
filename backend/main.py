@@ -157,8 +157,29 @@ static_ui_dir = Path(__file__).parent / "static"
 if static_ui_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_ui_dir)), name="static")
 
+# Mount frontend assets
+frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+frontend_css_dir = frontend_dir / "css"
+frontend_js_dir = frontend_dir / "js"
+frontend_css_dir.mkdir(parents=True, exist_ok=True)
+frontend_js_dir.mkdir(parents=True, exist_ok=True)
+
+app.mount("/css", StaticFiles(directory=str(frontend_css_dir)), name="css")
+app.mount("/js", StaticFiles(directory=str(frontend_js_dir)), name="js")
+
+@app.get("/login", include_in_schema=False)
+@app.get("/login.html", include_in_schema=False)
+async def serve_login():
+    login_file = frontend_dir / "login.html"
+    if login_file.exists():
+        return FileResponse(str(login_file))
+    return Response(status_code=404)
+
 @app.get("/", include_in_schema=False)
 async def serve_root():
+    frontend_index = frontend_dir / "index.html"
+    if frontend_index.exists():
+        return FileResponse(str(frontend_index))
     index_file = static_ui_dir / "index.html"
     if index_file.exists():
         return FileResponse(str(index_file))
@@ -173,6 +194,7 @@ async def serve_favicon():
 
 # ----------------- Authentication Endpoints -----------------
 @app.post("/api/auth/login")
+@app.post("/api/login")
 async def login(credentials: UserLogin):
     """Authenticates credentials and returns a signed JWT access token."""
     user = await get_user_by_username(credentials.username.strip())

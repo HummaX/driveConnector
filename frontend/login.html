@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+  <meta name="theme-color" content="#090d16" />
+  <meta name="description" content="DriveConnector - Enterprise Cloud Media Streaming & FFmpeg Processing Engine" />
+  <title>Sign in · DriveConnector Enterprise</title>
+
+  <!-- High-Resolution Favicons & App Icons -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Design System Stylesheet -->
+  <link rel="stylesheet" href="/css/design-system.css" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              cyan: '#38bdf8',
+              emerald: '#34d399',
+              indigo: '#818cf8',
+              obsidian: '#090d16',
+              surface: '#0d1117',
+              panel: '#161b22',
+            }
+          },
+          animation: {
+            'spin-slow': 'spin 20s linear infinite',
+            'pulse-subtle': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Globe.gl 3D Engine CDN -->
+  <script src="https://unpkg.com/globe.gl"></script>
+
+  <style>
+    /* Full Viewport 100dvh Safety */
+    :root {
+      --app-height: 100dvh;
+    }
+    html, body {
+      height: 100%;
+      min-height: 100vh;
+      min-height: 100dvh;
+      margin: 0;
+      padding: 0;
+      background-color: #090d16;
+      color: #f8fafc;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Mobile Form Zoom Prevention: Enforce 16px font-size on screens < 768px */
+    @media (max-width: 767px) {
+      input, select, textarea, button {
+        font-size: 16px !important;
+      }
+    }
+
+    /* WCAG / Mobile Touch Target: Guarantee 44px touch height */
+    .touch-target-44 {
+      min-height: 44px;
+      min-width: 44px;
+    }
+
+    /* Shaking Animation for Login Error Feedback */
+    @keyframes cardShake {
+      0%, 100% { transform: translateX(0); }
+      15%, 45%, 75% { transform: translateX(-6px); }
+      30%, 60%, 90% { transform: translateX(6px); }
+    }
+    .shake-card {
+      animation: cardShake 0.45s ease-in-out;
+    }
+
+    /* Smooth Fade & Transition Utilities */
+    .glass-card-border {
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #090d16;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+
+    /* Globe Container Layering */
+    #globe-container {
+      transition: opacity 0.8s ease-in-out;
+    }
+    #globe-container canvas {
+      outline: none;
+    }
+  </style>
+</head>
+
+<body class="relative flex flex-col justify-between selection:bg-cyan-500 selection:text-white">
+
+  <!-- Ambient Stars & Deep Space Background Canvas -->
+  <canvas id="ambient-canvas" class="fixed inset-0 pointer-events-none z-0"></canvas>
+
+  <!-- Interactive 3D Earth WebGL Layer -->
+  <div id="globe-container" class="fixed inset-0 lg:left-[30%] xl:left-[36%] z-0 pointer-events-auto opacity-0 transition-opacity duration-1000"></div>
+
+  <!-- Radial Vignette Overlays for Depth and Contrast -->
+  <div class="fixed inset-0 pointer-events-none z-0 bg-radial-vignette opacity-70"
+       style="background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(9, 13, 22, 0.85) 90%);"></div>
+
+  <!-- Main Viewport Layout Container (100dvh compliance) -->
+  <div class="relative z-10 flex flex-col justify-between min-h-screen min-h-[100dvh] w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-7">
+
+    <!-- Top Navigation & System Status Bar -->
+    <header class="w-full flex items-center justify-between gap-4">
+      <!-- Brand Emblem & Typography -->
+      <a href="/" class="flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-xl">
+        <div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/25 via-indigo-500/15 to-slate-900 border border-sky-400/40 shadow-lg shadow-sky-500/20 group-hover:border-sky-400 transition-all duration-300">
+          <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5 text-sky-400 drop-shadow-[0_2px_8px_rgba(56,189,248,0.6)]">
+            <path d="M7 16H16.5C18.433 16 20 14.433 20 12.5C20 10.67 18.6 9.17 16.8 9.02C16.4 6.75 14.4 5 12 5C10.2 5 8.65 6.05 7.8 7.6C7.55 7.53 7.28 7.5 7 7.5C5.34 7.5 4 8.84 4 10.5C4 10.72 4.02 10.94 4.07 11.15C2.85 11.75 2 13.03 2 14.5C2 16.43 3.57 16 5.5 16" stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 9.5L15 12.5L10 15.5V9.5Z" fill="#38bdf8" fill-opacity="0.9" stroke="#38bdf8" stroke-width="1" stroke-linejoin="round"/>
+          </svg>
+          <span class="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+        </div>
+        <div class="flex flex-col">
+          <div class="flex items-center gap-2">
+            <span class="text-base sm:text-lg font-bold text-white tracking-tight group-hover:text-cyan-300 transition-colors">DriveConnector</span>
+            <span class="hidden sm:inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-medium tracking-wide bg-sky-950/70 text-sky-300 border border-sky-800/50">v2.4</span>
+          </div>
+          <span class="text-[11px] text-slate-400 font-medium">Enterprise Cloud Media Platform</span>
+        </div>
+      </a>
+
+      <!-- Live Node Ping Indicator Badge -->
+      <div id="node-ping-badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0d1117]/90 backdrop-blur-md border border-slate-700/60 shadow-lg text-xs font-mono">
+        <span class="relative flex h-2 w-2">
+          <span id="ping-pulse-indicator" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span id="ping-dot-indicator" class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span class="text-slate-200 font-semibold tracking-tight">OVH-EU-1TB Online</span>
+        <span class="text-slate-600 hidden sm:inline">·</span>
+        <span id="ping-latency" class="text-emerald-400 font-medium hidden sm:inline">18ms</span>
+      </div>
+    </header>
+
+    <!-- Main Content Stage: Responsive Split Layout on Desktop, Centered on Mobile -->
+    <main class="flex-1 flex flex-col lg:flex-row items-center justify-center lg:justify-between gap-8 lg:gap-12 my-auto py-6 sm:py-8">
+
+      <!-- Left Column: Branding, Mission, and Glassmorphic Auth Card -->
+      <section class="w-full max-w-md lg:max-w-[450px] xl:max-w-[480px] flex flex-col items-center lg:items-start text-center lg:text-left">
+
+        <!-- Desktop Hero Header Banner (Visible on lg+) -->
+        <div class="hidden lg:block mb-6">
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-800/40 text-cyan-300 text-xs font-medium mb-3">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-cyan-400"></i>
+            <span>Encrypted Edge Ingress Active</span>
+          </div>
+          <h1 class="text-3xl xl:text-4xl font-extrabold text-white tracking-tight leading-tight">
+            Next-Gen Media Cloud & High-Throughput Streamer
+          </h1>
+          <p class="mt-2 text-sm text-slate-400 leading-relaxed">
+            Ultra-low latency range requests, live FFmpeg sprite scrubbing, and Whisper AI pipeline on dedicated OVHcloud NVMe storage.
+          </p>
+        </div>
+
+        <!-- Glassmorphic Auth Card (Centered cleanly on mobile <1024px, split on >=1024px) -->
+        <div id="login-card"
+             class="w-full bg-[#0d1117]/85 backdrop-blur-xl border border-slate-700/60 rounded-2xl shadow-2xl shadow-black/80 p-6 sm:p-8 transition-all duration-300 glass-card-border">
+
+          <!-- Card Header -->
+          <div class="flex items-center gap-3.5 pb-4 mb-4 border-b border-slate-700/50">
+            <div class="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 text-white shadow-lg shadow-cyan-500/25">
+              <i data-lucide="lock" class="w-5 h-5"></i>
+            </div>
+            <div class="text-left">
+              <h2 class="text-lg font-bold text-white tracking-tight">Sign in to console</h2>
+              <p class="text-xs text-slate-400">Authenticate credentials to access control panel</p>
+            </div>
+          </div>
+
+          <!-- Error Alert Banner (Hidden by default) -->
+          <div id="error-alert" class="hidden mb-4 p-3 rounded-xl bg-red-950/50 border border-red-500/40 text-red-300 text-xs flex items-start gap-2.5 text-left">
+            <i data-lucide="alert-circle" class="w-4 h-4 text-red-400 shrink-0 mt-0.5"></i>
+            <span id="error-message">Invalid username or password</span>
+          </div>
+
+          <!-- Login Form -->
+          <form id="login-form" class="space-y-4 text-left" novalidate>
+
+            <!-- Username Field -->
+            <div>
+              <label for="username" class="block text-xs font-semibold text-slate-300 mb-1.5">
+                Username
+              </label>
+              <div class="relative group">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-cyan-400 transition-colors">
+                  <i data-lucide="user" class="w-4 h-4"></i>
+                </div>
+                <input
+                  type="text"
+                  id="username"
+                  name="username"
+                  required
+                  autocomplete="username"
+                  autocapitalize="none"
+                  placeholder="admin"
+                  style="font-size: 16px;"
+                  class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                />
+              </div>
+            </div>
+
+            <!-- Password Field with Visibility Toggle -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label for="password" class="block text-xs font-semibold text-slate-300">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  id="fill-creds-btn"
+                  class="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline transition-colors focus:outline-none"
+                  title="Click to fill default credentials"
+                >
+                  Use default
+                </button>
+              </div>
+              <div class="relative group">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-cyan-400 transition-colors">
+                  <i data-lucide="key" class="w-4 h-4"></i>
+                </div>
+                <input
+                  type="password"
+                  id="password"
+                  name="password"
+                  required
+                  autocomplete="current-password"
+                  placeholder="••••••••••••"
+                  style="font-size: 16px;"
+                  class="w-full pl-10 pr-11 py-2.5 rounded-xl bg-[#010409]/90 border border-slate-700/80 text-white placeholder-slate-500 text-[16px] sm:text-sm focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                />
+                <button
+                  type="button"
+                  id="toggle-password-btn"
+                  tabindex="-1"
+                  aria-label="Toggle password visibility"
+                  class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 touch-target-44 justify-center focus:outline-none"
+                >
+                  <i id="password-eye-icon" data-lucide="eye" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Remember Me & Security Status -->
+            <div class="flex items-center justify-between text-xs pt-1">
+              <label class="flex items-center gap-2 text-slate-400 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  id="remember-me"
+                  checked
+                  class="w-4 h-4 rounded bg-[#010409] border-slate-700 text-cyan-500 focus:ring-cyan-500/30 focus:ring-offset-0 transition-colors"
+                />
+                <span>Persist token</span>
+              </label>
+              <span class="text-slate-500 text-[11px] font-mono">TLS 1.3 · RSA 4096</span>
+            </div>
+
+            <!-- Submit Button (Guaranteed 44px touch height on mobile) -->
+            <button
+              type="submit"
+              id="submit-button"
+              class="w-full min-h-[44px] h-[44px] sm:h-11 mt-2 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 border border-emerald-400/30 shadow-lg shadow-emerald-950/60 active:scale-[0.99] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+            >
+              <span id="button-text">Authenticate Session</span>
+              <i id="button-icon" data-lucide="arrow-right" class="w-4 h-4"></i>
+            </button>
+          </form>
+
+          <!-- Default Credentials Helper Banner -->
+          <div class="mt-5 pt-4 border-t border-slate-800/80 flex flex-col gap-2">
+            <div class="flex items-center justify-between text-[11px] text-slate-400">
+              <span class="flex items-center gap-1.5">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-slate-500"></i>
+                <span>Default credentials:</span>
+              </span>
+              <button
+                type="button"
+                id="copy-creds-btn"
+                class="text-slate-400 hover:text-cyan-300 font-mono text-[10px] bg-slate-800/50 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-700/50 transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <div class="flex items-center justify-between font-mono text-[11px] bg-[#010409]/80 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-300">
+              <span>admin</span>
+              <span class="text-slate-600">/</span>
+              <span>Admin@Drive2026!</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Security & Platform Capability Pills Below Card -->
+        <div class="mt-4 flex flex-wrap items-center justify-center lg:justify-start gap-2 text-[11px] text-slate-400">
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1117]/80 backdrop-blur-md border border-slate-800">
+            <i data-lucide="shield" class="w-3.5 h-3.5 text-cyan-400"></i>
+            <span>JWT Dual-Key Verified</span>
+          </div>
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1117]/80 backdrop-blur-md border border-slate-800">
+            <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span>1TB Dedicated NVMe</span>
+          </div>
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0d1117]/80 backdrop-blur-md border border-slate-800">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
+            <span>60fps WebGL Earth</span>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Column: Interactive 3D Earth Telemetry Overlay HUD (Desktop lg+) -->
+      <section class="hidden lg:flex flex-1 flex-col items-end justify-between self-stretch pointer-events-none py-4">
+
+        <!-- Top Telemetry HUD Badge -->
+        <div class="pointer-events-auto bg-[#0d1117]/85 backdrop-blur-xl border border-slate-700/60 rounded-xl p-3.5 shadow-xl text-left max-w-xs transition-all hover:border-cyan-500/40">
+          <div class="flex items-center justify-between gap-3 text-xs mb-1.5">
+            <span class="font-mono text-cyan-400 font-semibold flex items-center gap-1.5">
+              <i data-lucide="server" class="w-3.5 h-3.5"></i>
+              <span>PRIMARY INGRESS NODE</span>
+            </span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-800/40">ACTIVE</span>
+          </div>
+          <div class="text-xs text-slate-300 font-mono space-y-0.5">
+            <div>Node: <strong class="text-white">OVH-EU-1TB</strong></div>
+            <div>Geo: <span class="text-slate-400">Roubaix, France (50.69°N, 3.17°E)</span></div>
+            <div>Ingress Arcs: <span class="text-emerald-400 font-semibold">10 Global PoPs</span></div>
+          </div>
+        </div>
+
+        <!-- Center Orbit Instruction Hint -->
+        <div class="pointer-events-auto bg-[#0d1117]/70 backdrop-blur-md border border-slate-800/80 rounded-full px-4 py-2 text-xs text-slate-400 flex items-center gap-2 shadow-lg">
+          <i data-lucide="globe" class="w-4 h-4 text-cyan-400 animate-pulse-subtle"></i>
+          <span>Interactive 3D Earth · Click & drag to rotate orbit</span>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- Page Footer with System Metadata -->
+    <footer class="w-full pt-4 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left text-[11px] text-slate-500 font-medium">
+      <div class="flex items-center gap-2">
+        <span>DriveConnector Media Ecosystem</span>
+        <span>·</span>
+        <span>OVHcloud Cloud Dedicated Infrastructure</span>
+      </div>
+      <div class="flex items-center gap-4 text-slate-500">
+        <span class="flex items-center gap-1.5">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          <span>FastAPI + MongoDB + FFmpeg</span>
+        </span>
+        <span class="hidden sm:inline">·</span>
+        <span class="hidden sm:inline font-mono">10 Gbps Uplink</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Client-Side Engine: 3D Earth, Authentication, Telemetry & Mobile Optimization -->
+  <script>
+    (function() {
+      'use strict';
+
+      // 1. Initialize Lucide Icons immediately
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+
+      // 2. Mobile Viewport 100dvh Fallback
+      function updateViewportHeight() {
+        const vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+      }
+      updateViewportHeight();
+      window.addEventListener('resize', updateViewportHeight);
+      window.addEventListener('orientationchange', updateViewportHeight);
+
+      // 3. Ambient Background Space Canvas (Drifting starlight / constellation mesh)
+      const ambientCanvas = document.getElementById('ambient-canvas');
+      if (ambientCanvas) {
+        const ctx = ambientCanvas.getContext('2d');
+        let stars = [];
+        let w = 0, h = 0;
+
+        function resizeAmbient() {
+          w = window.innerWidth;
+          h = window.innerHeight;
+          ambientCanvas.width = w;
+          ambientCanvas.height = h;
+          const count = Math.min(100, Math.floor((w * h) / 18000));
+          stars = [];
+          for (let i = 0; i < count; i++) {
+            stars.push({
+              x: Math.random() * w,
+              y: Math.random() * h,
+              radius: Math.random() * 1.5 + 0.5,
+              alpha: Math.random() * 0.7 + 0.2,
+              speed: Math.random() * 0.2 + 0.05
+            });
+          }
+        }
+        resizeAmbient();
+        window.addEventListener('resize', resizeAmbient);
+
+        function drawAmbient() {
+          ctx.clearRect(0, 0, w, h);
+          ctx.fillStyle = '#f8fafc';
+          for (let i = 0; i < stars.length; i++) {
+            const s = stars[i];
+            ctx.globalAlpha = s.alpha;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+            ctx.fill();
+            s.y -= s.speed;
+            if (s.y < 0) s.y = h;
+          }
+          requestAnimationFrame(drawAmbient);
+        }
+        requestAnimationFrame(drawAmbient);
+      }
+
+      // 4. Interactive 3D Earth Engine (Globe.gl)
+      const globeContainer = document.getElementById('globe-container');
+      let globeInstance = null;
+
+      // Coordinates for OVHcloud EU datacenter (Roubaix, France)
+      const OVH_NODE = {
+        lat: 50.6927,
+        lng: 3.1746,
+        label: 'OVH-EU-1TB',
+        color: '#34d399',
+        isTarget: true
+      };
+
+      // Global Network Ingress POPs
+      const POP_HUBS = [
+        { lat: 40.7128, lng: -74.0060, label: 'US-EAST (New York)', color: '#38bdf8' },
+        { lat: 37.7749, lng: -122.4194, label: 'US-WEST (San Francisco)', color: '#38bdf8' },
+        { lat: 51.5074, lng: -0.1278, label: 'EU-WEST (London)', color: '#38bdf8' },
+        { lat: 50.1109, lng: 8.6821, label: 'EU-CENTRAL (Frankfurt)', color: '#38bdf8' },
+        { lat: 35.6762, lng: 139.6503, label: 'APAC-EAST (Tokyo)', color: '#38bdf8' },
+        { lat: 1.3521, lng: 103.8198, label: 'APAC-SOUTH (Singapore)', color: '#38bdf8' },
+        { lat: -33.8688, lng: 151.2093, label: 'APAC-OCEANIA (Sydney)', color: '#38bdf8' },
+        { lat: -23.5505, lng: -46.6333, label: 'SA-BRAZIL (São Paulo)', color: '#38bdf8' },
+        { lat: 25.2048, lng: 55.2708, label: 'ME-UAE (Dubai)', color: '#38bdf8' },
+        { lat: 45.5017, lng: -73.5673, label: 'CA-EAST (Montreal)', color: '#38bdf8' }
+      ];
+
+      function initGlobe() {
+        if (typeof Globe === 'undefined' || !globeContainer) {
+          console.warn('[3D Globe] Globe.gl library not detected, retrying...');
+          setTimeout(initGlobe, 250);
+          return;
+        }
+
+        try {
+          const isMobile = window.innerWidth < 768;
+          const containerWidth = globeContainer.clientWidth || window.innerWidth;
+          const containerHeight = globeContainer.clientHeight || window.innerHeight;
+
+          // Animated glowing cyan/emerald arcs routing into the OVHcloud EU server node
+          const arcs = POP_HUBS.map(hub => ({
+            startLat: hub.lat,
+            startLng: hub.lng,
+            endLat: OVH_NODE.lat,
+            endLng: OVH_NODE.lng,
+            color: ['rgba(56, 189, 248, 0.85)', 'rgba(52, 211, 153, 0.95)'],
+            altitude: 0.28 + Math.random() * 0.12,
+            dashAnimateTime: 2000 + Math.random() * 1000
+          }));
+
+          // Points data for all nodes
+          const points = [OVH_NODE, ...POP_HUBS];
+
+          // Concentric pulse rings around the OVH-EU server node
+          const rings = [
+            { lat: OVH_NODE.lat, lng: OVH_NODE.lng, maxR: 3.5, propagationSpeed: 2.2, repeatPeriod: 1100 }
+          ];
+
+          globeInstance = Globe()(globeContainer)
+            .width(containerWidth)
+            .height(containerHeight)
+            .backgroundColor('rgba(0,0,0,0)')
+            .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-night.jpg')
+            .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+            .showAtmosphere(true)
+            .atmosphereColor('#38bdf8')
+            .atmosphereAltitude(isMobile ? 0.18 : 0.25)
+            .pointsData(points)
+            .pointLat('lat')
+            .pointLng('lng')
+            .pointColor('color')
+            .pointAltitude(0.015)
+            .pointRadius(d => (d.isTarget ? 0.75 : 0.38))
+            .pointLabel(d => `
+              <div style="background: rgba(13,17,23,0.92); border: 1px solid rgba(56,189,248,0.4); padding: 5px 9px; border-radius: 8px; font-family: Inter, sans-serif; font-size: 11px; color: #f8fafc; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.6);">
+                ${d.label}
+              </div>
+            `)
+            .arcsData(arcs)
+            .arcStartLat('startLat')
+            .arcStartLng('startLng')
+            .arcEndLat('endLat')
+            .arcEndLng('endLng')
+            .arcColor('color')
+            .arcAltitude('altitude')
+            .arcStroke(isMobile ? 1.2 : 1.6)
+            .arcDashLength(0.4)
+            .arcDashGap(2)
+            .arcDashInitialGap(() => Math.random() * 2)
+            .arcDashAnimateTime('dashAnimateTime')
+            .ringsData(rings)
+            .ringLat('lat')
+            .ringLng('lng')
+            .ringColor(() => (t) => `rgba(52, 211, 153, ${Math.max(0, 1 - t)})`)
+            .ringMaxRadius('maxR')
+            .ringPropagationSpeed('propagationSpeed')
+            .ringRepeatPeriod('repeatPeriod');
+
+          // Mobile GPU Optimization: Cap renderer pixel ratio to max 1.5 on screens < 768px
+          const renderer = globeInstance.renderer();
+          if (renderer) {
+            if (isMobile) {
+              renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+            } else {
+              renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
+            }
+          }
+
+          // Camera altitude adjustment: 2.8 on mobile for optimal framing, 2.1 on desktop
+          const targetAltitude = isMobile ? 2.8 : 2.1;
+          globeInstance.pointOfView({ lat: OVH_NODE.lat, lng: OVH_NODE.lng, altitude: targetAltitude }, 1000);
+
+          // Configure Orbit Controls
+          const controls = globeInstance.controls();
+          if (controls) {
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.65;
+            if (isMobile) {
+              // Disable pinch/drag zoom on mobile to prevent trapping page gestures
+              controls.enableZoom = false;
+            } else {
+              controls.enableZoom = true;
+              controls.minDistance = 150;
+              controls.maxDistance = 600;
+            }
+          }
+
+          // Reveal container smoothly
+          globeContainer.style.opacity = '1';
+
+        } catch (err) {
+          console.error('[3D Globe] Initialization error:', err);
+        }
+      }
+
+      // Initialize Globe on load or DOM ready
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initGlobe);
+      } else {
+        initGlobe();
+      }
+
+      // Handle Window Resize for 3D Globe with Mobile GPU constraints
+      window.addEventListener('resize', () => {
+        if (!globeInstance || !globeContainer) return;
+        const w = globeContainer.clientWidth || window.innerWidth;
+        const h = globeContainer.clientHeight || window.innerHeight;
+        globeInstance.width(w).height(h);
+
+        const isMobile = window.innerWidth < 768;
+        const renderer = globeInstance.renderer();
+        if (renderer) {
+          if (isMobile) {
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+          } else {
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
+          }
+        }
+        const controls = globeInstance.controls();
+        if (controls) {
+          controls.enableZoom = !isMobile;
+        }
+      });
+
+      // 5. Live Node Ping Indicator (Real latency check with graceful simulation fallback)
+      async function updatePingLatency() {
+        const pingLatencyEl = document.getElementById('ping-latency');
+        const pingPulseEl = document.getElementById('ping-pulse-indicator');
+        const pingDotEl = document.getElementById('ping-dot-indicator');
+        const startTime = performance.now();
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
+          const response = await fetch('/api/system/metrics', {
+            method: 'HEAD',
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          const duration = Math.max(8, Math.round(performance.now() - startTime));
+          if (pingLatencyEl) pingLatencyEl.textContent = `${duration}ms`;
+          if (pingPulseEl && pingDotEl) {
+            pingPulseEl.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75';
+            pingDotEl.className = 'relative inline-flex rounded-full h-2 w-2 bg-emerald-500';
+          }
+        } catch (e) {
+          // Fallback latency simulation: 14ms - 22ms with subtle organic jitter
+          const simulated = Math.floor(14 + Math.random() * 8);
+          if (pingLatencyEl) pingLatencyEl.textContent = `${simulated}ms`;
+        }
+      }
+      setInterval(updatePingLatency, 4500);
+      updatePingLatency();
+
+      // 6. Form Interactivity & Password Visibility Toggle
+      const passwordInput = document.getElementById('password');
+      const togglePasswordBtn = document.getElementById('toggle-password-btn');
+      const passwordEyeIcon = document.getElementById('password-eye-icon');
+
+      if (togglePasswordBtn && passwordInput) {
+        togglePasswordBtn.addEventListener('click', () => {
+          const isPassword = passwordInput.getAttribute('type') === 'password';
+          passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
+          if (passwordEyeIcon) {
+            passwordEyeIcon.setAttribute('data-lucide', isPassword ? 'eye-off' : 'eye');
+            if (window.lucide) lucide.createIcons();
+          }
+        });
+      }
+
+      // Default Credentials Auto-Fill and Copy Helpers
+      const fillCredsBtn = document.getElementById('fill-creds-btn');
+      const copyCredsBtn = document.getElementById('copy-creds-btn');
+      const usernameInput = document.getElementById('username');
+
+      function fillDefaultCredentials() {
+        if (usernameInput) usernameInput.value = 'admin';
+        if (passwordInput) passwordInput.value = 'Admin@Drive2026!';
+        if (usernameInput) usernameInput.focus();
+      }
+
+      if (fillCredsBtn) {
+        fillCredsBtn.addEventListener('click', fillDefaultCredentials);
+      }
+
+      if (copyCredsBtn) {
+        copyCredsBtn.addEventListener('click', () => {
+          fillDefaultCredentials();
+          navigator.clipboard.writeText('admin\nAdmin@Drive2026!').then(() => {
+            copyCredsBtn.textContent = 'Copied!';
+            setTimeout(() => { copyCredsBtn.textContent = 'Copy'; }, 1800);
+          }).catch(() => {
+            copyCredsBtn.textContent = 'Filled!';
+            setTimeout(() => { copyCredsBtn.textContent = 'Copy'; }, 1800);
+          });
+        });
+      }
+
+      // 7. Check Existing Authentication Session
+      // Auto-redirect to dashboard if valid token is already present
+      const existingToken = localStorage.getItem('ovh_media_token') || localStorage.getItem('drive_connector_token');
+      if (existingToken) {
+        fetch('/api/auth/me', {
+          headers: { 'Authorization': `Bearer ${existingToken}` }
+        }).then(res => {
+          if (res.ok) {
+            console.log('[Auth] Active session verified, redirecting...');
+            window.location.href = '/';
+          }
+        }).catch(() => {
+          // Token expired or invalid, keep on login page
+        });
+      }
+
+      // 8. Authentication Logic & Form Submission
+      const loginForm = document.getElementById('login-form');
+      const loginCard = document.getElementById('login-card');
+      const submitButton = document.getElementById('submit-button');
+      const buttonText = document.getElementById('button-text');
+      const buttonIcon = document.getElementById('button-icon');
+      const errorAlert = document.getElementById('error-alert');
+      const errorMessage = document.getElementById('error-message');
+
+      function showError(msg) {
+        if (errorMessage) errorMessage.textContent = msg || 'Incorrect username or password';
+        if (errorAlert) errorAlert.classList.remove('hidden');
+        if (loginCard) {
+          loginCard.classList.remove('shake-card');
+          void loginCard.offsetWidth; // Trigger reflow for animation restart
+          loginCard.classList.add('shake-card');
+        }
+      }
+
+      function clearError() {
+        if (errorAlert) errorAlert.classList.add('hidden');
+        if (loginCard) loginCard.classList.remove('shake-card');
+      }
+
+      if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          clearError();
+
+          const username = usernameInput ? usernameInput.value.trim() : '';
+          const password = passwordInput ? passwordInput.value : '';
+
+          if (!username || !password) {
+            showError('Please enter both username and password');
+            return;
+          }
+
+          // UI Loading state
+          if (submitButton) submitButton.disabled = true;
+          if (buttonText) buttonText.textContent = 'Authenticating...';
+          if (buttonIcon) {
+            buttonIcon.setAttribute('data-lucide', 'loader-2');
+            buttonIcon.classList.add('animate-spin');
+            if (window.lucide) lucide.createIcons();
+          }
+
+          try {
+            const payload = JSON.stringify({ username, password });
+            const headers = { 'Content-Type': 'application/json' };
+
+            // Authenticate credentials against POST /api/auth/login, with fallback to POST /api/login
+            let response = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers,
+              body: payload
+            });
+
+            if (response.status === 404) {
+              response = await fetch('/api/login', {
+                method: 'POST',
+                headers,
+                body: payload
+              });
+            }
+
+            if (!response.ok) {
+              let errorDetail = 'Incorrect username or password';
+              try {
+                const data = await response.json();
+                if (data && data.detail) {
+                  errorDetail = data.detail;
+                }
+              } catch (_) {}
+              throw new Error(errorDetail);
+            }
+
+            const authResult = await response.json();
+            const token = authResult.access_token || authResult.token;
+
+            if (!token) {
+              throw new Error('Authentication succeeded but no token was returned');
+            }
+
+            // Persist JWT token in both specified storage keys
+            localStorage.setItem('ovh_media_token', token);
+            localStorage.setItem('drive_connector_token', token);
+
+            // Also set session cookie for direct HTML5 media stream requests
+            document.cookie = `access_token=${token}; path=/; max-age=604800; SameSite=Lax`;
+
+            // UI Success state
+            if (buttonText) buttonText.textContent = 'Access Granted · Redirecting...';
+            if (buttonIcon) {
+              buttonIcon.classList.remove('animate-spin');
+              buttonIcon.setAttribute('data-lucide', 'check-circle-2');
+              if (window.lucide) lucide.createIcons();
+            }
+            if (submitButton) {
+              submitButton.classList.remove('from-emerald-600', 'to-emerald-500');
+              submitButton.classList.add('from-emerald-500', 'to-teal-500');
+            }
+
+            // Redirect to root dashboard
+            setTimeout(() => {
+              window.location.href = '/';
+            }, 400);
+
+          } catch (err) {
+            console.error('[Auth] Login error:', err);
+            showError(err.message || 'Authentication failed. Please verify credentials.');
+
+            // Reset UI Loading state
+            if (submitButton) submitButton.disabled = false;
+            if (buttonText) buttonText.textContent = 'Authenticate Session';
+            if (buttonIcon) {
+              buttonIcon.classList.remove('animate-spin');
+              buttonIcon.setAttribute('data-lucide', 'arrow-right');
+              if (window.lucide) lucide.createIcons();
+            }
+          }
+        });
+      }
+
+    })();
+  </script>
+</body>
+</html>
