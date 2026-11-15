@@ -1,5 +1,4 @@
 import os
-import uuid
 import math
 import json
 import asyncio
@@ -200,14 +199,13 @@ async def run_cmd(cmd: list, timeout: int = 180) -> tuple[int, str, str]:
         return -1, "", str(e)
 
 async def probe_video(video_path: Path) -> Dict[str, Any]:
-    """Runs ffprobe on the target video and returns parsed JSON format and stream info including all audio, subtitle tracks, and chapter markers."""
+    """Runs ffprobe on the target video and returns parsed JSON format and stream info including all audio and subtitle tracks."""
     cmd = [
         "ffprobe",
         "-v", "quiet",
         "-print_format", "json",
         "-show_format",
         "-show_streams",
-        "-show_chapters",
         str(video_path)
     ]
     code, stdout, _ = await run_cmd(cmd, timeout=45)
@@ -218,8 +216,7 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
             "height": 1080,
             "has_audio": True,
             "audio_tracks": [],
-            "subtitle_tracks": [],
-            "chapters": []
+            "subtitle_tracks": []
         }
 
     try:
@@ -315,52 +312,13 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
                 })
                 sub_idx += 1
 
-        raw_chapters = data.get("chapters", [])
-        chapters = []
-        for ch in raw_chapters:
-            ch_tags = ch.get("tags") or {}
-            start_sec = 0.0
-            end_sec = 0.0
-            try:
-                start_sec = float(ch.get("start_time", 0.0))
-            except (ValueError, TypeError):
-                tb = ch.get("time_base", "1/1000")
-                if "/" in str(tb):
-                    try:
-                        num, den = str(tb).split("/", 1)
-                        start_sec = float(ch.get("start", 0)) * float(num) / float(den)
-                    except Exception:
-                        start_sec = float(ch.get("start", 0.0))
-            try:
-                end_sec = float(ch.get("end_time", 0.0))
-            except (ValueError, TypeError):
-                tb = ch.get("time_base", "1/1000")
-                if "/" in str(tb):
-                    try:
-                        num, den = str(tb).split("/", 1)
-                        end_sec = float(ch.get("end", 0)) * float(num) / float(den)
-                    except Exception:
-                        end_sec = float(ch.get("end", 0.0))
-
-            title = ch_tags.get("title") or f"Chapter {ch.get('id', len(chapters) + 1)}"
-            chapters.append({
-                "id": ch.get("id", len(chapters)),
-                "start": start_sec,
-                "end": end_sec,
-                "start_time": start_sec,
-                "end_time": end_sec,
-                "title": title,
-                "tags": ch_tags
-            })
-
         return {
             "duration": duration,
             "width": width,
             "height": height,
             "has_audio": len(audio_tracks) > 0,
             "audio_tracks": audio_tracks,
-            "subtitle_tracks": subtitle_tracks,
-            "chapters": chapters
+            "subtitle_tracks": subtitle_tracks
         }
     except Exception as e:
         print(f"[FFmpeg] Error parsing ffprobe output: {e}")
@@ -370,8 +328,7 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
             "height": 1080,
             "has_audio": True,
             "audio_tracks": [],
-            "subtitle_tracks": [],
-            "chapters": []
+            "subtitle_tracks": []
         }
 
 async def extract_embedded_subtitles(
@@ -482,10 +439,11 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
                 target_track = audio_tracks[track_index - 1]
 
         if not target_track:
-            print(f"[FFmpeg] No audio track metadata matching index/stream {track_index} found in {video_path}; attempting direct 0:a:{track_index} extraction")
+            print(f"[FFmpeg] No audio track matching index/stream {track_index} found in {video_path}")
+            return None
 
         # Check if canonical track index was already extracted
-        target_idx = target_track.get("index") if target_track else track_index
+        target_idx = target_track.get("index")
         if target_idx is not None:
             canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
             if canonical_dest.exists() and canonical_dest.stat().st_size > 1000:
@@ -497,65 +455,48 @@ async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]
                         pass
                 return canonical_dest
 
-        stream_idx = target_track.get("stream_index") if target_track else None
+        stream_idx = target_track.get("stream_index")
+        map_arg = f"0:{stream_idx}" if stream_idx is not None else f"0:a:{target_track.get('index', 0)}"
 
-        # Robust multi-track FFmpeg mapping resolution:
-        # Prioritize 0:a:{target_idx} (audio stream index) which is immune to non-audio container streams (subtitles, chapters, fonts)
-        candidate_maps = []
-        if target_idx is not None:
-            candidate_maps.append(f"0:a:{target_idx}")
-        if f"0:a:{track_index}" not in candidate_maps:
-            candidate_maps.append(f"0:a:{track_index}")
-        if stream_idx is not None and f"0:{stream_idx}" not in candidate_maps:
-            candidate_maps.append(f"0:{stream_idx}")
-
-        temp_dest = meta_dir / f"tmp_audio_track_{track_index}_{uuid.uuid4().hex[:6]}.m4a"
+        temp_dest = meta_dir / f"tmp_audio_track_{track_index}.m4a"
         if temp_dest.exists():
             try:
                 temp_dest.unlink()
             except Exception:
                 pass
 
-        extracted = False
-        for map_arg in candidate_maps:
-            cmd = [
-                "ffmpeg", "-y",
-                "-threads", str(settings.ffmpeg_worker_threads),
-                "-i", str(video_path),
-                "-map", map_arg,
-                "-vn", "-sn", "-dn",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-movflags", "+faststart",
-                "-f", "mp4",
-                str(temp_dest)
-            ]
-            code, _, err = await run_cmd(cmd, timeout=300)
-            if code == 0 and temp_dest.exists() and temp_dest.stat().st_size > 1000:
-                temp_dest.replace(audio_dest)
-                extracted = True
-                if target_idx is not None and target_idx != track_index:
-                    canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
-                    if not canonical_dest.exists():
-                        try:
-                            import shutil
-                            shutil.copyfile(audio_dest, canonical_dest)
-                        except Exception:
-                            pass
-                break
-            else:
-                print(f"[FFmpeg] Audio extraction candidate {map_arg} failed (code {code}): {err}")
-                if temp_dest.exists():
+        cmd = [
+            "ffmpeg", "-y",
+            "-threads", str(settings.ffmpeg_worker_threads),
+            "-i", str(video_path),
+            "-map", map_arg,
+            "-vn", "-sn", "-dn",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-movflags", "+faststart",
+            "-f", "mp4",
+            str(temp_dest)
+        ]
+        code, _, err = await run_cmd(cmd, timeout=300)
+        if code == 0 and temp_dest.exists() and temp_dest.stat().st_size > 1000:
+            temp_dest.replace(audio_dest)
+            if target_idx is not None and target_idx != track_index:
+                canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
+                if not canonical_dest.exists():
                     try:
-                        temp_dest.unlink()
+                        import shutil
+                        shutil.copyfile(audio_dest, canonical_dest)
                     except Exception:
                         pass
-
-        if extracted and audio_dest.exists() and audio_dest.stat().st_size > 1000:
             return audio_dest
-
-        print(f"[FFmpeg] All audio extraction candidates failed for track {track_index} in {video_path}")
-        return None
+        else:
+            print(f"[FFmpeg] Audio track extraction failed (code {code}): {err}")
+            if temp_dest.exists():
+                try:
+                    temp_dest.unlink()
+                except Exception:
+                    pass
+            return None
 
 async def generate_poster_if_needed(video_path: Path, poster_path: Path, duration: float):
     """Generates a high-quality static poster thumbnail at 10% of duration if not already present."""
@@ -731,7 +672,6 @@ async def process_video_background(video_id: str):
             duration = info["duration"]
             audio_tracks = info.get("audio_tracks", [])
             raw_subtitles = info.get("subtitle_tracks", [])
-            chapters = info.get("chapters", [])
 
             # Extract embedded text subtitles to WebVTT
             extracted_subtitles = await extract_embedded_subtitles(
@@ -811,7 +751,6 @@ async def process_video_background(video_id: str):
                 "vtt_url": f"/metadata/{video_id}/thumbnails.vtt" if vtt_path.exists() else None,
                 "audio_tracks": audio_tracks,
                 "subtitle_tracks": extracted_subtitles,
-                "chapters": chapters,
                 "processing_info": None
             }
             if not video.get("subtitles_url"):

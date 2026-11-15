@@ -8,8 +8,6 @@
   <!-- High-Resolution Favicons & Web App Manifest -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="alternate icon" type="image/x-icon" href="/static/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -238,36 +236,12 @@
   <!-- Vite/React Root Anchor (Hidden during standalone NOC HUD) -->
   <div id="root" style="display:none;"></div>
 
-  <!-- Global Toast Notifications -->
-  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
-
-  <!-- Bulk Action Bar (Fixed Floating Pill) -->
-  <div id="bulk-action-bar" class="hidden bulk-action-bar">
-    <div class="flex items-center space-x-2 text-xs font-mono">
-      <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
-      <span id="bulk-selected-count" class="text-white font-bold">0 Selected</span>
-    </div>
-    <div class="h-4 w-px bg-white/20"></div>
-    <div class="flex items-center space-x-2">
-      <button id="bulk-evict-btn" onclick="handleBulkEvictCache()" class="min-touch px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium border border-amber-500/30 transition flex items-center space-x-1">
-        <i data-lucide="archive" class="w-3.5 h-3.5"></i>
-        <span>Evict Local Cache</span>
-      </button>
-      <button id="bulk-delete-btn" onclick="handleBulkDeleteForever()" class="min-touch px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium border border-red-500/30 transition flex items-center space-x-1">
-        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-        <span>Delete Forever</span>
-      </button>
-      <button id="bulk-cancel-btn" onclick="clearVideoSelection()" class="min-touch px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition">
-        Cancel
-      </button>
-    </div>
-  </div>
 
   <!-- ==================== 2. MAIN COMMAND CENTER SHELL ==================== -->
   <div id="main-platform-view" class="flex-1 flex flex-col w-full relative">
 
     <!-- ==================== LIVE SERVER RACK BLADE HEADER (PROXMOX VE / GRAFANA NOC) ==================== -->
-    <div id="server-rack-header" class="w-full bg-[#06090f] border-b border-[#21262d] text-[11px] font-mono select-none px-4 sm:px-6 lg:px-8 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-slate-400 transition-all duration-300">
+    <div class="w-full bg-[#06090f] border-b border-[#21262d] text-[11px] font-mono select-none px-4 sm:px-6 lg:px-8 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-slate-400">
       <!-- Left: Node ID & Kernel/OS & Uptime Counter -->
       <div class="flex items-center space-x-3">
         <span class="flex items-center space-x-1.5 text-slate-200 font-semibold tracking-wider">
@@ -342,26 +316,7 @@
           </a>
         </div>
 
-        <!-- Center 1: Dual-Mode View Switcher (NOC Command View vs Cinema Lounge View) -->
-        <div class="flex items-center space-x-1 bg-[#010409] p-1 rounded-xl border border-[#21262d] shrink-0 text-xs font-mono select-none">
-          <button id="mode-btn-noc" onclick="switchUIMode('noc')" title="Switch to NOC Command Center (3D Globe + Full Server Rack)" class="min-touch flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-sky-500 text-white font-semibold shadow-sm transition">
-            <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
-            <span class="hidden sm:inline">NOC Command</span>
-          </button>
-          <button id="mode-btn-cinema" onclick="switchUIMode('cinema')" title="Switch to Cinema Lounge View (Sleek Media Showcase)" class="min-touch flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition">
-            <i data-lucide="clapperboard" class="w-3.5 h-3.5"></i>
-            <span class="hidden sm:inline">Cinema Lounge</span>
-          </button>
-        </div>
-
-        <!-- Center 2: Command Palette Trigger (Cmd+K / /) -->
-        <button onclick="openCommandPalette()" title="Command Palette (Cmd+K or /)" class="min-touch hidden md:flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-[#010409] border border-[#21262d] text-slate-400 hover:text-white hover:border-[#30363d] text-xs font-mono transition">
-          <i data-lucide="command" class="w-3.5 h-3.5 text-sky-400"></i>
-          <span class="text-slate-400 hidden xl:inline">Command Palette</span>
-          <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px]">⌘K</kbd>
-        </button>
-
-        <!-- Center 3: Compact Micro-Telemetry Strip (< 1280px) -->
+        <!-- Center: Compact Micro-Telemetry Strip (< 1280px) -->
         <div class="hidden sm:flex xl:hidden items-center space-x-1.5 text-[10px] font-mono select-none bg-[#010409] px-2 py-1 rounded-lg border border-[#21262d] shrink-0">
           <div id="mobile-transfers-badge" class="hidden items-center space-x-1 text-sky-400 cursor-pointer min-touch" onclick="toggleTransfersDrawer()" title="Active transfer(s)">
             <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span>
@@ -385,7 +340,7 @@
           </div>
         </div>
 
-        <!-- Center 4: Full Desktop Hardware Telemetry Strip (>= 1280px) -->
+        <!-- Center: Full Desktop Hardware Telemetry Strip (>= 1280px) -->
         <div class="hidden xl:flex items-center space-x-2 text-xs font-mono select-none">
           <!-- Active Transfers Badge -->
           <div id="header-transfers-badge" class="hidden items-center space-x-1.5 bg-sky-500/10 border border-sky-500/30 px-2.5 py-1.5 rounded-lg text-sky-400 animate-pulse font-mono cursor-pointer" onclick="toggleTransfersDrawer()" title="Active In-Progress Transfer/Processing Operations">
@@ -478,11 +433,6 @@
             <span class="hidden xl:inline">Scan</span>
           </button>
 
-          <!-- Live Server Log Drawer Toggle -->
-          <button id="toggle-logs-drawer-btn" onclick="toggleServerLogsDrawer()" title="Live Server & FFmpeg Logs" class="min-touch p-2 rounded-lg bg-[#161b22] border border-[#30363d] text-slate-300 hover:text-purple-400 hover:border-purple-500/50 transition active:scale-95 flex items-center justify-center">
-            <i data-lucide="terminal-square" class="w-4 h-4"></i>
-          </button>
-
           <!-- User status / Logout -->
           <div class="flex items-center space-x-1 sm:space-x-1.5 pl-1 border-l border-[#30363d]/60">
             <span id="nav-user-label" class="hidden sm:inline text-xs font-mono text-slate-400 px-1.5 py-1 bg-slate-800/40 rounded border border-slate-700/50">admin</span>
@@ -498,8 +448,8 @@
     <!-- MAIN BODY CONTENT -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-      <!-- ==================== RESPONSIVE HERO TELEMETRY STRIP (NOC COMMAND VIEW) ==================== -->
-      <section id="hero-telemetry-section" class="glass-panel rounded-2xl p-4 sm:p-6 relative overflow-hidden shadow-2xl transition-all duration-300">
+      <!-- ==================== RESPONSIVE HERO TELEMETRY STRIP ==================== -->
+      <section class="glass-panel rounded-2xl p-4 sm:p-6 relative overflow-hidden shadow-2xl">
         <div class="relative z-10 flex flex-col space-y-6">
           
           <!-- Header Bar: Operations & Streaming Telemetry -->
@@ -739,38 +689,6 @@
         </div>
       </section>
 
-      <!-- ==================== CONTINUE WATCHING SHELF (CAROUSEL) ==================== -->
-      <section id="continue-watching-section" class="space-y-3">
-        <div class="flex items-center justify-between border-b border-white/[0.06] pb-2">
-          <div class="flex items-center space-x-2 text-sm sm:text-base font-bold text-white tracking-tight">
-            <div class="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
-              <i data-lucide="play-circle" class="w-4 h-4"></i>
-            </div>
-            <span>Continue Watching</span>
-            <span id="continue-watching-count" class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 text-xs font-mono font-bold">0</span>
-          </div>
-          <div class="flex items-center space-x-1">
-            <button id="continue-prev-btn" onclick="scrollContinueShelf(-1)" title="Scroll Left" class="min-touch p-1.5 rounded-lg bg-[#161b22] border border-[#30363d] text-slate-400 hover:text-white transition">
-              <i data-lucide="chevron-left" class="w-4 h-4"></i>
-            </button>
-            <button id="continue-next-btn" onclick="scrollContinueShelf(1)" title="Scroll Right" class="min-touch p-1.5 rounded-lg bg-[#161b22] border border-[#30363d] text-slate-400 hover:text-white transition">
-              <i data-lucide="chevron-right" class="w-4 h-4"></i>
-            </button>
-          </div>
-        </div>
-        <div id="continue-watching-shelf" class="continue-shelf-carousel">
-          <!-- Dynamically populated or fallback items -->
-          <div class="continue-card group cursor-pointer" onclick="handleContinueCardClick()">
-            <div class="aspect-video bg-[#010409] relative flex items-center justify-center overflow-hidden">
-              <div class="text-slate-600 flex flex-col items-center space-y-1">
-                <i data-lucide="film" class="w-6 h-6"></i>
-                <span class="text-[10px] font-mono">No partially watched media</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- ==================== FILTER & SEARCH STRIP ==================== -->
       <section class="glass-panel rounded-2xl p-4 space-y-3 shadow-lg">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -797,18 +715,6 @@
               <span>Google Drive Cloud</span>
               <span id="count-cloud" class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 text-xs font-bold font-mono">0</span>
             </button>
-
-            <!-- Smart Series Grouping Toggle Pill -->
-            <button id="series-group-toggle-btn" onclick="toggleSeriesGrouping()" class="min-touch flex items-center space-x-2 px-3.5 py-2.5 rounded-xl bg-[#161b22] hover:bg-[#21262d] text-slate-300 hover:text-white border border-white/[0.08] transition shrink-0 active:scale-95">
-              <i data-lucide="folder-kanban" class="w-4 h-4 text-purple-400"></i>
-              <span>Group Series</span>
-            </button>
-
-            <!-- Bulk Multi-Select Checkbox Pill -->
-            <label class="min-touch flex items-center space-x-2 px-3 py-2 rounded-xl bg-[#161b22] border border-white/[0.08] text-slate-300 hover:text-white text-xs cursor-pointer select-none shrink-0">
-              <input type="checkbox" id="select-all-videos-checkbox" onchange="toggleSelectAllVideos(this.checked)" class="rounded bg-slate-800 text-sky-500 focus:ring-0 cursor-pointer" />
-              <span>Select All</span>
-            </label>
           </div>
 
           <!-- View Switcher (Grid vs List) -->
@@ -837,17 +743,12 @@
         </div>
       </section>
 
-      <!-- ==================== WIDESCREEN VIDEO GRID & SERIES ACCORDION ==================== -->
+      <!-- ==================== WIDESCREEN VIDEO GRID ==================== -->
       <section id="video-catalog-container" class="space-y-4">
         
         <!-- Video Grid: 1 col on mobile (360px), 2 col on tablet, 3 col on laptop, 4 col on desktop -->
         <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
           <!-- Video Cards injected by js/app.js -->
-        </div>
-
-        <!-- Series Grouping Container (When Group Series toggle is active) -->
-        <div id="series-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-          <!-- Grouped Series Cards injected dynamically -->
         </div>
 
         <!-- Empty State Container -->
@@ -895,11 +796,8 @@
     <!-- Player Card Chrome -->
     <div id="player-modal-box" class="w-full sm:max-w-5xl bg-[#0d1117] border border-white/10 sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden min-h-[100dvh] sm:min-h-0 relative">
       
-      <!-- Ambilight Glow Canvas (Diffuses dynamic screen colors behind viewport) -->
-      <canvas id="player-ambilight-canvas" class="hidden"></canvas>
-
       <!-- Modal Header -->
-      <div class="p-4 sm:px-6 bg-[#161b22]/90 border-b border-white/[0.08] flex items-center justify-between gap-3 relative z-10">
+      <div class="p-4 sm:px-6 bg-[#161b22]/90 border-b border-white/[0.08] flex items-center justify-between gap-3">
         <div class="flex items-center space-x-3 min-w-0">
           <span id="player-footer-status" class="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase font-semibold">
             LOCAL
@@ -907,18 +805,10 @@
           <h3 id="player-title" class="text-sm sm:text-base font-bold text-white truncate tracking-tight">
             Playback Title
           </h3>
-          <!-- Static Audio Track Badge for Automated Verification -->
-          <span id="badge-audio-tracks-header" class="hidden sm:inline-flex text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-            Audio Tracks Available
-          </span>
         </div>
 
         <div class="flex items-center space-x-2 shrink-0">
-          <!-- Ambilight Toggle Button -->
-          <button id="btn-ambilight-toggle" onclick="toggleAmbilight()" title="Toggle Dynamic Ambilight Ambient Glow" class="min-touch p-2 rounded-lg bg-[#0d1117] text-slate-400 hover:text-amber-300 border border-white/10 transition flex items-center justify-center">
-            <i data-lucide="sun" class="w-4 h-4"></i>
-          </button>
-          <button onclick="toggleTheaterMode()" title="Toggle Theater Mode (F)" class="min-touch p-2 rounded-lg bg-[#0d1117] text-slate-400 hover:text-white border border-white/10 transition hidden sm:flex items-center justify-center">
+          <button onclick="toggleTheaterMode()" title="Toggle Theater Mode" class="min-touch p-2 rounded-lg bg-[#0d1117] text-slate-400 hover:text-white border border-white/10 transition hidden sm:flex items-center justify-center">
             <i data-lucide="maximize" class="w-4 h-4"></i>
           </button>
           <button onclick="closePlayerModal()" title="Close Player (Esc)" class="min-touch p-2 rounded-lg bg-[#0d1117] text-slate-400 hover:text-white border border-white/10 transition flex items-center justify-center">
@@ -936,16 +826,7 @@
         </div>
 
         <!-- Companion Audio Stream (Multi-Audio Synchronization) -->
-        <audio id="player-companion-audio" class="hidden" preload="auto" crossorigin="anonymous"></audio>
-
-        <!-- Secondary Subtitles Overlay (Top of screen) -->
-        <div id="player-secondary-subtitles" class="hidden absolute top-6 left-0 right-0 text-center pointer-events-none z-20 text-yellow-300 text-lg font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] px-4"></div>
-
-        <!-- MKV Chapter Markers Seekbar Overlay -->
-        <div id="player-chapters-bar" class="absolute bottom-12 left-0 right-0 h-2 pointer-events-none z-15"></div>
-
-        <!-- LosslessCut In-Player Range Highlight Overlay -->
-        <div id="player-lossless-range-bar" class="hidden losslesscut-range-highlight"></div>
+        <audio id="player-companion-audio" class="hidden" preload="auto"></audio>
 
         <!-- Buffering Loading Overlay -->
         <div id="player-buffering-overlay" class="hidden absolute inset-0 bg-black/60 backdrop-blur-sm z-30 flex-col items-center justify-center space-y-3 pointer-events-none" style="display: none;">
@@ -1009,41 +890,8 @@
 
       </div>
 
-      <!-- LosslessCut In-Player Toolbar & 1-Click Frame Grabber -->
-      <div id="player-losslesscut-toolbar" class="px-3 sm:px-6 py-2 bg-[#090d16] border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-2 text-xs font-mono select-none">
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-slate-400 font-semibold flex items-center space-x-1.5">
-            <i data-lucide="scissors" class="w-3.5 h-3.5 text-sky-400"></i>
-            <span>LosslessCut:</span>
-          </span>
-          <button id="btn-mark-in" onclick="setLosslessMarkIn()" title="Mark In Point (Shortcut: [)" class="min-touch px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 transition">
-            [ Mark In
-          </button>
-          <button id="btn-mark-out" onclick="setLosslessMarkOut()" title="Mark Out Point (Shortcut: ])" class="min-touch px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 transition">
-            ] Mark Out
-          </button>
-          <span id="lossless-range-display" class="px-2 py-1 rounded bg-[#010409] text-slate-300 border border-slate-800 font-mono text-[11px]">00:00:00 - 00:00:00</span>
-          <button id="btn-export-clip" onclick="exportLosslessClip()" class="min-touch px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-white font-semibold transition flex items-center space-x-1">
-            <i data-lucide="download" class="w-3 h-3"></i>
-            <span>Export Lossless Clip</span>
-          </button>
-        </div>
-
-        <div class="flex items-center space-x-2">
-          <!-- 1-Click Frame Grabber (Camera / S key) -->
-          <button id="btn-frame-grab" onclick="captureFrame('download')" title="1-Click Frame Grabber (Shortcut: S key)" class="min-touch px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition flex items-center space-x-1.5">
-            <i data-lucide="camera" class="w-3.5 h-3.5"></i>
-            <span class="hidden sm:inline">Grab Frame</span>
-          </button>
-          <button id="btn-set-poster" onclick="captureFrame('poster')" title="Set Current Frame as Custom Video Poster" class="min-touch px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center space-x-1 text-[11px]">
-            <i data-lucide="image" class="w-3 h-3"></i>
-            <span class="hidden sm:inline">Set Poster</span>
-          </button>
-        </div>
-      </div>
-
       <!-- Supercharged Audio/Video Control Bar (Mobile-friendly) -->
-      <div class="p-3 sm:px-6 bg-[#161b22] border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3 text-xs select-none relative">
+      <div class="p-3 sm:px-6 bg-[#161b22] border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3 text-xs select-none">
         
         <!-- Left: Audio Booster & Track Controls -->
         <div class="flex flex-wrap items-center gap-2">
@@ -1061,12 +909,12 @@
           <div id="player-audio-container" class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1.5 rounded-lg border border-white/10">
             <i data-lucide="headphones" class="w-3.5 h-3.5 text-indigo-400"></i>
             <select id="player-audio-select" onchange="changePlayerAudioTrack(this.value)" class="bg-transparent text-white focus:outline-none cursor-pointer font-sans text-xs">
-              <option value="0">Default Audio</option>
+              <option value="default">Default Audio</option>
             </select>
           </div>
 
-          <!-- Primary Subtitle Track Selector -->
-          <div id="player-subtitles-container" class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1.5 rounded-lg border border-white/10">
+          <!-- Subtitle Track Selector (AI Whisper & WebVTT) -->
+          <div class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1.5 rounded-lg border border-white/10">
             <i data-lucide="subtitles" class="w-3.5 h-3.5 text-emerald-400"></i>
             <select id="player-subtitles-select" onchange="changePlayerSubtitleTrack(this.value)" class="bg-transparent text-white focus:outline-none cursor-pointer font-sans text-xs">
               <option value="off">Subtitles: Off</option>
@@ -1077,42 +925,11 @@
             </button>
           </div>
 
-          <!-- Secondary Subtitle Selector (Dual Subtitles: English + Japanese) -->
-          <div class="flex items-center space-x-1 bg-[#0d1117] px-2 py-1.5 rounded-lg border border-white/10">
-            <span class="text-slate-400 text-[10px]">2nd Sub:</span>
-            <select id="player-subtitles-secondary-select" onchange="changeSecondarySubtitleTrack(this.value)" class="bg-transparent text-white focus:outline-none cursor-pointer text-xs">
-              <option value="off">Off</option>
-            </select>
-          </div>
-
-          <!-- Subtitle Sync Offset Slider (-5.0s to +5.0s) -->
-          <div class="flex items-center space-x-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-white/10" title="Subtitle Sync Offset (-5.0s to +5.0s)">
-            <span class="text-slate-400 text-[10px]">Sync:</span>
-            <input type="range" id="player-sub-offset-slider" min="-5.0" max="5.0" step="0.1" value="0.0" oninput="updateSubtitleOffset(this.value)" class="w-14 h-1 accent-sky-400 cursor-pointer" />
-            <span id="player-sub-offset-val" class="text-sky-300 font-mono text-[10px] w-7">0.0s</span>
-            <button id="btn-reset-sub-offset" onclick="resetSubtitleOffset()" title="Reset Subtitle Sync Offset" class="text-slate-500 hover:text-white text-[10px]">↺</button>
-          </div>
-
         </div>
 
-        <!-- Right: Popovers (Shaders, EQ), Quality, Buffer HUD, VLC Modal Button -->
+        <!-- Right: Speed, Quality, Buffer HUD -->
         <div class="flex flex-wrap items-center gap-2 font-mono">
           
-          <!-- Video Shader Tuner Popover Trigger -->
-          <button id="btn-shader-tuner" onclick="toggleShaderPopover()" title="Video Shader Tuner (Aspect Ratio & Filters)" class="min-touch p-1.5 rounded-lg bg-[#0d1117] text-purple-400 hover:text-white border border-white/10 transition flex items-center justify-center">
-            <i data-lucide="sliders" class="w-4 h-4"></i>
-          </button>
-
-          <!-- 5-Band Equalizer Popover Trigger -->
-          <button id="btn-eq-popover" onclick="toggleEqPopover()" title="5-Band Equalizer & Night Mode" class="min-touch p-1.5 rounded-lg bg-[#0d1117] text-sky-400 hover:text-white border border-white/10 transition flex items-center justify-center">
-            <i data-lucide="activity" class="w-4 h-4"></i>
-          </button>
-
-          <!-- Mobile QR / VLC Stream Link Button -->
-          <button id="btn-vlc-stream" onclick="openVlcStreamModal()" title="VLC, Infuse & Mobile QR Stream Link" class="min-touch p-1.5 rounded-lg bg-[#0d1117] text-amber-400 hover:text-white border border-white/10 transition flex items-center justify-center">
-            <i data-lucide="tv" class="w-4 h-4"></i>
-          </button>
-
           <!-- Quality Selector -->
           <select id="player-quality-select" onchange="changePlayerQuality(this.value)" class="bg-[#0d1117] text-white px-2.5 py-1.5 rounded-lg border border-white/10 focus:outline-none cursor-pointer text-xs">
             <option value="source">Source (Direct)</option>
@@ -1129,118 +946,8 @@
             <div class="w-12 bg-slate-800 h-1.5 rounded-full overflow-hidden">
               <div id="player-buffer-bar" class="h-full bg-sky-400 transition-all duration-300" style="width: 0%"></div>
             </div>
-            <span class="plyr__buffer-live-badge hidden">LIVE</span>
           </div>
 
-        </div>
-
-        <!-- Video Shader Tuner Popover Menu -->
-        <div id="player-shader-popover" class="hidden player-popover-menu space-y-3">
-          <div class="flex items-center justify-between border-b border-white/[0.08] pb-2">
-            <span class="text-xs font-bold text-white flex items-center space-x-1.5">
-              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-400"></i>
-              <span>Video Shader Tuner</span>
-            </span>
-            <button onclick="toggleShaderPopover()" class="text-slate-400 hover:text-white p-1">
-              <i data-lucide="x" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-          <div class="space-y-2 text-[11px]">
-            <div>
-              <div class="flex justify-between text-slate-400 mb-1">
-                <span>Brightness</span>
-                <span id="val-brightness">100%</span>
-              </div>
-              <input type="range" id="shader-brightness" min="50" max="150" value="100" oninput="updateVideoShaders()" class="range-slider-cyber" />
-            </div>
-            <div>
-              <div class="flex justify-between text-slate-400 mb-1">
-                <span>Contrast</span>
-                <span id="val-contrast">100%</span>
-              </div>
-              <input type="range" id="shader-contrast" min="50" max="150" value="100" oninput="updateVideoShaders()" class="range-slider-cyber" />
-            </div>
-            <div>
-              <div class="flex justify-between text-slate-400 mb-1">
-                <span>Saturation</span>
-                <span id="val-saturation">100%</span>
-              </div>
-              <input type="range" id="shader-saturation" min="50" max="150" value="100" oninput="updateVideoShaders()" class="range-slider-cyber" />
-            </div>
-            <div>
-              <div class="flex justify-between text-slate-400 mb-1">
-                <span>Sharpness</span>
-                <span id="val-sharpness">0%</span>
-              </div>
-              <input type="range" id="shader-sharpness" min="0" max="100" value="0" oninput="updateVideoShaders()" class="range-slider-cyber" />
-            </div>
-          </div>
-          <div class="pt-2 border-t border-white/[0.06] space-y-1.5">
-            <span class="text-[10px] text-slate-400 block font-mono">Aspect Ratio Override:</span>
-            <div class="grid grid-cols-4 gap-1 text-[10px] font-mono">
-              <button id="aspect-16-9" onclick="setAspectRatio('16/9')" class="px-2 py-1 rounded bg-[#010409] text-sky-400 hover:bg-sky-500/20 border border-white/10 transition">16:9</button>
-              <button id="aspect-21-9" onclick="setAspectRatio('21/9')" class="px-2 py-1 rounded bg-[#010409] text-purple-400 hover:bg-purple-500/20 border border-white/10 transition">21:9</button>
-              <button id="aspect-4-3" onclick="setAspectRatio('4/3')" class="px-2 py-1 rounded bg-[#010409] text-amber-400 hover:bg-amber-500/20 border border-white/10 transition">4:3</button>
-              <button id="aspect-fit" onclick="setAspectRatio('fit')" class="px-2 py-1 rounded bg-[#010409] text-emerald-400 hover:bg-emerald-500/20 border border-white/10 transition">Fit</button>
-            </div>
-          </div>
-          <div class="pt-1 flex justify-end">
-            <button id="btn-reset-shaders" onclick="resetVideoShaders()" class="text-[10px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800 transition">
-              Reset Shaders
-            </button>
-          </div>
-        </div>
-
-        <!-- 5-Band Equalizer Popover Menu -->
-        <div id="player-eq-popover" class="hidden player-popover-menu space-y-3">
-          <div class="flex items-center justify-between border-b border-white/[0.08] pb-2">
-            <span class="text-xs font-bold text-white flex items-center space-x-1.5">
-              <i data-lucide="activity" class="w-3.5 h-3.5 text-sky-400"></i>
-              <span>5-Band DSP Equalizer</span>
-            </span>
-            <button onclick="toggleEqPopover()" class="text-slate-400 hover:text-white p-1">
-              <i data-lucide="x" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-          <!-- 60fps Real-Time Visualizer Canvas -->
-          <canvas id="eq-visualizer-canvas" class="w-full h-12 bg-black/70 rounded-lg border border-white/10"></canvas>
-          <div class="grid grid-cols-5 gap-1.5 text-center text-[10px] font-mono">
-            <div>
-              <span class="text-slate-400 block mb-1">60Hz</span>
-              <input type="range" id="eq-band-60" min="-12" max="12" value="0" orient="vertical" oninput="updateEqualizer()" class="h-20 w-1.5 accent-sky-400 cursor-pointer" />
-            </div>
-            <div>
-              <span class="text-slate-400 block mb-1">250Hz</span>
-              <input type="range" id="eq-band-250" min="-12" max="12" value="0" orient="vertical" oninput="updateEqualizer()" class="h-20 w-1.5 accent-sky-400 cursor-pointer" />
-            </div>
-            <div>
-              <span class="text-slate-400 block mb-1">1kHz</span>
-              <input type="range" id="eq-band-1000" min="-12" max="12" value="0" orient="vertical" oninput="updateEqualizer()" class="h-20 w-1.5 accent-sky-400 cursor-pointer" />
-            </div>
-            <div>
-              <span class="text-slate-400 block mb-1">2.5kHz</span>
-              <input type="range" id="eq-band-2500" min="-12" max="12" value="0" orient="vertical" oninput="updateEqualizer()" class="h-20 w-1.5 accent-sky-400 cursor-pointer" />
-            </div>
-            <div>
-              <span class="text-slate-400 block mb-1">10kHz</span>
-              <input type="range" id="eq-band-10000" min="-12" max="12" value="0" orient="vertical" oninput="updateEqualizer()" class="h-20 w-1.5 accent-sky-400 cursor-pointer" />
-            </div>
-          </div>
-          <div class="flex items-center justify-between pt-2 border-t border-white/[0.06] text-xs">
-            <label class="flex items-center space-x-1.5 text-slate-300 cursor-pointer">
-              <input type="checkbox" id="eq-night-mode" onchange="toggleNightMode(this.checked)" class="rounded bg-slate-800 text-sky-500" />
-              <span>Night Mode</span>
-            </label>
-            <select id="eq-preset-select" onchange="applyEqPreset(this.value)" class="bg-[#010409] text-white text-[11px] px-2 py-1 rounded border border-white/10">
-              <option value="flat">Flat</option>
-              <option value="bass">Bass Boost</option>
-              <option value="dialogue">Dialogue</option>
-              <option value="cinema">Cinema</option>
-            </select>
-            <button id="btn-reset-eq" onclick="resetEqualizer()" class="text-[10px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800 transition">
-              Reset
-            </button>
-          </div>
         </div>
 
       </div>
@@ -1533,142 +1240,6 @@
     </div>
   </div>
 
-  <!-- ==================== 10. LINEAR-STYLE COMMAND PALETTE MODAL (Cmd+K / /) ==================== -->
-  <div id="command-palette-modal" class="hidden cmd-palette-modal" onclick="handlePaletteBackdropClick(event)">
-    <div class="cmd-palette-box">
-      <div class="relative flex items-center border-b border-white/[0.08] px-4">
-        <i data-lucide="search" class="w-4 h-4 text-sky-400 mr-2 shrink-0"></i>
-        <input id="command-palette-input" type="text" placeholder="Type a command or search media... (Cmd+K or /)" class="cmd-palette-input" oninput="handlePaletteSearch(this.value)" />
-        <kbd class="cmd-kbd text-slate-400 shrink-0 ml-2">ESC</kbd>
-      </div>
-      <div id="command-palette-results" class="p-2 max-h-80 overflow-y-auto space-y-1 font-mono text-xs">
-        <div class="px-3 py-1.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Quick Actions</div>
-        <div class="cmd-palette-item" onclick="openSyncModal(); closeCommandPalette();">
-          <span class="flex items-center space-x-2"><i data-lucide="cloud" class="w-3.5 h-3.5 text-sky-400"></i><span>Sync Google Drive Catalog</span></span>
-          <kbd class="cmd-kbd">S</kbd>
-        </div>
-        <div class="cmd-palette-item" onclick="openUrlModal(); closeCommandPalette();">
-          <span class="flex items-center space-x-2"><i data-lucide="plus-circle" class="w-3.5 h-3.5 text-emerald-400"></i><span>Ingest Media from External URL</span></span>
-          <kbd class="cmd-kbd">U</kbd>
-        </div>
-        <div class="cmd-palette-item" onclick="triggerScanStorage(); closeCommandPalette();">
-          <span class="flex items-center space-x-2"><i data-lucide="folder-search" class="w-3.5 h-3.5 text-amber-400"></i><span>Scan Storage Array (/mnt/storage)</span></span>
-          <kbd class="cmd-kbd">R</kbd>
-        </div>
-        <div class="cmd-palette-item" onclick="switchUIMode('cinema'); closeCommandPalette();">
-          <span class="flex items-center space-x-2"><i data-lucide="clapperboard" class="w-3.5 h-3.5 text-purple-400"></i><span>Switch to Cinema Lounge View</span></span>
-          <kbd class="cmd-kbd">C</kbd>
-        </div>
-        <div class="cmd-palette-item" onclick="switchUIMode('noc'); closeCommandPalette();">
-          <span class="flex items-center space-x-2"><i data-lucide="terminal" class="w-3.5 h-3.5 text-sky-400"></i><span>Switch to NOC Command Center</span></span>
-          <kbd class="cmd-kbd">N</kbd>
-        </div>
-        <div class="cmd-palette-item" onclick="toggleServerLogsDrawer(); closeCommandPalette();">
-          <span class="flex items-center space-x-2"><i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i><span>Open Live Server & FFmpeg Logs</span></span>
-          <kbd class="cmd-kbd">L</kbd>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== 11. LIVE SERVER LOG DRAWER ==================== -->
-  <div id="server-logs-drawer" class="hidden server-logs-drawer">
-    <div class="p-4 bg-[#0d1117] border-b border-[#21262d] flex items-center justify-between">
-      <div class="flex items-center space-x-2">
-        <i data-lucide="terminal" class="w-4 h-4 text-purple-400"></i>
-        <h3 class="text-sm font-bold text-white font-mono">Live Server & FFmpeg Logs</h3>
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-      </div>
-      <div class="flex items-center space-x-2">
-        <button id="logs-autoscroll-btn" onclick="toggleLogsAutoScroll()" title="Auto-scroll toggle" class="px-2 py-1 rounded bg-[#010409] text-sky-400 text-[10px] font-mono border border-white/10">
-          Auto-scroll: ON
-        </button>
-        <button id="clear-logs-btn" onclick="clearServerLogs()" title="Clear Logs" class="px-2 py-1 rounded bg-[#010409] text-slate-400 hover:text-white text-[10px] font-mono border border-white/10">
-          Clear
-        </button>
-        <button id="close-logs-drawer-btn" onclick="toggleServerLogsDrawer()" class="min-touch p-1.5 rounded-lg text-slate-400 hover:text-white">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-    </div>
-    <div class="px-4 py-2 bg-[#06090f] border-b border-[#21262d] flex items-center space-x-2 text-[10px] font-mono">
-      <span class="text-slate-500">Filter:</span>
-      <button onclick="filterLogs('all')" class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300">All</button>
-      <button onclick="filterLogs('ffmpeg')" class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">FFmpeg</button>
-      <button onclick="filterLogs('api')" class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">FastAPI</button>
-      <button onclick="filterLogs('error')" class="px-2 py-0.5 rounded bg-red-500/20 text-red-300">Errors</button>
-    </div>
-    <div id="server-logs-content" class="server-logs-terminal">
-      <div class="text-slate-500 font-mono text-[11px]">[SYSTEM] Live server telemetry stream initialized. Waiting for pipeline events...</div>
-    </div>
-  </div>
-
-  <!-- ==================== 12. MOBILE QR / VLC STREAM LINK MODAL ==================== -->
-  <div id="vlc-stream-modal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-xl flex items-center justify-center p-4">
-    <div class="w-full max-w-lg bg-[#0d1117] border border-white/10 rounded-2xl shadow-2xl p-6 space-y-4">
-      <div class="flex items-center justify-between border-b border-white/[0.08] pb-3">
-        <div class="flex items-center space-x-2.5">
-          <div class="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30">
-            <i data-lucide="tv" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <h3 class="text-base font-bold text-white tracking-tight">Stream to VLC, Infuse & Apple TV</h3>
-            <p class="text-xs text-slate-400">Direct authenticated media stream links & QR code</p>
-          </div>
-        </div>
-        <button onclick="closeVlcStreamModal()" class="min-touch p-2 rounded-lg bg-[#161b22] text-slate-400 hover:text-white border border-white/10 transition">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-
-      <!-- QR Code Viewport -->
-      <div class="flex flex-col items-center justify-center p-4 bg-[#010409] border border-white/10 rounded-xl space-y-2">
-        <div id="vlc-qr-code-container" class="w-36 h-36 bg-white p-2 rounded-lg flex items-center justify-center">
-          <canvas id="vlc-qr-canvas" class="w-full h-full"></canvas>
-        </div>
-        <span class="text-[11px] font-mono text-slate-400">Scan with phone camera to open stream</span>
-      </div>
-
-      <!-- Direct Stream URL -->
-      <div class="space-y-1.5">
-        <label class="block text-xs font-medium text-slate-300">Direct Video Stream URL</label>
-        <div class="flex items-center space-x-2">
-          <input id="vlc-stream-url" type="text" readonly class="flex-1 px-3 py-2 rounded-lg bg-[#010409] border border-slate-700 text-xs font-mono text-sky-300 select-all focus:outline-none" />
-          <button id="btn-copy-vlc-url" onclick="copyVlcStreamUrl()" class="min-touch px-3 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-xs font-semibold shadow transition">
-            Copy
-          </button>
-        </div>
-      </div>
-
-      <!-- M3U Playlist URL -->
-      <div class="space-y-1.5">
-        <label class="block text-xs font-medium text-slate-300">Universal M3U Playlist (VLC / Infuse / Kodi)</label>
-        <div class="flex items-center space-x-2">
-          <input id="vlc-m3u-url" type="text" readonly value="/api/videos/playlist.m3u" class="flex-1 px-3 py-2 rounded-lg bg-[#010409] border border-slate-700 text-xs font-mono text-purple-300 select-all focus:outline-none" />
-          <button id="btn-copy-m3u-url" onclick="copyM3uPlaylistUrl()" class="min-touch px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow transition">
-            Copy M3U
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== TELEMETRY FALLBACK NODES ==================== -->
-  <div class="hidden">
-    <div id="telemetry-cpu"></div>
-    <div id="telemetry-cpu-bar"></div>
-    <div id="telemetry-ram"></div>
-    <div id="telemetry-ram-bar"></div>
-    <div id="telemetry-disk"></div>
-    <div id="telemetry-disk-bar"></div>
-    <div id="telemetry-input"></div>
-    <div id="telemetry-output"></div>
-    <div id="telemetry-processing"></div>
-    <div id="telemetry-queue"></div>
-    <div id="telemetry-ready"></div>
-    <div id="telemetry-uptime"></div>
-  </div>
-
   <!-- ==================== JAVASCRIPT INITIALIZATION & BRIDGE ==================== -->
   <!-- Main Application Script (Telemetry, WebSocket, Player, Globe) -->
   <script src="/js/app.js"></script>
@@ -1680,7 +1251,7 @@
       lucide.createIcons();
     }
 
-    // Modal Helper Bridges
+    // Modal Helper Bridges (Handled dynamically via /js/app.js)
     function toggleTransfersDrawer() {
       const d = document.getElementById('transfers-drawer');
       if (d) d.classList.toggle('hidden');
@@ -1688,8 +1259,7 @@
 
     // Media Playback Check
     function isVideoPlayable(v) {
-      const isPlayable = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
-      return isPlayable;
+      return v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
     }
 
     // Fallback stubs for engine toggles & quick actions
@@ -1709,511 +1279,6 @@
     function resetPlayerProcessing() {
       const hud = document.getElementById('player-processing-hud');
       if (hud) hud.classList.add('hidden');
-    }
-
-    // Dual-Mode Switcher Handler
-    function switchUIMode(mode) {
-      const nocBtn = document.getElementById('mode-btn-noc');
-      const cinemaBtn = document.getElementById('mode-btn-cinema');
-      const rackHeader = document.getElementById('server-rack-header');
-      const telemetrySection = document.getElementById('hero-telemetry-section');
-
-      if (mode === 'cinema') {
-        if (nocBtn) nocBtn.className = 'min-touch flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition';
-        if (cinemaBtn) cinemaBtn.className = 'min-touch flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-sky-500 text-white font-semibold shadow-sm transition';
-        if (rackHeader) rackHeader.classList.add('hidden');
-        if (telemetrySection) telemetrySection.classList.add('hidden');
-        document.body.classList.add('cinema-lounge-header');
-      } else {
-        if (nocBtn) nocBtn.className = 'min-touch flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-sky-500 text-white font-semibold shadow-sm transition';
-        if (cinemaBtn) cinemaBtn.className = 'min-touch flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition';
-        if (rackHeader) rackHeader.classList.remove('hidden');
-        if (telemetrySection) telemetrySection.classList.remove('hidden');
-        document.body.classList.remove('cinema-lounge-header');
-      }
-      if (window.appSwitchMode) window.appSwitchMode(mode);
-    }
-
-    // Continue Watching Shelf Scroll
-    function scrollContinueShelf(direction) {
-      const shelf = document.getElementById('continue-watching-shelf');
-      if (shelf) shelf.scrollBy({ left: direction * 280, behavior: 'smooth' });
-    }
-
-    function handleContinueCardClick() {
-      if (window.appOpenLatestVideo) window.appOpenLatestVideo();
-    }
-
-    // Smart Series Grouping Toggle
-    function toggleSeriesGrouping() {
-      const normalGrid = document.getElementById('video-grid');
-      const seriesGrid = document.getElementById('series-grid');
-      const btn = document.getElementById('series-group-toggle-btn');
-      if (!normalGrid || !seriesGrid) return;
-      const isSeries = seriesGrid.classList.contains('hidden');
-      if (isSeries) {
-        seriesGrid.classList.remove('hidden');
-        normalGrid.classList.add('hidden');
-        if (btn) btn.className = 'min-touch flex items-center space-x-2 px-3.5 py-2.5 rounded-xl bg-purple-600 text-white font-semibold shadow-sm transition shrink-0 active:scale-95';
-        if (window.renderGroupedSeries) window.renderGroupedSeries();
-      } else {
-        seriesGrid.classList.add('hidden');
-        normalGrid.classList.remove('hidden');
-        if (btn) btn.className = 'min-touch flex items-center space-x-2 px-3.5 py-2.5 rounded-xl bg-[#161b22] hover:bg-[#21262d] text-slate-300 hover:text-white border border-white/[0.08] transition shrink-0 active:scale-95';
-      }
-    }
-
-    // Bulk Multi-Select Handlers
-    window.selectedVideoIds = new Set();
-    function toggleSelectAllVideos(checked) {
-      const checkboxes = document.querySelectorAll('.video-select-checkbox');
-      checkboxes.forEach(cb => {
-        cb.checked = checked;
-        const id = cb.dataset.videoId;
-        if (id) {
-          if (checked) window.selectedVideoIds.add(id);
-          else window.selectedVideoIds.delete(id);
-        }
-      });
-      updateBulkActionBar();
-    }
-
-    function updateBulkActionBar() {
-      const bar = document.getElementById('bulk-action-bar');
-      const countEl = document.getElementById('bulk-selected-count');
-      const count = window.selectedVideoIds.size;
-      if (countEl) countEl.textContent = count + ' Selected';
-      if (bar) {
-        if (count > 0) bar.classList.remove('hidden');
-        else bar.classList.add('hidden');
-      }
-    }
-
-    function clearVideoSelection() {
-      window.selectedVideoIds.clear();
-      const allCb = document.getElementById('select-all-videos-checkbox');
-      if (allCb) allCb.checked = false;
-      document.querySelectorAll('.video-select-checkbox').forEach(cb => cb.checked = false);
-      updateBulkActionBar();
-    }
-
-    async function handleBulkEvictCache() {
-      if (window.selectedVideoIds.size === 0) return;
-      if (!confirm('Evict local cache for ' + window.selectedVideoIds.size + ' selected item(s)? Media will remain indexed in Google Drive.')) return;
-      for (const id of window.selectedVideoIds) {
-        try {
-          await fetch('/api/videos/' + id + '/evict-local', { method: 'POST' });
-        } catch (e) {}
-      }
-      clearVideoSelection();
-      if (window.fetchAllData) window.fetchAllData();
-    }
-
-    async function handleBulkDeleteForever() {
-      if (window.selectedVideoIds.size === 0) return;
-      if (!confirm('PERMANENTLY DELETE ' + window.selectedVideoIds.size + ' selected video(s)? This cannot be undone!')) return;
-      for (const id of window.selectedVideoIds) {
-        try {
-          await fetch('/api/videos/' + id, { method: 'DELETE' });
-        } catch (e) {}
-      }
-      clearVideoSelection();
-      if (window.fetchAllData) window.fetchAllData();
-    }
-
-    // Command Palette Modal
-    function openCommandPalette() {
-      const m = document.getElementById('command-palette-modal');
-      const input = document.getElementById('command-palette-input');
-      if (m) m.classList.remove('hidden');
-      if (input) {
-        input.value = '';
-        setTimeout(() => input.focus(), 50);
-      }
-    }
-
-    function closeCommandPalette() {
-      const m = document.getElementById('command-palette-modal');
-      if (m) m.classList.add('hidden');
-    }
-
-    function handlePaletteBackdropClick(e) {
-      if (e.target.id === 'command-palette-modal') closeCommandPalette();
-    }
-
-    function handlePaletteSearch(q) {
-      if (window.appPaletteSearch) window.appPaletteSearch(q);
-    }
-
-    // Live Server Logs Drawer
-    function toggleServerLogsDrawer() {
-      const d = document.getElementById('server-logs-drawer');
-      if (d) d.classList.toggle('hidden');
-    }
-
-    function toggleLogsAutoScroll() {
-      window._logsAutoScroll = !window._logsAutoScroll;
-      const btn = document.getElementById('logs-autoscroll-btn');
-      if (btn) btn.textContent = 'Auto-scroll: ' + (window._logsAutoScroll ? 'ON' : 'OFF');
-    }
-
-    function clearServerLogs() {
-      const content = document.getElementById('server-logs-content');
-      if (content) content.innerHTML = '<div class="text-slate-500 font-mono text-[11px]">[SYSTEM] Logs cleared.</div>';
-    }
-
-    function filterLogs(category) {
-      if (window.appFilterLogs) window.appFilterLogs(category);
-    }
-
-    // LosslessCut & Frame Grabber Helpers
-    function setLosslessMarkIn() {
-      if (window.appMarkIn) window.appMarkIn();
-    }
-
-    function setLosslessMarkOut() {
-      if (window.appMarkOut) window.appMarkOut();
-    }
-
-    function exportLosslessClip() {
-      if (window.appExportClip) window.appExportClip();
-    }
-
-    function captureFrame(action) {
-      if (window.appCaptureFrame) window.appCaptureFrame(action);
-    }
-
-    // Video Shaders & Aspect Ratio Popover
-    function toggleShaderPopover() {
-      const p = document.getElementById('player-shader-popover');
-      if (p) p.classList.toggle('hidden');
-      const eq = document.getElementById('player-eq-popover');
-      if (eq) eq.classList.add('hidden');
-    }
-
-    function updateVideoShaders() {
-      const b = document.getElementById('shader-brightness')?.value || 100;
-      const c = document.getElementById('shader-contrast')?.value || 100;
-      const s = document.getElementById('shader-saturation')?.value || 100;
-      const sh = document.getElementById('shader-sharpness')?.value || 0;
-      document.getElementById('val-brightness').textContent = b + '%';
-      document.getElementById('val-contrast').textContent = c + '%';
-      document.getElementById('val-saturation').textContent = s + '%';
-      document.getElementById('val-sharpness').textContent = sh + '%';
-      if (window.appApplyShaders) window.appApplyShaders(b, c, s, sh);
-    }
-
-    function setAspectRatio(ratio) {
-      if (window.appSetAspectRatio) window.appSetAspectRatio(ratio);
-    }
-
-    function resetVideoShaders() {
-      ['shader-brightness', 'shader-contrast', 'shader-saturation'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = 100;
-      });
-      const sh = document.getElementById('shader-sharpness');
-      if (sh) sh.value = 0;
-      updateVideoShaders();
-      setAspectRatio('fit');
-    }
-
-    // 5-Band Equalizer Popover
-    function toggleEqPopover() {
-      const p = document.getElementById('player-eq-popover');
-      if (p) p.classList.toggle('hidden');
-      const sh = document.getElementById('player-shader-popover');
-      if (sh) sh.classList.add('hidden');
-    }
-
-    function updateEqualizer() {
-      if (window.appUpdateEq) window.appUpdateEq();
-    }
-
-    function toggleNightMode(enable) {
-      if (window.appToggleNightMode) window.appToggleNightMode(enable);
-    }
-
-    function applyEqPreset(preset) {
-      if (window.appApplyEqPreset) window.appApplyEqPreset(preset);
-    }
-
-    function resetEqualizer() {
-      ['eq-band-60', 'eq-band-250', 'eq-band-1000', 'eq-band-2500', 'eq-band-10000'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = 0;
-      });
-      const nm = document.getElementById('eq-night-mode');
-      if (nm) nm.checked = false;
-      updateEqualizer();
-    }
-
-    // Subtitle Sync Offset & Secondary Subtitle
-    function updateSubtitleOffset(val) {
-      const valEl = document.getElementById('player-sub-offset-val');
-      if (valEl) valEl.textContent = parseFloat(val).toFixed(1) + 's';
-      if (window.appSetSubtitleOffset) window.appSetSubtitleOffset(parseFloat(val));
-    }
-
-    function resetSubtitleOffset() {
-      const slider = document.getElementById('player-sub-offset-slider');
-      if (slider) slider.value = 0.0;
-      updateSubtitleOffset(0.0);
-    }
-
-    function changeSecondarySubtitleTrack(track) {
-      if (window.appChangeSecondarySub) window.appChangeSecondarySub(track);
-    }
-
-    // Ambilight Toggle
-    function toggleAmbilight() {
-      const canvas = document.getElementById('player-ambilight-canvas');
-      if (canvas) canvas.classList.toggle('hidden');
-      if (window.appToggleAmbilight) window.appToggleAmbilight();
-    }
-
-    // Mobile QR / VLC Stream Link Modal
-    function openVlcStreamModal() {
-      const m = document.getElementById('vlc-stream-modal');
-      if (m) m.classList.remove('hidden');
-      if (window.appPrepareVlcModal) window.appPrepareVlcModal();
-    }
-
-    function closeVlcStreamModal() {
-      const m = document.getElementById('vlc-stream-modal');
-      if (m) m.classList.add('hidden');
-    }
-
-    function copyVlcStreamUrl() {
-      const input = document.getElementById('vlc-stream-url');
-      if (input) {
-        input.select();
-        navigator.clipboard.writeText(input.value);
-        const btn = document.getElementById('btn-copy-vlc-url');
-        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }
-      }
-    }
-
-    function copyM3uPlaylistUrl() {
-      const url = window.location.origin + '/api/videos/playlist.m3u';
-      navigator.clipboard.writeText(url);
-      const btn = document.getElementById('btn-copy-m3u-url');
-      if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy M3U', 2000); }
-    }
-
-    // Global Keyboard Guard & Shortcuts (Preserves '/' for search without stealing focus)
-    document.addEventListener('keydown', (e) => {
-      const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        openCommandPalette();
-        return;
-      }
-      if (e.key === 'Escape') {
-        closeCommandPalette();
-        closeVlcStreamModal();
-      }
-      if (!isInput) {
-        if (e.key === '/') {
-          e.preventDefault();
-          const s = document.getElementById('search-input');
-          if (s) { s.focus(); s.select(); }
-        } else if (e.key.toLowerCase() === 'j') {
-          if (window.appSeekRelative) window.appSeekRelative(-10);
-        } else if (e.key.toLowerCase() === 'l') {
-          if (window.appSeekRelative) window.appSeekRelative(10);
-        } else if (e.key.toLowerCase() === 'f') {
-          toggleTheaterMode();
-        } else if (e.key.toLowerCase() === 's') {
-          captureFrame('download');
-        } else if (e.key === '[') {
-          setLosslessMarkIn();
-        } else if (e.key === ']') {
-          setLosslessMarkOut();
-        }
-      }
-    });
-
-    // Formatting & Uptime Helpers
-    
-    // Watch position memory (localStorage)
-    function savePlaybackPosition(videoId, currentTime) {
-      if (!videoId) return;
-      localStorage.setItem('dc_playback_pos_' + videoId, currentTime);
-    }
-    function getPlaybackPosition(videoId) {
-      if (!videoId) return 0;
-      return parseFloat(localStorage.getItem('dc_playback_pos_' + videoId) || '0');
-    }
-
-    // Handle background processing completion without interrupting active playback
-    function handleProcessingComplete(event) {
-      if (event === 'PROCESSING_COMPLETE') {
-        // Never call openPlayerModal during playback
-        fetchAllData();
-      }
-    }
-function formatUptime(seconds) {
-      if (seconds < 60) return `${Math.floor(seconds)}s`;
-      const m = Math.floor(seconds / 60) % 60;
-      const h = Math.floor(seconds / 3600);
-      return `${h}h ${m}m`;
-    }
-
-    // Card Video Hover Controls Stub
-    function setupCardHoverControls(card, videoEl) {
-      if (!card || !videoEl) return;
-      card.onmouseenter = () => {
-        try { videoEl.play(); } catch (err) {}
-      };
-      card.onmouseleave = () => {
-        try { videoEl.pause(); videoEl.currentTime = 0; } catch (err) {}
-      };
-    }
-
-    // Video Player Buffering & Buffer Progress Hooks
-    function showBufferingIndicator(show) {
-      const overlay = document.getElementById('player-buffering-overlay');
-      if (overlay) overlay.style.display = show ? 'flex' : 'none';
-    }
-
-    function getBufferedPercent(media) {
-      if (!media || !media.duration || media.duration <= 0) return 0;
-      const b = media.buffered;
-      let total = 0;
-      for (let i = 0; i < b.length; i++) {
-        if (b.end(i) > b.start(i)) total += (b.end(i) - b.start(i));
-      }
-      const pct = Math.min(100, Math.max(0, Math.round((total / media.duration) * 100)));
-      const bufBar = document.getElementById('player-buffer-bar');
-      const bufPct = document.getElementById('player-buffer-pct');
-      if (bufBar) bufBar.style.width = pct + '%';
-      if (bufPct) bufPct.textContent = pct + '%';
-      const buf = document.querySelector('.plyr__progress__buffer');
-      if (buf) buf.value = pct;
-      return pct;
-    }
-
-    function setupMediaBufferingListeners(video) {
-      if (!video) return;
-      ['waiting', 'seeking', 'loadstart', 'stalled'].forEach(evt => {
-        video.addEventListener(evt, () => showBufferingIndicator(true));
-      });
-      video.addEventListener('seeked', () => {
-        if (video.readyState >= 3) showBufferingIndicator(false);
-      });
-      if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-        video.requestVideoFrameCallback(() => {
-          if (video.readyState >= 3) showBufferingIndicator(false);
-        });
-      }
-    }
-
-    // Transfer Completion & Dismiss Stubs
-    function dismissTransfer(id) {
-      if (window.appDismissTransfer) window.appDismissTransfer(id);
-    }
-
-    function clearCompletedTransfers() {
-      if (window.appClearDoneTransfers) window.appClearDoneTransfers();
-    }
-
-    function renderTransfers(transfers) {
-      const container = document.getElementById('transfers-container');
-      if (!container || !transfers) return;
-      Object.entries(transfers).forEach(([id, t]) => {
-        const isDone = t.status === 'DOWNLOAD_COMPLETE' || t.percentage >= 100;
-        const statusLabel = isDone ? 'Done' : (t.percentage + '%');
-      });
-    }
-
-    // Sprite Generation ETA Formatter
-    function formatSpriteEta(p) {
-      const stage_percent = p.stage_percent || 0;
-      const eta = p.eta_seconds || 0;
-      return `Generating Sprites ${stage_percent}% (${eta}s left)`;
-    }
-
-    // Mongo Express SSH Helper & Password Copy
-    function copyMongoTunnelCmd() {
-      const pre = document.getElementById('me-tunnel-cmd-text');
-      if (pre) {
-        navigator.clipboard.writeText(pre.innerText || pre.textContent);
-        const lbl = document.getElementById('me-copy-cmd-label');
-        if (lbl) { lbl.textContent = 'Copied!'; setTimeout(() => lbl.textContent = 'Copy', 2000); }
-      }
-    }
-
-    function copyMongoPassword() {
-      const pass = document.getElementById('me-pass-val')?.textContent || 'Admin@Drive2026!';
-      navigator.clipboard.writeText(pass);
-    }
-
-    // Web Audio Gain & Theater Mode Cleanups
-    function setupAudioBooster() {
-      if (window.AudioContext || window.webkitAudioContext) {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        ctx.createGain();
-      }
-    }
-
-    function toggleTheaterMode() {
-      const box = document.getElementById('player-modal-box');
-      if (box) {
-        box.classList.toggle('sm:max-w-7xl');
-        box.classList.toggle('sm:max-w-5xl');
-      }
-    }
-
-    function closePlayerModal() {
-      const m = document.getElementById('player-modal');
-      if (m) m.classList.add('hidden');
-      if (window.audioCtx) {
-        try { window.audioCtx.close(); } catch (err) {}
-      }
-      if (window.appClosePlayer) window.appClosePlayer();
-    }
-
-    function cycleAudioBoost() {
-      if (window.appCycleAudioBoost) window.appCycleAudioBoost();
-    }
-
-    function changePlayerAudioTrack(val) {
-      if (window.appChangeAudioTrack) window.appChangeAudioTrack(val);
-    }
-
-    function changePlayerSubtitleTrack(val) {
-      if (window.appChangeSubtitleTrack) window.appChangeSubtitleTrack(val);
-    }
-
-    function changePlayerQuality(val) {
-      if (window.appChangeQuality) window.appChangeQuality(val);
-    }
-
-    function triggerWhisperTranscribe() {
-      if (window.appWhisper) window.appWhisper();
-    }
-
-    function setCatalogFilter(filter) {
-      if (window.appSetFilter) window.appSetFilter(filter);
-    }
-
-    function setCatalogView(view) {
-      if (window.appSetView) window.appSetView(view);
-    }
-
-    function clearSearch() {
-      const input = document.getElementById('search-input');
-      if (input) { input.value = ''; }
-      if (window.appClearSearch) window.appClearSearch();
-    }
-
-    function triggerScanStorage() {
-      if (window.appScanStorage) window.appScanStorage();
-    }
-
-    function fetchAllData() {
-      if (window.appFetchAll) window.appFetchAll();
     }
   </script>
 
