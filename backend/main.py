@@ -182,12 +182,17 @@ class NetworkTelemetryTracker:
         }
 
     def extract_client_ip(self, request: Request) -> str:
-        for hdr in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip", "forwarded"):
+        for hdr in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip", "x-client-ip", "forwarded"):
             val = request.headers.get(hdr)
             if val:
                 ip = val.split(",")[0].strip()
-                if ip:
+                if ip and not self.is_private_ip(ip):
                     return ip
+        if request.client and request.client.host and not self.is_private_ip(request.client.host):
+            return request.client.host
+        val = request.headers.get("x-client-ip")
+        if val:
+            return val.split(",")[0].strip()
         if request.client and request.client.host:
             return request.client.host
         return "127.0.0.1"
@@ -206,8 +211,8 @@ class NetworkTelemetryTracker:
         if self.is_private_ip(ip):
             geo = {
                 "ip": ip,
-                "city": "Local Node",
-                "country": "Local Network",
+                "city": "Direct Client",
+                "country": "Local Node",
                 "country_code": "LOC",
                 "flag": "🌐",
                 "lat": self.server_node["lat"],
@@ -216,6 +221,7 @@ class NetworkTelemetryTracker:
             self._geo_cache[ip] = geo
             return geo
 
+        # Provider 1: ip-api.com
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,city,lat,lon,query")
@@ -237,10 +243,33 @@ class NetworkTelemetryTracker:
         except Exception:
             pass
 
+        # Provider 2: ipwho.is fallback
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"https://ipwho.is/{ip}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("success"):
+                        cc = data.get("country_code") or "UN"
+                        flag = data.get("flag", {}).get("emoji") if isinstance(data.get("flag"), dict) else None
+                        geo = {
+                            "ip": ip,
+                            "city": data.get("city") or "Unknown",
+                            "country": data.get("country") or "Unknown",
+                            "country_code": cc,
+                            "flag": flag or get_flag_emoji(cc),
+                            "lat": float(data.get("latitude", self.server_node["lat"])),
+                            "lng": float(data.get("longitude", self.server_node["lng"]))
+                        }
+                        self._geo_cache[ip] = geo
+                        return geo
+        except Exception:
+            pass
+
         geo = {
             "ip": ip,
-            "city": "Public Client",
-            "country": "Global Internet",
+            "city": "Global Client",
+            "country": "Internet Node",
             "country_code": "NET",
             "flag": "🌐",
             "lat": 48.8566,
@@ -262,8 +291,10 @@ class NetworkTelemetryTracker:
             if client_override.get("lat") and client_override.get("lng"):
                 geo["lat"] = float(client_override["lat"])
                 geo["lng"] = float(client_override["lng"])
+            self._geo_cache[ip] = geo
 
         now = time.time()
+        key = ip
         async with self._lock:
             # Prune sessions older than 300 seconds
             self._active_clients = {
@@ -271,7 +302,6 @@ class NetworkTelemetryTracker:
                 if now - v.get("last_seen", 0) < 300
             }
 
-            key = ip
             if key not in self._active_clients:
                 self._active_clients[key] = {
                     "ip": ip,
@@ -290,19 +320,79 @@ class NetworkTelemetryTracker:
                 self._active_clients[key]["hits"] += 1
                 self._active_clients[key]["last_seen"] = now
                 self._active_clients[key]["path"] = path
+                self._active_clients[key]["city"] = geo["city"]
+                self._active_clients[key]["country"] = geo["country"]
+                self._active_clients[key]["country_code"] = geo["country_code"]
+                self._active_clients[key]["flag"] = geo["flag"]
+                self._active_clients[key]["lat"] = geo["lat"]
+                self._active_clients[key]["lng"] = geo["lng"]
+
+        # Persist visitor telemetry to MongoDB if available
+        try:
+            db = get_db()
+            await db.network_telemetry.update_one(
+                {"ip": key},
+                {
+                    "$set": {
+                        "city": geo["city"],
+                        "country": geo["country"],
+                        "country_code": geo["country_code"],
+                        "flag": geo["flag"],
+                        "lat": geo["lat"],
+                        "lng": geo["lng"],
+                        "last_seen": now,
+                        "path": path
+                    },
+                    "$inc": {"hits": 1},
+                    "$setOnInsert": {"first_seen": now}
+                },
+                upsert=True
+            )
+        except Exception:
+            pass
 
     async def get_telemetry(self, current_ip: Optional[str] = None) -> Dict[str, Any]:
         now = time.time()
+
+        # Query recent distinct visitor nodes from MongoDB if available
+        db_clients: Dict[str, Dict[str, Any]] = {}
+        try:
+            db = get_db()
+            cursor = db.network_telemetry.find().sort("last_seen", -1).limit(50)
+            async for doc in cursor:
+                doc_ip = doc.get("ip")
+                if doc_ip:
+                    db_clients[doc_ip] = {
+                        "ip": doc_ip,
+                        "city": doc.get("city", "Visitor"),
+                        "country": doc.get("country", "Global"),
+                        "country_code": doc.get("country_code", "UN"),
+                        "flag": doc.get("flag", "🌐"),
+                        "lat": doc.get("lat", self.server_node["lat"]),
+                        "lng": doc.get("lng", self.server_node["lng"]),
+                        "hits": doc.get("hits", 1),
+                        "last_seen": doc.get("last_seen", now),
+                        "path": doc.get("path", "/")
+                    }
+        except Exception:
+            pass
+
         async with self._lock:
             self._active_clients = {
                 k: v for k, v in self._active_clients.items()
                 if now - v.get("last_seen", 0) < 300
             }
-            clients_list = list(self._active_clients.values())
+            active_list = list(self._active_clients.values())
+            # Merge: active sessions take precedence over older DB records
+            merged = {**db_clients, **self._active_clients}
+            clients_list = list(merged.values())
 
         current_geo = None
         if current_ip:
-            current_geo = await self.lookup_geo(current_ip)
+            if current_ip in merged:
+                current_geo = merged[current_ip]
+            else:
+                current_geo = await self.lookup_geo(current_ip)
 
         countries_map: Dict[str, Dict[str, Any]] = {}
         for c in clients_list:
@@ -319,6 +409,7 @@ class NetworkTelemetryTracker:
         client_nodes = []
         for c in clients_list:
             masked_ip = ".".join(c["ip"].split(".")[:3]) + ".xxx" if "." in c["ip"] else c["ip"]
+            is_active = (now - c.get("last_seen", 0)) < 300
             client_nodes.append({
                 "lat": c["lat"],
                 "lng": c["lng"],
@@ -328,14 +419,15 @@ class NetworkTelemetryTracker:
                 "country_code": c["country_code"],
                 "flag": c["flag"],
                 "ip": masked_ip,
-                "color": "#34d399",
-                "hits": c["hits"]
+                "color": "#34d399" if is_active else "#94a3b8",
+                "active": is_active,
+                "hits": c.get("hits", 1)
             })
 
         return {
             "server_node": self.server_node,
             "current_client": current_geo,
-            "active_connections": max(1, len(clients_list)),
+            "active_connections": max(1, len(active_list)),
             "unique_countries_count": max(1, len(countries_map)),
             "countries": list(countries_map.values()),
             "client_nodes": client_nodes
@@ -385,8 +477,24 @@ app.add_middleware(
 @app.middleware("http")
 async def track_network_traffic(request: Request, call_next):
     ip = network_tracker.extract_client_ip(request)
+    client_override = None
+    c_country = request.headers.get("x-client-country")
+    c_city = request.headers.get("x-client-city")
+    c_lat = request.headers.get("x-client-lat")
+    c_lng = request.headers.get("x-client-lng")
+    if c_country and c_lat and c_lng:
+        try:
+            client_override = {
+                "country": c_country,
+                "city": c_city or "Visitor",
+                "country_code": request.headers.get("x-client-country-code") or "UN",
+                "lat": float(c_lat),
+                "lng": float(c_lng)
+            }
+        except Exception:
+            pass
     try:
-        asyncio.create_task(network_tracker.register_hit(ip, request.url.path))
+        asyncio.create_task(network_tracker.register_hit(ip, request.url.path, client_override))
     except Exception:
         pass
     return await call_next(request)

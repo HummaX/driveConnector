@@ -97,6 +97,14 @@
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
+    if (state.clientGeo) {
+      if (state.clientGeo.ip && state.clientGeo.ip !== 'client') headers['X-Client-IP'] = state.clientGeo.ip;
+      if (state.clientGeo.country) headers['X-Client-Country'] = state.clientGeo.country;
+      if (state.clientGeo.code) headers['X-Client-Country-Code'] = state.clientGeo.code;
+      if (state.clientGeo.city) headers['X-Client-City'] = state.clientGeo.city;
+      if (state.clientGeo.lat) headers['X-Client-Lat'] = String(state.clientGeo.lat);
+      if (state.clientGeo.lng) headers['X-Client-Lng'] = String(state.clientGeo.lng);
+    }
     return headers;
   }
 
@@ -108,6 +116,14 @@
     }
     if (!headers.has('Accept')) {
       headers.set('Accept', 'application/json');
+    }
+    if (state.clientGeo) {
+      if (state.clientGeo.ip && state.clientGeo.ip !== 'client' && !headers.has('X-Client-IP')) headers.set('X-Client-IP', state.clientGeo.ip);
+      if (state.clientGeo.country && !headers.has('X-Client-Country')) headers.set('X-Client-Country', state.clientGeo.country);
+      if (state.clientGeo.code && !headers.has('X-Client-Country-Code')) headers.set('X-Client-Country-Code', state.clientGeo.code);
+      if (state.clientGeo.city && !headers.has('X-Client-City')) headers.set('X-Client-City', state.clientGeo.city);
+      if (state.clientGeo.lat && !headers.has('X-Client-Lat')) headers.set('X-Client-Lat', String(state.clientGeo.lat));
+      if (state.clientGeo.lng && !headers.has('X-Client-Lng')) headers.set('X-Client-Lng', String(state.clientGeo.lng));
     }
 
     try {
@@ -203,8 +219,78 @@
   }
 
   /* ============================================================================
-     4. HERO 3D GLOBE INITIALIZATION (Globe.gl)
+     4. HERO 3D GLOBE INITIALIZATION (Globe.gl) & REAL GEOLOCATION
      ============================================================================ */
+  const TIMEZONE_GEO_MAP = {
+    // Pakistan
+    'Asia/Karachi': { country: 'Pakistan', code: 'PK', flag: '🇵🇰', city: 'Karachi', lat: 24.8607, lng: 67.0011 },
+    'Asia/Lahore': { country: 'Pakistan', code: 'PK', flag: '🇵🇰', city: 'Lahore', lat: 31.5204, lng: 74.3587 },
+    'Asia/Islamabad': { country: 'Pakistan', code: 'PK', flag: '🇵🇰', city: 'Islamabad', lat: 33.6844, lng: 73.0479 },
+    // Middle East & Gulf
+    'Asia/Dubai': { country: 'United Arab Emirates', code: 'AE', flag: '🇦🇪', city: 'Dubai', lat: 25.2048, lng: 55.2708 },
+    'Asia/Riyadh': { country: 'Saudi Arabia', code: 'SA', flag: '🇸🇦', city: 'Riyadh', lat: 24.7136, lng: 46.6753 },
+    'Asia/Muscat': { country: 'Oman', code: 'OM', flag: '🇴🇲', city: 'Muscat', lat: 23.5880, lng: 58.3829 },
+    'Asia/Qatar': { country: 'Qatar', code: 'QA', flag: '🇶🇦', city: 'Doha', lat: 25.2854, lng: 51.5310 },
+    'Asia/Kuwait': { country: 'Kuwait', code: 'KW', flag: '🇰🇼', city: 'Kuwait City', lat: 29.3759, lng: 47.9774 },
+    'Asia/Bahrain': { country: 'Bahrain', code: 'BH', flag: '🇧🇭', city: 'Manama', lat: 26.2285, lng: 50.5860 },
+    'Asia/Amman': { country: 'Jordan', code: 'JO', flag: '🇯🇴', city: 'Amman', lat: 31.9454, lng: 35.9284 },
+    'Asia/Beirut': { country: 'Lebanon', code: 'LB', flag: '🇱🇧', city: 'Beirut', lat: 33.8938, lng: 35.5018 },
+    'Asia/Baghdad': { country: 'Iraq', code: 'IQ', flag: '🇮🇶', city: 'Baghdad', lat: 33.3152, lng: 44.3661 },
+    // South Asia
+    'Asia/Kolkata': { country: 'India', code: 'IN', flag: '🇮🇳', city: 'New Delhi', lat: 28.6139, lng: 77.2090 },
+    'Asia/Calcutta': { country: 'India', code: 'IN', flag: '🇮🇳', city: 'Kolkata', lat: 22.5726, lng: 88.3639 },
+    'Asia/Dhaka': { country: 'Bangladesh', code: 'BD', flag: '🇧🇩', city: 'Dhaka', lat: 23.8103, lng: 90.4125 },
+    'Asia/Colombo': { country: 'Sri Lanka', code: 'LK', flag: '🇱🇰', city: 'Colombo', lat: 6.9271, lng: 79.8612 },
+    // North America
+    'America/New_York': { country: 'United States', code: 'US', flag: '🇺🇸', city: 'New York', lat: 40.7128, lng: -74.0060 },
+    'America/Chicago': { country: 'United States', code: 'US', flag: '🇺🇸', city: 'Chicago', lat: 41.8781, lng: -87.6298 },
+    'America/Denver': { country: 'United States', code: 'US', flag: '🇺🇸', city: 'Denver', lat: 39.7392, lng: -104.9903 },
+    'America/Los_Angeles': { country: 'United States', code: 'US', flag: '🇺🇸', city: 'Los Angeles', lat: 34.0522, lng: -118.2437 },
+    'America/Toronto': { country: 'Canada', code: 'CA', flag: '🇨🇦', city: 'Toronto', lat: 43.6532, lng: -79.3832 },
+    'America/Vancouver': { country: 'Canada', code: 'CA', flag: '🇨🇦', city: 'Vancouver', lat: 49.2827, lng: -123.1207 },
+    // Europe
+    'Europe/London': { country: 'United Kingdom', code: 'GB', flag: '🇬🇧', city: 'London', lat: 51.5074, lng: -0.1278 },
+    'Europe/Paris': { country: 'France', code: 'FR', flag: '🇫🇷', city: 'Paris', lat: 48.8566, lng: 2.3522 },
+    'Europe/Berlin': { country: 'Germany', code: 'DE', flag: '🇩🇪', city: 'Berlin', lat: 52.5200, lng: 13.4050 },
+    'Europe/Amsterdam': { country: 'Netherlands', code: 'NL', flag: '🇳🇱', city: 'Amsterdam', lat: 52.3676, lng: 4.9041 },
+    'Europe/Madrid': { country: 'Spain', code: 'ES', flag: '🇪🇸', city: 'Madrid', lat: 40.4168, lng: -3.7038 },
+    'Europe/Rome': { country: 'Italy', code: 'IT', flag: '🇮🇹', city: 'Rome', lat: 41.9028, lng: 12.4964 },
+    'Europe/Zurich': { country: 'Switzerland', code: 'CH', flag: '🇨🇭', city: 'Zurich', lat: 47.3769, lng: 8.5417 },
+    'Europe/Stockholm': { country: 'Sweden', code: 'SE', flag: '🇸🇪', city: 'Stockholm', lat: 59.3293, lng: 18.0686 },
+    'Europe/Oslo': { country: 'Norway', code: 'NO', flag: '🇳🇴', city: 'Oslo', lat: 59.9139, lng: 10.7522 },
+    'Europe/Dublin': { country: 'Ireland', code: 'IE', flag: '🇮🇪', city: 'Dublin', lat: 53.3498, lng: -6.2603 },
+    'Europe/Warsaw': { country: 'Poland', code: 'PL', flag: '🇵🇱', city: 'Warsaw', lat: 52.2297, lng: 21.0122 },
+    'Europe/Istanbul': { country: 'Turkey', code: 'TR', flag: '🇹🇷', city: 'Istanbul', lat: 41.0082, lng: 28.9784 },
+    // East Asia & Pacific
+    'Asia/Tokyo': { country: 'Japan', code: 'JP', flag: '🇯🇵', city: 'Tokyo', lat: 35.6762, lng: 139.6503 },
+    'Asia/Seoul': { country: 'South Korea', code: 'KR', flag: '🇰🇷', city: 'Seoul', lat: 37.5665, lng: 126.9780 },
+    'Asia/Singapore': { country: 'Singapore', code: 'SG', flag: '🇸🇬', city: 'Singapore', lat: 1.3521, lng: 103.8198 },
+    'Australia/Sydney': { country: 'Australia', code: 'AU', flag: '🇦🇺', city: 'Sydney', lat: -33.8688, lng: 151.2093 },
+    'Australia/Melbourne': { country: 'Australia', code: 'AU', flag: '🇦🇺', city: 'Melbourne', lat: -37.8136, lng: 144.9631 },
+    'America/Sao_Paulo': { country: 'Brazil', code: 'BR', flag: '🇧🇷', city: 'São Paulo', lat: -23.5505, lng: -46.6333 },
+    'Africa/Cairo': { country: 'Egypt', code: 'EG', flag: '🇪🇬', city: 'Cairo', lat: 30.0444, lng: 31.2357 },
+    'Africa/Johannesburg': { country: 'South Africa', code: 'ZA', flag: '🇿🇦', city: 'Johannesburg', lat: -26.2041, lng: 28.0473 }
+  };
+
+  function getBrowserGeoFallback() {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz && TIMEZONE_GEO_MAP[tz]) {
+        return { ...TIMEZONE_GEO_MAP[tz], tz };
+      }
+    } catch (_) {}
+    return { country: 'Global Node', code: 'GLB', flag: '🌐', city: 'Visitor', lat: 40.7128, lng: -74.0060, tz: 'UTC' };
+  }
+
+  function getFlagEmoji(countryCode) {
+    if (!countryCode || countryCode.length !== 2) return '🌐';
+    try {
+      return String.fromCodePoint(...[...countryCode.toUpperCase()].map(c => 127397 + c.charCodeAt(0)));
+    } catch (_) {
+      return '🌐';
+    }
+  }
+
   function initHeroGlobe() {
     const container = document.getElementById('hero-globe-container');
     if (!container) return null;
@@ -213,41 +299,48 @@
       return null;
     }
 
-    // Clear any previous globe instance in container
     container.innerHTML = '';
 
     const width = container.clientWidth || 280;
     const height = container.clientHeight || 200;
 
-    // Target Node: OVH EU 1TB Dedicated Cloud Node
+    // Primary Server Node (OVHcloud, Roubaix, France)
     const ovhNode = {
       lat: 50.6927,
       lng: 3.1746,
       name: 'OVH-EU-1TB (Roubaix, France)',
+      city: 'Roubaix',
+      country: 'France',
+      flag: '🇫🇷',
       color: '#38bdf8',
-      size: 1.5
+      size: 1.5,
+      isServer: true
     };
 
-    // Client Ingestion & Stream Nodes
-    const clientNodes = [
-      { lat: 37.7749, lng: -122.4194, name: 'San Francisco, US', color: '#34d399' },
-      { lat: 40.7128, lng: -74.0060, name: 'New York, US', color: '#38bdf8' },
-      { lat: 51.5074, lng: -0.1278, name: 'London, UK', color: '#34d399' },
-      { lat: 35.6762, lng: 139.6503, name: 'Tokyo, JP', color: '#818cf8' },
-      { lat: -33.8688, lng: 151.2093, name: 'Sydney, AU', color: '#a855f7' },
-      { lat: 1.3521, lng: 103.8198, name: 'Singapore, SG', color: '#38bdf8' },
-      { lat: 52.5200, lng: 13.4050, name: 'Berlin, DE', color: '#34d399' },
-      { lat: -23.5505, lng: -46.6333, name: 'São Paulo, BR', color: '#818cf8' }
-    ];
+    // Initialize with real instant client fallback from browser timezone
+    const clientFallback = getBrowserGeoFallback();
+    state.clientGeo = clientFallback;
 
-    // Cyan / emerald glowing arcs routing into OVH-EU
-    const arcsData = clientNodes.map(node => ({
-      startLat: node.lat,
-      startLng: node.lng,
-      endLat: ovhNode.lat,
-      endLng: ovhNode.lng,
-      color: ['rgba(56, 189, 248, 0.85)', 'rgba(52, 211, 153, 0.95)']
-    }));
+    const initialClientNode = {
+      lat: clientFallback.lat,
+      lng: clientFallback.lng,
+      name: `${clientFallback.city}, ${clientFallback.country}`,
+      city: clientFallback.city,
+      country: clientFallback.country,
+      flag: clientFallback.flag,
+      color: '#34d399',
+      size: 1.2
+    };
+
+    const initialArcs = Math.abs(initialClientNode.lat - ovhNode.lat) > 0.05 || Math.abs(initialClientNode.lng - ovhNode.lng) > 0.05
+      ? [{
+          startLat: initialClientNode.lat,
+          startLng: initialClientNode.lng,
+          endLat: ovhNode.lat,
+          endLng: ovhNode.lng,
+          color: ['rgba(56, 189, 248, 0.9)', 'rgba(52, 211, 153, 0.95)']
+        }]
+      : [];
 
     try {
       const globe = Globe()(container)
@@ -256,20 +349,35 @@
         .backgroundColor('rgba(0,0,0,0)')
         .width(width)
         .height(height)
-        .pointsData([ovhNode, ...clientNodes])
+        .pointsData([ovhNode, initialClientNode])
         .pointColor(d => d.color)
         .pointAltitude(0.04)
         .pointRadius(0.85)
-        .arcsData(arcsData)
+        .pointLabel(d => `
+          <div style="background: rgba(13, 17, 23, 0.95); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px; padding: 6px 10px; font-family: monospace; font-size: 11px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none;">
+            <div style="font-weight: bold; color: ${d.color || '#38bdf8'}; display: flex; align-items: center; gap: 4px;">
+              <span>${d.flag || '🌐'}</span>
+              <span>${d.name || d.city || 'Node'}</span>
+            </div>
+            <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">
+              ${d.isServer ? 'Primary Cloud Engine • Roubaix, FR' : `${d.hits || 1} live hit(s)`}
+            </div>
+          </div>
+        `)
+        .arcsData(initialArcs)
         .arcColor(d => d.color)
         .arcDashLength(0.4)
         .arcDashGap(0.25)
         .arcDashAnimateTime(1800)
         .arcStroke(0.7)
+        .arcLabel(d => `
+          <div style="background: rgba(13, 17, 23, 0.95); border: 1px solid rgba(52, 211, 153, 0.4); border-radius: 6px; padding: 4px 8px; font-family: monospace; font-size: 10px; color: #34d399;">
+            Active Ingestion Arc &rarr; OVH-EU
+          </div>
+        `)
         .atmosphereColor('#38bdf8')
         .atmosphereAltitude(0.18);
 
-      // Mobile GPU optimization: cap pixel ratio at 1.0 on mobile screens (< 768px) to lock 60fps and eliminate battery drain
       const isMobile = window.innerWidth < 768;
       const pixelRatio = isMobile ? Math.min(window.devicePixelRatio || 1, 1.0) : Math.min(window.devicePixelRatio || 1, 2.0);
 
@@ -278,8 +386,7 @@
         renderer.setPixelRatio(pixelRatio);
       }
 
-      // Center POV on Europe / Roubaix node
-      globe.pointOfView({ lat: 50.0, lng: 10.0, altitude: isMobile ? 2.5 : 2.0 }, 1000);
+      globe.pointOfView({ lat: 35.0, lng: 20.0, altitude: isMobile ? 2.5 : 2.0 }, 1000);
 
       const controls = globe.controls();
       if (controls) {
@@ -288,7 +395,6 @@
         controls.enableZoom = !isMobile;
       }
 
-      // Responsive window resize listener
       window.addEventListener('resize', () => {
         if (!container) return;
         const w = container.clientWidth;
@@ -334,19 +440,21 @@
     }
 
     const clientIpEl = document.getElementById('globe-client-ip-text');
-    if (clientIpEl && geoData.current_client) {
-      const cc = geoData.current_client;
-      const maskedIp = cc.ip ? (cc.ip.includes('.') ? cc.ip.split('.').slice(0, 3).join('.') + '.xxx' : cc.ip) : '';
-      clientIpEl.innerHTML = `<span class="text-xs">${cc.flag || '🌐'}</span><span class="text-slate-300 font-medium">${cc.city || 'Visitor'}, ${cc.country || 'Node'}</span><span class="text-slate-500 text-[9px] font-mono">(${maskedIp})</span>`;
+    if (clientIpEl) {
+      const cc = geoData.current_client || state.clientGeo;
+      if (cc) {
+        const maskedIp = cc.ip ? (cc.ip.includes('.') ? cc.ip.split('.').slice(0, 3).join('.') + '.xxx' : cc.ip) : '';
+        clientIpEl.innerHTML = `<span class="text-xs">${cc.flag || '🌐'}</span><span class="text-slate-300 font-medium">${cc.city || 'Visitor'}, ${cc.country || 'Node'}</span>${maskedIp ? `<span class="text-slate-500 text-[9px] font-mono">(${maskedIp})</span>` : ''}`;
+      }
     }
 
     const flagsContainer = document.getElementById('globe-countries-flags');
     if (flagsContainer && Array.isArray(geoData.countries)) {
       flagsContainer.innerHTML = geoData.countries.map(c => `
-        <span class="px-1 py-0.5 rounded bg-slate-800 text-[9px] font-mono text-slate-300 border border-slate-700 flex items-center space-x-0.5" title="${c.name || c.code}: ${c.count} active">
+        <button onclick="focusGlobeOnCountry('${c.code}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 border border-slate-700 hover:border-sky-500/50 transition flex items-center space-x-1" title="Focus ${c.name || c.code} on 3D globe">
           <span>${c.flag || '🌐'}</span>
           <span>${c.count}</span>
-        </span>
+        </button>
       `).join('');
     }
 
@@ -357,17 +465,25 @@
       lat: 50.6927,
       lng: 3.1746,
       name: 'OVH-EU-1TB (Roubaix, France)',
+      city: 'Roubaix',
+      country: 'France',
+      flag: '🇫🇷',
       color: '#38bdf8',
-      size: 1.5
+      size: 1.5,
+      isServer: true
     };
 
     const clientNodes = Array.isArray(geoData.client_nodes) && geoData.client_nodes.length > 0
       ? geoData.client_nodes
-      : (geoData.current_client ? [{
-          lat: geoData.current_client.lat,
-          lng: geoData.current_client.lng,
-          name: `${geoData.current_client.city}, ${geoData.current_client.country}`,
-          color: '#34d399'
+      : (state.clientGeo ? [{
+          lat: state.clientGeo.lat,
+          lng: state.clientGeo.lng,
+          name: `${state.clientGeo.city}, ${state.clientGeo.country}`,
+          city: state.clientGeo.city,
+          country: state.clientGeo.country,
+          flag: state.clientGeo.flag,
+          color: '#34d399',
+          active: true
         }] : []);
 
     const allPoints = [serverNode, ...clientNodes];
@@ -382,7 +498,9 @@
           startLng: node.lng,
           endLat: serverNode.lat,
           endLng: serverNode.lng,
-          color: ['rgba(56, 189, 248, 0.85)', 'rgba(52, 211, 153, 0.95)']
+          color: node.active !== false
+            ? ['rgba(56, 189, 248, 0.85)', 'rgba(52, 211, 153, 0.95)']
+            : ['rgba(148, 163, 184, 0.4)', 'rgba(56, 189, 248, 0.6)']
         }));
 
       state.globe.arcsData(arcsData);
@@ -391,40 +509,83 @@
     }
   }
 
+  function focusGlobeOnCountry(countryCode) {
+    if (!state.globe || !countryCode) return;
+    const country = Object.values(TIMEZONE_GEO_MAP).find(c => c.code.toUpperCase() === countryCode.toUpperCase());
+    if (country) {
+      state.globe.pointOfView({ lat: country.lat, lng: country.lng, altitude: 1.8 }, 1200);
+    }
+  }
+
   async function fetchNetworkGeo() {
+    const t0 = performance.now();
     try {
-      const res = await fetch('/api/network/geo');
+      const res = await fetchWithAuth('/api/network/geo');
       if (res.ok) {
+        const latency = Math.max(1, Math.round(performance.now() - t0));
+        const latEl = document.getElementById('globe-latency-text');
+        if (latEl) latEl.textContent = `Latency ${latency}ms`;
         const geoData = await res.json();
         updateHeroGlobe(geoData);
       }
     } catch (_) {}
   }
 
-  async function registerBrowserGeo() {
+  async function detectAndRegisterClientGeo() {
+    let geo = getBrowserGeoFallback();
+
+    // Query fast public GeoIP endpoints in parallel with failover
     try {
-      const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.ip && data.latitude && data.longitude) {
-          const regRes = await fetch('/api/network/register-client', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ip: data.ip,
-              city: data.city,
-              country: data.country_name,
-              country_code: data.country_code,
-              lat: data.latitude,
-              lng: data.longitude
-            })
-          });
-          if (regRes.ok) {
-            await fetchNetworkGeo();
-          }
-        }
+      const publicGeo = await Promise.any([
+        fetch('https://ipwho.is/').then(r => r.json()).then(d => d.success ? {
+          ip: d.ip,
+          country: d.country,
+          code: d.country_code,
+          flag: d.flag?.emoji || getFlagEmoji(d.country_code),
+          city: d.city,
+          lat: d.latitude,
+          lng: d.longitude
+        } : null),
+        fetch('https://api.country.is/').then(r => r.json()).then(d => d.country ? {
+          ip: d.ip,
+          country: d.country,
+          code: d.country,
+          flag: getFlagEmoji(d.country),
+          city: geo.city || d.country,
+          lat: geo.lat,
+          lng: geo.lng
+        } : null),
+        fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => ({
+          ip: d.ip,
+          ...geo
+        }))
+      ]);
+      if (publicGeo) {
+        geo = { ...geo, ...publicGeo };
       }
+    } catch (_) {
+      // Timezone fallback is already accurate
+    }
+
+    state.clientGeo = geo;
+
+    // Register with backend
+    try {
+      await fetch('/api/network/register-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ip: geo.ip || 'client',
+          city: geo.city,
+          country: geo.country,
+          country_code: geo.code,
+          lat: geo.lat,
+          lng: geo.lng
+        })
+      });
     } catch (_) {}
+
+    await fetchNetworkGeo();
   }
 
   /* ============================================================================
@@ -3089,7 +3250,9 @@
   window.initHeroGlobe = initHeroGlobe;
   window.updateHeroGlobe = updateHeroGlobe;
   window.fetchNetworkGeo = fetchNetworkGeo;
-  window.registerBrowserGeo = registerBrowserGeo;
+  window.detectAndRegisterClientGeo = detectAndRegisterClientGeo;
+  window.registerBrowserGeo = detectAndRegisterClientGeo;
+  window.focusGlobeOnCountry = focusGlobeOnCountry;
   window.initWebSocket = initWebSocket;
 
   window.openPlayerModal = openPlayerModal;
@@ -3177,8 +3340,7 @@
 
     // Initialize 3D Hero Globe & Real-Time Network Telemetry
     initHeroGlobe();
-    fetchNetworkGeo();
-    registerBrowserGeo();
+    detectAndRegisterClientGeo();
 
     // Initialize WebSocket Telemetry
     initWebSocket();
