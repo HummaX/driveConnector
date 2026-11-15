@@ -732,10 +732,16 @@ async def probe_and_extract_tracks(
         raise HTTPException(status_code=404, detail="Video not found")
 
     local_p = video.get("local_path")
-    if not local_p or not Path(local_p).exists():
-        raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
+    if local_p and Path(local_p).exists():
+        video_path = Path(local_p)
+    else:
+        candidate = next((p for p in settings.videos_dir.glob(f"{valid_id}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
+        if candidate and candidate.exists():
+            video_path = candidate
+        else:
+            raise HTTPException(status_code=400, detail="Video file not available locally on server disk")
 
-    video_path = validate_storage_path(Path(local_p))
+    video_path = validate_storage_path(video_path)
     meta_dir = validate_storage_path(settings.get_video_metadata_dir(valid_id))
 
     info = await probe_video(video_path)

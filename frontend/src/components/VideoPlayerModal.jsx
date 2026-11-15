@@ -297,6 +297,7 @@ export default function VideoPlayerModal({
     if (selectedAudioTrack === 0) {
       audioEl.pause();
       audioEl.removeAttribute('src');
+      audioEl.load();
       rawVideo.muted = false;
       return;
     }
@@ -307,6 +308,9 @@ export default function VideoPlayerModal({
     audioEl.currentTime = rawVideo.currentTime;
     audioEl.playbackRate = rawVideo.playbackRate;
     audioEl.volume = rawVideo.volume;
+    audioEl.onerror = () => {
+      console.warn(`[CompanionAudio] Audio track ${selectedAudioTrack} loading error:`, audioEl.error);
+    };
     if (!rawVideo.paused) {
       audioEl.play().catch(() => {});
     }

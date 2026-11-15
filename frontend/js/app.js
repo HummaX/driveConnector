@@ -1178,6 +1178,7 @@
     if (idx === 0) {
       audioEl.pause();
       audioEl.removeAttribute('src');
+      audioEl.load();
       videoEl.muted = false;
     } else {
       videoEl.muted = true;
@@ -1187,6 +1188,9 @@
       audioEl.currentTime = videoEl.currentTime;
       audioEl.playbackRate = videoEl.playbackRate;
       audioEl.volume = videoEl.volume;
+      audioEl.onerror = () => {
+        console.warn(`[CompanionAudio] Audio track ${idx} loading error:`, audioEl.error);
+      };
       if (!videoEl.paused) {
         if (state.audioCtx && state.audioCtx.state === 'suspended') {
           state.audioCtx.resume().catch(() => {});

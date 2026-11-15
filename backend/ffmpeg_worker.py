@@ -208,12 +208,25 @@ async def probe_video(video_path: Path) -> Dict[str, Any]:
             duration = float(video_stream.get("duration", 0.0))
 
         lang_names = {
-            "hin": "Hindi", "eng": "English", "spa": "Spanish", "fra": "French",
-            "fre": "French", "deu": "German", "ger": "German", "ita": "Italian",
-            "jpn": "Japanese", "kor": "Korean", "zho": "Chinese", "chi": "Chinese",
-            "rus": "Russian", "tam": "Tamil", "tel": "Telugu", "mal": "Malayalam",
-            "kan": "Kannada", "pan": "Punjabi", "urd": "Urdu", "ara": "Arabic",
-            "por": "Portuguese", "und": "Audio Track"
+            "hin": "Hindi", "hi": "Hindi",
+            "eng": "English", "en": "English",
+            "spa": "Spanish", "es": "Spanish",
+            "fra": "French", "fre": "French", "fr": "French",
+            "deu": "German", "ger": "German", "de": "German",
+            "ita": "Italian", "it": "Italian",
+            "jpn": "Japanese", "ja": "Japanese",
+            "kor": "Korean", "ko": "Korean",
+            "zho": "Chinese", "chi": "Chinese", "zh": "Chinese",
+            "rus": "Russian", "ru": "Russian",
+            "tam": "Tamil", "ta": "Tamil",
+            "tel": "Telugu", "te": "Telugu",
+            "mal": "Malayalam", "ml": "Malayalam",
+            "kan": "Kannada", "kn": "Kannada",
+            "pan": "Punjabi", "pa": "Punjabi",
+            "urd": "Urdu", "ur": "Urdu",
+            "ara": "Arabic", "ar": "Arabic",
+            "por": "Portuguese", "pt": "Portuguese",
+            "und": "Audio Track"
         }
 
         audio_tracks = []
@@ -346,51 +359,128 @@ async def extract_embedded_subtitles(
 
     return updated_tracks
 
+_audio_extraction_locks: Dict[str, asyncio.Lock] = {}
+
 async def extract_audio_track(video_id: str, track_index: int) -> Optional[Path]:
     """
     Extracts a specific audio track to AAC .m4a format for companion audio streaming
     in web browsers when dual-audio switching is requested.
     """
     video = await get_video(video_id)
-    if not video or not video.get("local_path"):
+    if not video:
         return None
 
-    video_path = Path(video["local_path"])
-    if not video_path.exists():
-        return None
+    local_p = video.get("local_path")
+    if local_p and Path(local_p).exists():
+        video_path = Path(local_p)
+    else:
+        candidate = next((p for p in settings.videos_dir.glob(f"{video_id}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
+        if candidate and candidate.exists():
+            video_path = candidate
+        else:
+            return None
 
     meta_dir = settings.get_video_metadata_dir(video_id)
+    meta_dir.mkdir(parents=True, exist_ok=True)
     audio_dest = meta_dir / f"audio_track_{track_index}.m4a"
 
     if audio_dest.exists() and audio_dest.stat().st_size > 1000:
         return audio_dest
 
-    info = await probe_video(video_path)
-    audio_tracks = info.get("audio_tracks", [])
-    target_track = next((t for t in audio_tracks if t["index"] == track_index), None)
-    if not target_track:
-        return None
+    lock_key = f"{video_id}_{track_index}"
+    if lock_key not in _audio_extraction_locks:
+        _audio_extraction_locks[lock_key] = asyncio.Lock()
 
-    stream_idx = target_track["stream_index"]
-    temp_dest = meta_dir / f"audio_track_{track_index}.m4a.tmp"
+    async with _audio_extraction_locks[lock_key]:
+        # Double check after acquiring lock
+        if audio_dest.exists() and audio_dest.stat().st_size > 1000:
+            return audio_dest
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-threads", str(settings.ffmpeg_worker_threads),
-        "-i", str(video_path),
-        "-map", f"0:{stream_idx}",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-movflags", "+faststart",
-        str(temp_dest)
-    ]
-    code, _, err = await run_cmd(cmd, timeout=300)
-    if code == 0 and temp_dest.exists():
-        temp_dest.replace(audio_dest)
-        return audio_dest
-    else:
-        print(f"[FFmpeg] Audio track extraction failed: {err}")
-        return None
+        audio_tracks = video.get("audio_tracks") or []
+        if not audio_tracks:
+            info = await probe_video(video_path)
+            audio_tracks = info.get("audio_tracks", [])
+
+        # Flexible matching: by index, stream_index, 0-based list offset, or 1-based list offset
+        target_track = next((t for t in audio_tracks if t.get("index") == track_index), None)
+        if not target_track:
+            target_track = next((t for t in audio_tracks if t.get("stream_index") == track_index), None)
+        if not target_track and 0 <= track_index < len(audio_tracks):
+            target_track = audio_tracks[track_index]
+        if not target_track and 1 <= track_index <= len(audio_tracks):
+            target_track = audio_tracks[track_index - 1]
+
+        # If not matched yet, freshly probe video container
+        if not target_track:
+            fresh_info = await probe_video(video_path)
+            audio_tracks = fresh_info.get("audio_tracks", [])
+            target_track = next((t for t in audio_tracks if t.get("index") == track_index), None)
+            if not target_track:
+                target_track = next((t for t in audio_tracks if t.get("stream_index") == track_index), None)
+            if not target_track and 0 <= track_index < len(audio_tracks):
+                target_track = audio_tracks[track_index]
+            if not target_track and 1 <= track_index <= len(audio_tracks):
+                target_track = audio_tracks[track_index - 1]
+
+        if not target_track:
+            print(f"[FFmpeg] No audio track matching index/stream {track_index} found in {video_path}")
+            return None
+
+        # Check if canonical track index was already extracted
+        target_idx = target_track.get("index")
+        if target_idx is not None:
+            canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
+            if canonical_dest.exists() and canonical_dest.stat().st_size > 1000:
+                if canonical_dest != audio_dest and not audio_dest.exists():
+                    try:
+                        import shutil
+                        shutil.copyfile(canonical_dest, audio_dest)
+                    except Exception:
+                        pass
+                return canonical_dest
+
+        stream_idx = target_track.get("stream_index")
+        map_arg = f"0:{stream_idx}" if stream_idx is not None else f"0:a:{target_track.get('index', 0)}"
+
+        temp_dest = meta_dir / f"tmp_audio_track_{track_index}.m4a"
+        if temp_dest.exists():
+            try:
+                temp_dest.unlink()
+            except Exception:
+                pass
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-threads", str(settings.ffmpeg_worker_threads),
+            "-i", str(video_path),
+            "-map", map_arg,
+            "-vn", "-sn", "-dn",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-movflags", "+faststart",
+            "-f", "mp4",
+            str(temp_dest)
+        ]
+        code, _, err = await run_cmd(cmd, timeout=300)
+        if code == 0 and temp_dest.exists() and temp_dest.stat().st_size > 1000:
+            temp_dest.replace(audio_dest)
+            if target_idx is not None and target_idx != track_index:
+                canonical_dest = meta_dir / f"audio_track_{target_idx}.m4a"
+                if not canonical_dest.exists():
+                    try:
+                        import shutil
+                        shutil.copyfile(audio_dest, canonical_dest)
+                    except Exception:
+                        pass
+            return audio_dest
+        else:
+            print(f"[FFmpeg] Audio track extraction failed (code {code}): {err}")
+            if temp_dest.exists():
+                try:
+                    temp_dest.unlink()
+                except Exception:
+                    pass
+            return None
 
 async def generate_poster_if_needed(video_path: Path, poster_path: Path, duration: float):
     """Generates a high-quality static poster thumbnail at 10% of duration if not already present."""
@@ -704,7 +794,7 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
         return
 
     dest_rendition = settings.videos_dir / f"{video_id}_{target_quality}.mp4"
-    temp_rendition = settings.videos_dir / f"{video_id}_{target_quality}.mp4.tmp"
+    temp_rendition = settings.videos_dir / f"tmp_{video_id}_{target_quality}.mp4"
 
     async with ffmpeg_semaphore:
         try:
@@ -726,6 +816,7 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                 "-c:a", "aac",
                 "-b:a", preset["audio_br"],
                 "-movflags", "+faststart",
+                "-f", "mp4",
                 str(temp_rendition)
             ]
 
