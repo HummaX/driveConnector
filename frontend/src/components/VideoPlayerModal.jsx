@@ -484,6 +484,13 @@ export default function VideoPlayerModal({
       };
 
       const updateBufferMetrics = () => {
+        const rawVideo = player.el()?.querySelector('video') || videoEl;
+        if (rawVideo && !rawVideo.paused && !rawVideo.seeking && (rawVideo.readyState >= 3 || (rawVideo.currentTime > 0 && rawVideo.readyState >= 2))) {
+          if (isBufferingState) {
+            setBufferingActive(false);
+          }
+        }
+
         const pct = calculateBufferedPercent();
         setBufferedPercent(pct);
 
@@ -546,6 +553,21 @@ export default function VideoPlayerModal({
         }
       };
 
+      let frameCallbackActive = true;
+      const hookFrameRendering = (el) => {
+        if (!el || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+        const onFrame = () => {
+          if (!frameCallbackActive) return;
+          if (el && !el.paused && !el.seeking) {
+            setBufferingActive(false);
+          }
+          if (el && !el.paused && !el.ended) {
+            el.requestVideoFrameCallback(onFrame);
+          }
+        };
+        el.requestVideoFrameCallback(onFrame);
+      };
+
       player.ready(() => {
         const rawVideo = player.el()?.querySelector('video') || videoEl;
         const restorePos = initialTime > 0 ? initialTime : (savedPos > 5 ? savedPos : 0);
@@ -557,6 +579,10 @@ export default function VideoPlayerModal({
         }
         if (rawVideo) {
           initAudioBooster(rawVideo);
+          hookFrameRendering(rawVideo);
+          if (!rawVideo.paused && rawVideo.readyState >= 3) {
+            setBufferingActive(false);
+          }
         }
 
         // Inject timeline live buffer badge into Video.js progress control
@@ -609,7 +635,10 @@ export default function VideoPlayerModal({
       });
 
       player.on('waiting', () => {
-        setBufferingActive(true);
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (!raw || (!raw.paused && raw.readyState < 3)) {
+          setBufferingActive(true);
+        }
         updateBufferMetrics();
       });
 
@@ -636,6 +665,8 @@ export default function VideoPlayerModal({
       player.on('playing', () => {
         setBufferingActive(false);
         updateBufferMetrics();
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (raw) hookFrameRendering(raw);
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
           audioContextRef.current.resume().catch(() => {});
         }
@@ -671,12 +702,40 @@ export default function VideoPlayerModal({
       });
 
       player.on('progress', () => {
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (raw && !raw.paused && !raw.seeking && raw.readyState >= 3) {
+          setBufferingActive(false);
+        }
         updateBufferMetrics();
       });
+
+      // Native Video Element Event Listeners
+      const handleNativePlaying = () => {
+        setBufferingActive(false);
+        updateBufferMetrics();
+        hookFrameRendering(videoEl);
+      };
+      const handleNativeCanPlay = () => {
+        setBufferingActive(false);
+        updateBufferMetrics();
+      };
+      const handleNativeTimeUpdate = () => {
+        if (!videoEl.paused && !videoEl.seeking && (videoEl.readyState >= 3 || (videoEl.currentTime > 0 && videoEl.readyState >= 2))) {
+          setBufferingActive(false);
+        }
+      };
+      videoEl.addEventListener('playing', handleNativePlaying);
+      videoEl.addEventListener('canplay', handleNativeCanPlay);
+      videoEl.addEventListener('canplaythrough', handleNativeCanPlay);
+      videoEl.addEventListener('timeupdate', handleNativeTimeUpdate);
 
       // Watch Position Memory Throttled Save
       let lastSave = 0;
       player.on('timeupdate', () => {
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (raw && !raw.paused && !raw.seeking && (raw.readyState >= 3 || (raw.currentTime > 0 && raw.readyState >= 2))) {
+          setBufferingActive(false);
+        }
         updateBufferMetrics();
         const now = Date.now();
         if (now - lastSave > 2000) {
@@ -697,8 +756,13 @@ export default function VideoPlayerModal({
       currentVideoIdRef.current = video.video_id;
 
       return () => {
+        frameCallbackActive = false;
         clearInterval(bufferInterval);
         videoEl.removeEventListener('stalled', handleStalled);
+        videoEl.removeEventListener('playing', handleNativePlaying);
+        videoEl.removeEventListener('canplay', handleNativeCanPlay);
+        videoEl.removeEventListener('canplaythrough', handleNativeCanPlay);
+        videoEl.removeEventListener('timeupdate', handleNativeTimeUpdate);
         if (playerRef.current) {
           try { playerRef.current.dispose(); } catch (e) {}
           playerRef.current = null;

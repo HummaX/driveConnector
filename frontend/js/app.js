@@ -1577,9 +1577,11 @@
       if (show) {
         overlay.classList.remove('hidden');
         overlay.classList.add('flex');
+        overlay.style.display = '';
       } else {
         overlay.classList.add('hidden');
         overlay.classList.remove('flex');
+        overlay.style.display = 'none';
       }
     }
   }
@@ -1589,6 +1591,14 @@
       videoEl ||
       (state.activePlayer?.el ? state.activePlayer.el().querySelector('video') : null) ||
       document.querySelector('#player-container video');
+
+    // Self-healing: if video is actively playing and rendering frames, dismiss buffering overlay reliably
+    if (rawEl && !rawEl.paused && !rawEl.seeking && (rawEl.readyState >= 3 || (rawEl.currentTime > 0 && rawEl.readyState >= 2))) {
+      if (state.isBuffering) {
+        showBufferingIndicator(false);
+      }
+    }
+
     const pct = getBufferedPercent(rawEl);
 
     const pctEl = document.getElementById('player-buffer-pct');
@@ -1843,6 +1853,22 @@
 
         window.activeVideoPlayer = state.activePlayer;
 
+        // Frame rendering callback hook to dismiss buffering overlay as soon as frames are rendering
+        let frameCallbackActive = true;
+        const hookFrameRendering = (el) => {
+          if (!el || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+          const onFrame = () => {
+            if (!frameCallbackActive) return;
+            if (el && !el.paused && !el.seeking) {
+              showBufferingIndicator(false);
+            }
+            if (el && !el.paused && !el.ended) {
+              el.requestVideoFrameCallback(onFrame);
+            }
+          };
+          el.requestVideoFrameCallback(onFrame);
+        };
+
         state.activePlayer.ready(() => {
           const rawVideo = state.activePlayer.el()?.querySelector('video') || videoEl;
           if (savedPos > 5) {
@@ -1854,6 +1880,10 @@
           if (rawVideo) {
             setupAudioBooster(rawVideo);
             setupCompanionAudioSync(rawVideo);
+            hookFrameRendering(rawVideo);
+            if (!rawVideo.paused && rawVideo.readyState >= 3) {
+              showBufferingIndicator(false);
+            }
           }
 
           // Inject timeline buffer live badge
@@ -1878,19 +1908,27 @@
         });
 
         // Player Event Handlers
-        state.activePlayer.on('waiting', () => { showBufferingIndicator(true); updatePlayerBufferUI(); });
+        state.activePlayer.on('waiting', () => {
+          const raw = state.activePlayer.el()?.querySelector('video') || videoEl;
+          if (!raw || (!raw.paused && raw.readyState < 3)) {
+            showBufferingIndicator(true);
+          }
+          updatePlayerBufferUI(raw);
+        });
         state.activePlayer.on('seeking', () => { showBufferingIndicator(true); updatePlayerBufferUI(); });
         state.activePlayer.on('loadstart', () => { showBufferingIndicator(true); updatePlayerBufferUI(); });
         state.activePlayer.on('stalled', () => {
           const raw = state.activePlayer.el()?.querySelector('video');
           if (raw && !raw.paused && raw.readyState < 3) {
             showBufferingIndicator(true);
-            updatePlayerBufferUI();
+            updatePlayerBufferUI(raw);
           }
         });
         state.activePlayer.on('playing', () => {
           showBufferingIndicator(false);
           updatePlayerBufferUI();
+          const raw = state.activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw) hookFrameRendering(raw);
           if (state.audioCtx && state.audioCtx.state === 'suspended') {
             state.audioCtx.resume().catch(() => {});
           }
@@ -1904,11 +1942,37 @@
           } else {
             showBufferingIndicator(true);
           }
-          updatePlayerBufferUI();
+          updatePlayerBufferUI(raw);
         });
         state.activePlayer.on('pause', () => { showBufferingIndicator(false); });
         state.activePlayer.on('ended', () => { showBufferingIndicator(false); updatePlayerBufferUI(); });
-        state.activePlayer.on('progress', () => { updatePlayerBufferUI(); });
+        state.activePlayer.on('progress', () => {
+          const raw = state.activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw && !raw.paused && !raw.seeking && raw.readyState >= 3) {
+            showBufferingIndicator(false);
+          }
+          updatePlayerBufferUI(raw);
+        });
+
+        // Native Video Element Event Listeners
+        const bindNativeEvents = (el) => {
+          if (!el) return;
+          el.addEventListener('playing', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); hookFrameRendering(el); });
+          el.addEventListener('canplay', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); });
+          el.addEventListener('canplaythrough', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); });
+          el.addEventListener('timeupdate', () => {
+            if (!el.paused && !el.seeking && (el.readyState >= 3 || (el.currentTime > 0 && el.readyState >= 2))) {
+              showBufferingIndicator(false);
+            }
+          });
+          el.addEventListener('stalled', () => {
+            if (!el.paused && el.readyState < 3) {
+              showBufferingIndicator(true);
+              updatePlayerBufferUI(el);
+            }
+          });
+        };
+        bindNativeEvents(videoEl);
 
         if (state.bufferMonitorInterval) clearInterval(state.bufferMonitorInterval);
         state.bufferMonitorInterval = setInterval(() => {
@@ -1918,7 +1982,11 @@
         // Throttled watch position memory saving
         let lastSave = 0;
         state.activePlayer.on('timeupdate', () => {
-          updatePlayerBufferUI();
+          const raw = state.activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw && !raw.paused && !raw.seeking && (raw.readyState >= 3 || (raw.currentTime > 0 && raw.readyState >= 2))) {
+            showBufferingIndicator(false);
+          }
+          updatePlayerBufferUI(raw);
           const now = Date.now();
           if (now - lastSave > 2000) {
             lastSave = now;

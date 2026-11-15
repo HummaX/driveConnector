@@ -2123,6 +2123,14 @@
 
     function updatePlayerBufferUI(videoEl) {
       const rawEl = videoEl || (activePlayer?.el ? activePlayer.el()?.querySelector('video') : null) || document.querySelector('#player-container video');
+
+      // Dismiss buffering overlay reliably as soon as video playback resumes or frames are rendering
+      if (rawEl && !rawEl.paused && !rawEl.seeking && (rawEl.readyState >= 3 || (rawEl.currentTime > 0 && rawEl.readyState >= 2))) {
+        if (currentBufferingState) {
+          showBufferingIndicator(false);
+        }
+      }
+
       const pct = getBufferedPercent(rawEl);
       const pctEl = document.getElementById('player-buffer-pct');
       if (pctEl) pctEl.innerText = `${pct}%`;
@@ -2185,33 +2193,38 @@
       const rootEl = activePlayer?.el ? activePlayer.el() : (activePlayer?.elements?.container || null);
       const fsOverlay = rootEl ? rootEl.querySelector('.dc-plyr-fs-buffering') : null;
 
-      if (isFs && fsOverlay) {
-        // In fullscreen: use internal overlay to prevent double-spinner artifact
-        if (show) {
+      if (show) {
+        if (isFs && fsOverlay) {
           fsOverlay.classList.remove('hidden');
           fsOverlay.classList.add('flex');
+          fsOverlay.style.display = '';
+          if (overlay) {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+            overlay.style.display = 'none';
+          }
         } else {
-          fsOverlay.classList.add('hidden');
-          fsOverlay.classList.remove('flex');
+          if (overlay) {
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            overlay.style.display = '';
+          }
+          if (fsOverlay) {
+            fsOverlay.classList.add('hidden');
+            fsOverlay.classList.remove('flex');
+            fsOverlay.style.display = 'none';
+          }
         }
+      } else {
         if (overlay) {
           overlay.classList.add('hidden');
           overlay.classList.remove('flex');
-        }
-      } else {
-        // In windowed mode: use player-buffering-overlay, keep fsOverlay hidden
-        if (overlay) {
-          if (show) {
-            overlay.classList.remove('hidden');
-            overlay.classList.add('flex');
-          } else {
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-          }
+          overlay.style.display = 'none';
         }
         if (fsOverlay) {
           fsOverlay.classList.add('hidden');
           fsOverlay.classList.remove('flex');
+          fsOverlay.style.display = 'none';
         }
       }
     }
@@ -2825,6 +2838,22 @@
           }
         });
 
+        // Frame rendering callback hook to dismiss buffering overlay as soon as frames are rendering
+        let frameCallbackActive = true;
+        const hookFrameRendering = (el) => {
+          if (!el || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+          const onFrame = () => {
+            if (!frameCallbackActive) return;
+            if (el && !el.paused && !el.seeking) {
+              showBufferingIndicator(false);
+            }
+            if (el && !el.paused && !el.ended) {
+              el.requestVideoFrameCallback(onFrame);
+            }
+          };
+          el.requestVideoFrameCallback(onFrame);
+        };
+
         activePlayer.ready(() => {
           const rawVideo = activePlayer.el()?.querySelector('video') || videoEl;
           const restorePos = initialTime > 0 ? initialTime : (savedPos > 5 ? savedPos : 0);
@@ -2837,6 +2866,36 @@
           if (rawVideo) {
             setupAudioBooster(rawVideo);
             setupCompanionAudioSync(rawVideo);
+            hookFrameRendering(rawVideo);
+            if (!rawVideo.paused && rawVideo.readyState >= 3) {
+              showBufferingIndicator(false);
+            }
+          }
+
+          // Fullscreen buffering indicator overlay inside Video.js root element
+          const rootEl = activePlayer.el();
+          if (rootEl) {
+            let fsOverlay = rootEl.querySelector('.dc-plyr-fs-buffering');
+            if (!fsOverlay) {
+              fsOverlay = document.createElement('div');
+              fsOverlay.className = 'dc-plyr-fs-buffering absolute inset-0 z-40 hidden items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200';
+              fsOverlay.innerHTML = `
+                <div class="flex flex-col items-center space-y-3 px-6 py-4 rounded-2xl bg-[#0d1117]/90 border border-sky-500/30 shadow-2xl backdrop-blur-md">
+                  <div class="relative flex items-center justify-center">
+                    <div class="w-12 h-12 rounded-full border-2 border-sky-500/20 border-t-sky-400 animate-spin"></div>
+                    <div class="absolute w-6 h-6 rounded-full bg-sky-500/20 animate-ping"></div>
+                  </div>
+                  <div class="flex flex-col items-center space-y-1 text-center font-mono">
+                    <div class="flex items-center space-x-1.5 text-xs font-semibold text-white">
+                      <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+                      <span>Buffering Stream...</span>
+                    </div>
+                    <span class="dc-fs-buffer-text text-[11px] text-sky-400 font-bold font-mono">Buffered: 0%</span>
+                  </div>
+                </div>
+              `;
+              rootEl.appendChild(fsOverlay);
+            }
           }
 
           // Inject timeline buffer live badge into progress control
@@ -2858,7 +2917,13 @@
           updatePlayerBufferUI(rawVideo);
         });
 
-        activePlayer.on('waiting', () => { showBufferingIndicator(true); updatePlayerBufferUI(); });
+        activePlayer.on('waiting', () => {
+          const raw = activePlayer.el()?.querySelector('video') || videoEl;
+          if (!raw || (!raw.paused && raw.readyState < 3)) {
+            showBufferingIndicator(true);
+          }
+          updatePlayerBufferUI(raw);
+        });
         activePlayer.on('seeking', () => { showBufferingIndicator(true); updatePlayerBufferUI(); });
         activePlayer.on('loadstart', () => { showBufferingIndicator(true); updatePlayerBufferUI(); });
         activePlayer.on('stalled', () => {
@@ -2877,6 +2942,8 @@
         activePlayer.on('playing', () => {
           showBufferingIndicator(false);
           updatePlayerBufferUI();
+          const raw = activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw) hookFrameRendering(raw);
           if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
         });
         activePlayer.on('canplay', () => { showBufferingIndicator(false); updatePlayerBufferUI(); });
@@ -2892,8 +2959,28 @@
         });
         activePlayer.on('pause', () => { showBufferingIndicator(false); });
         activePlayer.on('ended', () => { showBufferingIndicator(false); updatePlayerBufferUI(); });
-        activePlayer.on('progress', () => { updatePlayerBufferUI(); });
+        activePlayer.on('progress', () => {
+          const raw = activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw && !raw.paused && !raw.seeking && raw.readyState >= 3) {
+            showBufferingIndicator(false);
+          }
+          updatePlayerBufferUI(raw);
+        });
         activePlayer.on('fullscreenchange', () => { showBufferingIndicator(currentBufferingState); });
+
+        // Native Video Element Event Listeners
+        const bindNativeEvents = (el) => {
+          if (!el) return;
+          el.addEventListener('playing', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); hookFrameRendering(el); });
+          el.addEventListener('canplay', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); });
+          el.addEventListener('canplaythrough', () => { showBufferingIndicator(false); updatePlayerBufferUI(el); });
+          el.addEventListener('timeupdate', () => {
+            if (!el.paused && !el.seeking && (el.readyState >= 3 || (el.currentTime > 0 && el.readyState >= 2))) {
+              showBufferingIndicator(false);
+            }
+          });
+        };
+        bindNativeEvents(videoEl);
 
         if (bufferMonitorInterval) clearInterval(bufferMonitorInterval);
         bufferMonitorInterval = setInterval(() => {
@@ -2903,7 +2990,11 @@
         // Watch Position Memory Throttled Save
         let lastSave = 0;
         activePlayer.on('timeupdate', () => {
-          updatePlayerBufferUI();
+          const raw = activePlayer.el()?.querySelector('video') || videoEl;
+          if (raw && !raw.paused && !raw.seeking && (raw.readyState >= 3 || (raw.currentTime > 0 && raw.readyState >= 2))) {
+            showBufferingIndicator(false);
+          }
+          updatePlayerBufferUI(raw);
           const now = Date.now();
           if (now - lastSave > 2000) {
             lastSave = now;

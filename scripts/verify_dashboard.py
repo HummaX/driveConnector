@@ -534,6 +534,16 @@ def test_buffering_and_buffer_progress_features():
         print("❌ seeked handler does not guard against premature dismissal using readyState!")
         return False
 
+    # Check that buffering is dismissed reliably when video playback resumes or frames render
+    app_js = (REPO_DIR / "frontend/js/app.js").read_text(encoding="utf-8")
+    for src, name in [(player_jsx, "React VideoPlayerModal"), (index_html, "Standalone index.html"), (app_js, "frontend/js/app.js")]:
+        if "requestVideoFrameCallback" not in src:
+            print(f"❌ {name} missing requestVideoFrameCallback frame rendering hook to dismiss buffering!")
+            return False
+        if "readyState >= 3" not in src:
+            print(f"❌ {name} missing readyState >= 3 check to dismiss buffering during active playback!")
+            return False
+
     # 2. Buffer Progress Bar (Pre-Loaded Media Range) & Percentage Display
     if "bufferedPercent" not in player_jsx or "calculateBufferedPercent" not in player_jsx:
         print("❌ React VideoPlayerModal missing HTML5 video buffered TimeRanges percentage calculation!")
