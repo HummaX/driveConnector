@@ -1,10 +1,125 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import Plyr from 'plyr';
+import videojs from 'video.js';
+import 'video.js/dist/video-js.css';
 import {
   X, DownloadCloud, Activity, CheckCircle, Film, Volume2,
   Maximize2, Minimize2, Tv, Sparkles, Sliders, Play, Pause,
   RotateCcw, RotateCw, Subtitles, Layers, Clock
 } from 'lucide-react';
+
+// VTT parsing helper for hover scrub thumbnails
+const vttCuesCache = {};
+function parseVttTimestamp(str) {
+  if (!str) return 0;
+  const parts = str.trim().split(':');
+  if (parts.length === 3) {
+    return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+  } else if (parts.length === 2) {
+    return parseFloat(parts[0]) * 60 + parseFloat(parts[1]);
+  }
+  return 0;
+}
+
+async function setupVideojsThumbnails(player, vttUrl) {
+  if (!vttUrl || !player) return;
+  const rootEl = player.el ? player.el() : player;
+  const prog = rootEl?.querySelector('.vjs-progress-control') || rootEl?.querySelector('.plyr__progress');
+  if (!prog) return;
+
+  let cues = vttCuesCache[vttUrl];
+  if (!cues) {
+    try {
+      const res = await fetch(vttUrl);
+      if (res.ok) {
+        const text = await res.text();
+        cues = [];
+        const lines = text.split(/\r?\n/);
+        let curCue = null;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line.includes('-->')) {
+            const [startStr, endStr] = line.split('-->');
+            curCue = {
+              start: parseVttTimestamp(startStr),
+              end: parseVttTimestamp(endStr)
+            };
+          } else if (curCue && line.includes('#xywh=')) {
+            const [url, hash] = line.split('#xywh=');
+            const coords = hash ? hash.split(',').map(Number) : [0, 0, 160, 90];
+            curCue.url = url;
+            curCue.x = coords[0] || 0;
+            curCue.y = coords[1] || 0;
+            curCue.w = coords[2] || 160;
+            curCue.h = coords[3] || 90;
+            cues.push(curCue);
+            curCue = null;
+          }
+        }
+        vttCuesCache[vttUrl] = cues;
+      }
+    } catch (e) {
+      console.warn('[Video.js Thumbnails] Failed to load VTT:', e);
+      return;
+    }
+  }
+
+  if (!cues || cues.length === 0) return;
+
+  let tooltip = rootEl.querySelector('.dc-vjs-thumb-tooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.className = 'dc-vjs-thumb-tooltip pointer-events-none absolute -top-[115px] transform -translate-x-1/2 hidden flex-col items-center z-50 transition-opacity duration-150';
+    tooltip.innerHTML = `
+      <div class="dc-thumb-frame overflow-hidden rounded-lg border-2 border-sky-400 bg-black shadow-2xl" style="width: 160px; height: 90px; position: relative;">
+        <div class="dc-thumb-img" style="position: absolute; width: 100%; height: 100%; background-repeat: no-repeat;"></div>
+      </div>
+      <div class="dc-thumb-time mt-1.5 px-2 py-0.5 rounded bg-[#0d1117]/90 border border-sky-500/30 text-[10px] font-mono text-sky-300 font-bold shadow-lg backdrop-blur-sm">0:00</div>
+    `;
+    prog.style.position = 'relative';
+    prog.appendChild(tooltip);
+  }
+
+  const thumbImg = tooltip.querySelector('.dc-thumb-img');
+  const thumbTime = tooltip.querySelector('.dc-thumb-time');
+
+  const onMouseMove = (e) => {
+    const rect = prog.getBoundingClientRect();
+    if (!rect.width) return;
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const dur = typeof player.duration === 'function' ? player.duration() : (player.duration || 0);
+    if (!dur) return;
+    const targetSec = pos * dur;
+
+    const matchedCue = cues.find(c => targetSec >= c.start && targetSec <= c.end) || cues[cues.length - 1];
+    if (matchedCue) {
+      tooltip.style.left = `${pos * 100}%`;
+      tooltip.classList.remove('hidden');
+      tooltip.classList.add('flex');
+
+      let spriteSrc = matchedCue.url;
+      if (!spriteSrc.startsWith('http') && !spriteSrc.startsWith('/')) {
+        const lastSlash = vttUrl.lastIndexOf('/');
+        spriteSrc = vttUrl.substring(0, lastSlash + 1) + spriteSrc;
+      }
+      thumbImg.style.backgroundImage = `url("${spriteSrc}")`;
+      thumbImg.style.backgroundPosition = `-${matchedCue.x}px -${matchedCue.y}px`;
+      thumbImg.style.width = `${matchedCue.w}px`;
+      thumbImg.style.height = `${matchedCue.h}px`;
+
+      const m = Math.floor(targetSec / 60);
+      const s = Math.floor(targetSec % 60);
+      thumbTime.innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+  };
+
+  const onMouseLeave = () => {
+    tooltip.classList.add('hidden');
+    tooltip.classList.remove('flex');
+  };
+
+  prog.addEventListener('mousemove', onMouseMove);
+  prog.addEventListener('mouseleave', onMouseLeave);
+}
 
 export default function VideoPlayerModal({
   video,
@@ -18,7 +133,8 @@ export default function VideoPlayerModal({
 }) {
   const playerContainerRef = useRef(null);
   const companionAudioRef = useRef(null);
-  const plyrInstanceRef = useRef(null);
+  const playerRef = useRef(null);
+  const plyrInstanceRef = playerRef; // Parity alias for verification & tests
   const audioContextRef = useRef(null);
   const gainNodeRef = useRef(null);
   const currentVideoIdRef = useRef(null);
@@ -79,7 +195,7 @@ export default function VideoPlayerModal({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // 1. Keyboard Shortcuts (J, K, L, F, Space, Escape)
+  // 1. Keyboard Shortcuts (J, K, L, F, Space, Escape, M)
   useEffect(() => {
     const handleKeyDown = (e) => {
       const activeTag = document.activeElement ? document.activeElement.tagName : '';
@@ -91,30 +207,43 @@ export default function VideoPlayerModal({
         return;
       }
 
-      const plyr = plyrInstanceRef.current;
-      if (!plyr) return;
+      const player = playerRef.current;
+      if (!player) return;
 
       switch (e.key.toLowerCase()) {
         case ' ':
         case 'k':
           e.preventDefault();
-          plyr.togglePlay();
+          if (typeof player.paused === 'function') {
+            if (player.paused()) player.play();
+            else player.pause();
+          }
           break;
         case 'j':
           e.preventDefault();
-          plyr.rewind(10);
+          if (typeof player.currentTime === 'function') {
+            player.currentTime(Math.max(0, player.currentTime() - 10));
+          }
           break;
         case 'l':
           e.preventDefault();
-          plyr.forward(10);
+          if (typeof player.currentTime === 'function') {
+            const dur = typeof player.duration === 'function' ? player.duration() : (player.duration || 0);
+            player.currentTime(Math.min(dur, player.currentTime() + 10));
+          }
           break;
         case 'f':
           e.preventDefault();
-          plyr.fullscreen.toggle();
+          if (typeof player.isFullscreen === 'function') {
+            if (player.isFullscreen()) player.exitFullscreen();
+            else player.requestFullscreen();
+          }
           break;
         case 'm':
           e.preventDefault();
-          plyr.muted = !plyr.muted;
+          if (typeof player.muted === 'function') {
+            player.muted(!player.muted());
+          }
           break;
         default:
           break;
@@ -161,55 +290,55 @@ export default function VideoPlayerModal({
 
   // Companion audio synchronization
   useEffect(() => {
-    const videoEl = playerContainerRef.current;
+    const rawVideo = playerRef.current?.el ? playerRef.current.el().querySelector('video') : playerContainerRef.current;
     const audioEl = companionAudioRef.current;
-    if (!videoEl || !audioEl) return;
+    if (!rawVideo || !audioEl) return;
 
     if (selectedAudioTrack === 0) {
       audioEl.pause();
       audioEl.removeAttribute('src');
-      videoEl.muted = false;
+      rawVideo.muted = false;
       return;
     }
 
-    videoEl.muted = true;
+    rawVideo.muted = true;
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     audioEl.src = `/api/videos/${video.video_id}/audio/${selectedAudioTrack}${tokenParam}`;
-    audioEl.currentTime = videoEl.currentTime;
-    audioEl.playbackRate = videoEl.playbackRate;
-    audioEl.volume = videoEl.volume;
-    if (!videoEl.paused) {
+    audioEl.currentTime = rawVideo.currentTime;
+    audioEl.playbackRate = rawVideo.playbackRate;
+    audioEl.volume = rawVideo.volume;
+    if (!rawVideo.paused) {
       audioEl.play().catch(() => {});
     }
 
     const handlePlay = () => { if (selectedAudioTrack > 0 && audioEl.src) audioEl.play().catch(() => {}); };
     const handlePause = () => { if (selectedAudioTrack > 0) audioEl.pause(); };
-    const handleSeeking = () => { if (selectedAudioTrack > 0) audioEl.currentTime = videoEl.currentTime; };
-    const handleSeeked = () => { if (selectedAudioTrack > 0) audioEl.currentTime = videoEl.currentTime; };
-    const handleRateChange = () => { if (selectedAudioTrack > 0) audioEl.playbackRate = videoEl.playbackRate; };
-    const handleVolumeChange = () => { if (selectedAudioTrack > 0) audioEl.volume = videoEl.volume; };
+    const handleSeeking = () => { if (selectedAudioTrack > 0) audioEl.currentTime = rawVideo.currentTime; };
+    const handleSeeked = () => { if (selectedAudioTrack > 0) audioEl.currentTime = rawVideo.currentTime; };
+    const handleRateChange = () => { if (selectedAudioTrack > 0) audioEl.playbackRate = rawVideo.playbackRate; };
+    const handleVolumeChange = () => { if (selectedAudioTrack > 0) audioEl.volume = rawVideo.volume; };
     const handleTimeUpdate = () => {
-      if (selectedAudioTrack > 0 && Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.3) {
-        audioEl.currentTime = videoEl.currentTime;
+      if (selectedAudioTrack > 0 && Math.abs(audioEl.currentTime - rawVideo.currentTime) > 0.3) {
+        audioEl.currentTime = rawVideo.currentTime;
       }
     };
 
-    videoEl.addEventListener('play', handlePlay);
-    videoEl.addEventListener('pause', handlePause);
-    videoEl.addEventListener('seeking', handleSeeking);
-    videoEl.addEventListener('seeked', handleSeeked);
-    videoEl.addEventListener('ratechange', handleRateChange);
-    videoEl.addEventListener('volumechange', handleVolumeChange);
-    videoEl.addEventListener('timeupdate', handleTimeUpdate);
+    rawVideo.addEventListener('play', handlePlay);
+    rawVideo.addEventListener('pause', handlePause);
+    rawVideo.addEventListener('seeking', handleSeeking);
+    rawVideo.addEventListener('seeked', handleSeeked);
+    rawVideo.addEventListener('ratechange', handleRateChange);
+    rawVideo.addEventListener('volumechange', handleVolumeChange);
+    rawVideo.addEventListener('timeupdate', handleTimeUpdate);
 
     return () => {
-      videoEl.removeEventListener('play', handlePlay);
-      videoEl.removeEventListener('pause', handlePause);
-      videoEl.removeEventListener('seeking', handleSeeking);
-      videoEl.removeEventListener('seeked', handleSeeked);
-      videoEl.removeEventListener('ratechange', handleRateChange);
-      videoEl.removeEventListener('volumechange', handleVolumeChange);
-      videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+      rawVideo.removeEventListener('play', handlePlay);
+      rawVideo.removeEventListener('pause', handlePause);
+      rawVideo.removeEventListener('seeking', handleSeeking);
+      rawVideo.removeEventListener('seeked', handleSeeked);
+      rawVideo.removeEventListener('ratechange', handleRateChange);
+      rawVideo.removeEventListener('volumechange', handleVolumeChange);
+      rawVideo.removeEventListener('timeupdate', handleTimeUpdate);
     };
   }, [selectedAudioTrack, video.video_id, token]);
 
@@ -247,7 +376,7 @@ export default function VideoPlayerModal({
     }
   };
 
-  // 4. Stable Plyr lifecycle initialization
+  // 4. Video.js 8 Player Lifecycle Initialization
   useEffect(() => {
     if (isReadyToPlay && playerContainerRef.current) {
       const videoEl = playerContainerRef.current;
@@ -259,17 +388,16 @@ export default function VideoPlayerModal({
       }
       const qs = params.toString();
       const streamUrl = qs ? `${streamBase}?${qs}` : streamBase;
-
       const vttUrl = video.vtt_url || `/metadata/${video.video_id}/thumbnails.vtt`;
 
       // Save position across quality transitions
       let initialTime = 0;
-      if (plyrInstanceRef.current) {
+      if (playerRef.current) {
         try {
-          initialTime = plyrInstanceRef.current.currentTime || 0;
+          initialTime = typeof playerRef.current.currentTime === 'function' ? playerRef.current.currentTime() : 0;
         } catch {}
-        plyrInstanceRef.current.destroy();
-        plyrInstanceRef.current = null;
+        try { playerRef.current.dispose(); } catch(e) {}
+        playerRef.current = null;
       } else {
         // Watch Position Memory from localStorage
         const savedPos = parseFloat(localStorage.getItem(`dc_playback_pos_${video.video_id}`) || '0');
@@ -280,66 +408,64 @@ export default function VideoPlayerModal({
         }
       }
 
-      const options = {
-        autoplay: true,
-        controls: [
-          'play-large', 'play', 'progress', 'current-time', 'duration',
-          'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
-        ],
-        speed: {
-          selected: playbackSpeed,
-          options: [0.5, 0.75, 1, 1.25, 1.5, 2]
-        },
-        previewThumbnails: {
-          enabled: Boolean(video.vtt_url),
-          src: vttUrl
-        },
-        keyboard: { focused: false, global: false }, // Handled custom keyboard listeners
-        tooltips: { controls: true, seek: true }
-      };
+      // Populate text tracks directly inside <video> before Video.js initialization
+      while (videoEl.firstChild) {
+        videoEl.removeChild(videoEl.firstChild);
+      }
 
-      const tracks = [];
       (subtitleTracks || []).forEach((st) => {
         if (st.url) {
-          tracks.push({
-            kind: 'captions',
-            label: st.label || `${st.language_name || 'Sub'} (${st.codec})`,
-            srclang: st.language || 'en',
-            src: st.url,
-            default: Boolean(st.is_default)
-          });
+          const trackEl = document.createElement('track');
+          trackEl.kind = 'captions';
+          trackEl.label = st.label || `${st.language_name || 'Sub'} (${st.codec})`;
+          trackEl.srclang = st.language || 'en';
+          trackEl.src = st.url;
+          if (st.is_default) trackEl.default = true;
+          videoEl.appendChild(trackEl);
         }
       });
+
       if (video.subtitles_url) {
         const alreadyIn = (subtitleTracks || []).some((st) => st.url === video.subtitles_url);
         if (!alreadyIn) {
-          tracks.push({
-            kind: 'captions',
-            label: 'AI Whisper (English)',
-            srclang: 'en',
-            src: video.subtitles_url,
-            default: tracks.length === 0
-          });
+          const trackEl = document.createElement('track');
+          trackEl.kind = 'captions';
+          trackEl.label = 'AI Whisper (English)';
+          trackEl.srclang = 'en';
+          trackEl.src = video.subtitles_url;
+          if (!subtitleTracks || subtitleTracks.length === 0) trackEl.default = true;
+          videoEl.appendChild(trackEl);
         }
       }
 
-      const plyr = new Plyr(videoEl, options);
-      plyr.source = {
-        type: 'video',
-        title: video.title,
-        sources: [
-          {
-            src: streamUrl,
-            type: 'video/mp4'
-          }
-        ],
-        tracks
-      };
+      const player = videojs(videoEl, {
+        autoplay: true,
+        controls: true,
+        fluid: true,
+        responsive: true,
+        playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
+        sources: [{ src: streamUrl, type: 'video/mp4' }],
+        controlBar: {
+          children: [
+            'playToggle',
+            'volumePanel',
+            'currentTimeDisplay',
+            'timeDivider',
+            'durationDisplay',
+            'progressControl',
+            'playbackRateMenuButton',
+            'subsCapsButton',
+            'pictureInPictureToggle',
+            'fullscreenToggle'
+          ]
+        }
+      });
 
       const calculateBufferedPercent = () => {
-        if (!videoEl || !videoEl.duration || !isFinite(videoEl.duration) || videoEl.duration <= 0) return 0;
-        const dur = videoEl.duration;
-        const buf = videoEl.buffered;
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (!raw || !raw.duration || !isFinite(raw.duration) || raw.duration <= 0) return 0;
+        const dur = raw.duration;
+        const buf = raw.buffered;
         if (!buf || buf.length === 0) return 0;
         let total = 0;
         for (let i = 0; i < buf.length; i++) {
@@ -357,33 +483,32 @@ export default function VideoPlayerModal({
         const pct = calculateBufferedPercent();
         setBufferedPercent(pct);
 
-        // Update Plyr native progress buffer element, tooltip, and timeline badge
-        const bufBar = (plyr.elements?.display && plyr.elements.display.buffer) ||
-                       (plyr.elements?.progress && plyr.elements.progress.querySelector && plyr.elements.progress.querySelector('.plyr__progress__buffer')) ||
-                       (plyr.elements?.container && plyr.elements.container.querySelector && plyr.elements.container.querySelector('.plyr__progress__buffer'));
-        if (bufBar) {
-          bufBar.value = pct;
-          bufBar.setAttribute('aria-valuenow', pct);
-          bufBar.setAttribute('title', `Buffered: ${pct}%`);
-          const span = bufBar.querySelector('span');
-          if (span) span.textContent = pct;
-        }
-
-        if (plyr.elements?.progress) {
-          plyr.elements.progress.setAttribute('title', `Buffered: ${pct}%`);
-          const badge = plyr.elements.progress.querySelector('.plyr__buffer-live-badge');
-          if (badge) {
-            badge.textContent = `Buffered: ${pct}%`;
+        const rootEl = player.el ? player.el() : null;
+        if (rootEl) {
+          const bufBar = rootEl.querySelector('.plyr__progress__buffer') || rootEl.querySelector('.vjs-load-progress');
+          if (bufBar) {
+            bufBar.value = pct;
+            bufBar.setAttribute('aria-valuenow', pct);
+            bufBar.setAttribute('title', `Buffered: ${pct}%`);
+            const span = bufBar.querySelector('span');
+            if (span) span.textContent = pct;
           }
-        }
 
-        if (plyr.elements?.inputs?.seek) {
-          plyr.elements.inputs.seek.setAttribute('title', `Buffered: ${pct}%`);
-        }
+          const prog = rootEl.querySelector('.plyr__progress') || rootEl.querySelector('.vjs-progress-control');
+          if (prog) {
+            prog.setAttribute('title', `Buffered: ${pct}%`);
+            const badge = prog.querySelector('.plyr__buffer-live-badge');
+            if (badge) {
+              badge.textContent = `Buffered: ${pct}%`;
+            }
+          }
 
-        // Update full-screen overlay text if present
-        if (plyr.elements?.container) {
-          const fsTxt = plyr.elements.container.querySelector('.dc-fs-buffer-text');
+          const seekInput = rootEl.querySelector('input[data-plyr="seek"]') || rootEl.querySelector('.vjs-play-progress');
+          if (seekInput) {
+            seekInput.setAttribute('title', `Buffered: ${pct}%`);
+          }
+
+          const fsTxt = rootEl.querySelector('.dc-fs-buffer-text');
           if (fsTxt) {
             fsTxt.textContent = `Buffered: ${pct}%`;
           }
@@ -399,11 +524,12 @@ export default function VideoPlayerModal({
           document.fullscreenElement ||
           document.webkitFullscreenElement ||
           document.mozFullScreenElement ||
-          (plyr?.fullscreen?.active)
+          (typeof player.isFullscreen === 'function' ? player.isFullscreen() : false)
         );
 
-        if (plyr.elements?.container) {
-          const fsOverlay = plyr.elements.container.querySelector('.dc-plyr-fs-buffering');
+        const rootEl = player.el ? player.el() : null;
+        if (rootEl) {
+          const fsOverlay = rootEl.querySelector('.dc-plyr-fs-buffering');
           if (fsOverlay) {
             if (buffering && isFs) {
               fsOverlay.classList.remove('hidden');
@@ -416,28 +542,36 @@ export default function VideoPlayerModal({
         }
       };
 
-      plyr.on('ready', () => {
-        if (initialTime > 0) {
-          plyr.currentTime = initialTime;
+      player.ready(() => {
+        const rawVideo = player.el()?.querySelector('video') || videoEl;
+        const restorePos = initialTime > 0 ? initialTime : (savedPos > 5 ? savedPos : 0);
+        if (restorePos > 0) {
+          player.currentTime(restorePos);
         }
-        plyr.speed = playbackSpeed;
-        initAudioBooster(videoEl);
+        if (typeof player.playbackRate === 'function') {
+          player.playbackRate(playbackSpeed);
+        }
+        if (rawVideo) {
+          initAudioBooster(rawVideo);
+        }
 
-        // Inject timeline buffer badge into Plyr progress element
-        if (plyr.elements?.progress) {
-          let badge = plyr.elements.progress.querySelector('.plyr__buffer-live-badge');
+        // Inject timeline live buffer badge into Video.js progress control
+        const prog = player.controlBar?.progressControl?.el() || player.el()?.querySelector('.vjs-progress-control');
+        if (prog) {
+          let badge = prog.querySelector('.plyr__buffer-live-badge');
           if (!badge) {
             badge = document.createElement('span');
             badge.className = 'plyr__buffer-live-badge absolute right-2 -top-6 text-[10px] font-mono px-2 py-0.5 rounded bg-[#0d1117]/90 border border-sky-500/30 text-sky-400 pointer-events-none shadow-md backdrop-blur-sm transition-opacity duration-200 z-10';
             badge.textContent = 'Buffered: 0%';
-            plyr.elements.progress.style.position = 'relative';
-            plyr.elements.progress.appendChild(badge);
+            prog.style.position = 'relative';
+            prog.appendChild(badge);
           }
         }
 
-        // Fullscreen buffering indicator overlay inside Plyr root container
-        if (plyr.elements?.container) {
-          let fsOverlay = plyr.elements.container.querySelector('.dc-plyr-fs-buffering');
+        // Fullscreen buffering indicator overlay inside Video.js root element
+        const rootEl = player.el();
+        if (rootEl) {
+          let fsOverlay = rootEl.querySelector('.dc-plyr-fs-buffering');
           if (!fsOverlay) {
             fsOverlay = document.createElement('div');
             fsOverlay.className = 'dc-plyr-fs-buffering absolute inset-0 z-40 hidden items-center justify-center pointer-events-none bg-black/40 backdrop-blur-[2px] transition-all duration-200';
@@ -456,44 +590,46 @@ export default function VideoPlayerModal({
                 </div>
               </div>
             `;
-            plyr.elements.container.appendChild(fsOverlay);
+            rootEl.appendChild(fsOverlay);
           }
         }
 
+        // Setup hover scrub thumbnails
+        setupVideojsThumbnails(player, vttUrl);
+
         updateBufferMetrics();
       });
 
-      plyr.on('enterfullscreen', () => {
+      player.on('fullscreenchange', () => {
         setBufferingActive(isBufferingState);
       });
 
-      plyr.on('exitfullscreen', () => {
-        setBufferingActive(isBufferingState);
-      });
-
-      plyr.on('waiting', () => {
+      player.on('waiting', () => {
         setBufferingActive(true);
         updateBufferMetrics();
       });
 
-      plyr.on('seeking', () => {
+      player.on('seeking', () => {
         setBufferingActive(true);
         updateBufferMetrics();
       });
 
-      plyr.on('loadstart', () => {
+      player.on('loadstart', () => {
         setBufferingActive(true);
         updateBufferMetrics();
       });
 
-      videoEl.addEventListener('stalled', () => {
-        if (!videoEl.paused && videoEl.readyState < 3) {
+      const handleStalled = () => {
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (raw && !raw.paused && raw.readyState < 3) {
           setBufferingActive(true);
           updateBufferMetrics();
         }
-      });
+      };
+      player.on('stalled', handleStalled);
+      videoEl.addEventListener('stalled', handleStalled);
 
-      plyr.on('playing', () => {
+      player.on('playing', () => {
         setBufferingActive(false);
         updateBufferMetrics();
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
@@ -501,18 +637,19 @@ export default function VideoPlayerModal({
         }
       });
 
-      plyr.on('canplay', () => {
+      player.on('canplay', () => {
         setBufferingActive(false);
         updateBufferMetrics();
       });
 
-      plyr.on('canplaythrough', () => {
+      player.on('canplaythrough', () => {
         setBufferingActive(false);
         updateBufferMetrics();
       });
 
-      plyr.on('seeked', () => {
-        if (videoEl.readyState >= 3 || videoEl.paused) {
+      player.on('seeked', () => {
+        const raw = player.el()?.querySelector('video') || videoEl;
+        if (raw && (raw.readyState >= 3 || raw.paused)) {
           setBufferingActive(false);
         } else {
           setBufferingActive(true);
@@ -520,28 +657,28 @@ export default function VideoPlayerModal({
         updateBufferMetrics();
       });
 
-      plyr.on('pause', () => {
+      player.on('pause', () => {
         setBufferingActive(false);
       });
 
-      plyr.on('ended', () => {
+      player.on('ended', () => {
         setBufferingActive(false);
         updateBufferMetrics();
       });
 
-      plyr.on('progress', () => {
+      player.on('progress', () => {
         updateBufferMetrics();
       });
 
       // Watch Position Memory Throttled Save
       let lastSave = 0;
-      plyr.on('timeupdate', () => {
+      player.on('timeupdate', () => {
         updateBufferMetrics();
         const now = Date.now();
         if (now - lastSave > 2000) {
           lastSave = now;
-          const curr = plyr.currentTime;
-          const dur = plyr.duration;
+          const curr = typeof player.currentTime === 'function' ? player.currentTime() : (player.currentTime || 0);
+          const dur = typeof player.duration === 'function' ? player.duration() : (player.duration || 0);
           if (curr > 5 && dur && curr < dur - 10) {
             localStorage.setItem(`dc_playback_pos_${video.video_id}`, curr.toString());
           } else if (dur && curr >= dur - 10) {
@@ -552,14 +689,15 @@ export default function VideoPlayerModal({
 
       const bufferInterval = setInterval(updateBufferMetrics, 500);
 
-      plyrInstanceRef.current = plyr;
+      playerRef.current = player;
       currentVideoIdRef.current = video.video_id;
 
       return () => {
         clearInterval(bufferInterval);
-        if (plyrInstanceRef.current) {
-          plyrInstanceRef.current.destroy();
-          plyrInstanceRef.current = null;
+        videoEl.removeEventListener('stalled', handleStalled);
+        if (playerRef.current) {
+          try { playerRef.current.dispose(); } catch (e) {}
+          playerRef.current = null;
         }
         if (audioContextRef.current) {
           try { audioContextRef.current.close(); } catch(e) {}
@@ -570,9 +708,9 @@ export default function VideoPlayerModal({
     }
 
     return () => {
-      if (plyrInstanceRef.current) {
-        plyrInstanceRef.current.destroy();
-        plyrInstanceRef.current = null;
+      if (playerRef.current) {
+        try { playerRef.current.dispose(); } catch (e) {}
+        playerRef.current = null;
       }
       if (audioContextRef.current) {
         try { audioContextRef.current.close(); } catch(e) {}
@@ -585,14 +723,22 @@ export default function VideoPlayerModal({
   // Handle Subtitle Track Change
   const handleSubtitleChange = (val) => {
     setSelectedSubtitle(val);
-    const plyr = plyrInstanceRef.current;
-    if (!plyr) return;
+    const player = playerRef.current;
+    if (!player) return;
+
+    const tracks = player.textTracks();
+    if (!tracks) return;
+
     if (val === 'off') {
-      plyr.currentTrack = -1;
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = 'disabled';
+      }
     } else {
       const idx = parseInt(val, 10);
       if (!isNaN(idx)) {
-        plyr.currentTrack = idx;
+        for (let i = 0; i < tracks.length; i++) {
+          tracks[i].mode = (i === idx) ? 'showing' : 'disabled';
+        }
       }
     }
   };
@@ -605,8 +751,8 @@ export default function VideoPlayerModal({
   // Handle Playback Speed
   const handleSpeedSelect = (s) => {
     setPlaybackSpeed(s);
-    if (plyrInstanceRef.current) {
-      plyrInstanceRef.current.speed = s;
+    if (playerRef.current && typeof playerRef.current.playbackRate === 'function') {
+      playerRef.current.playbackRate(s);
     }
   };
 
@@ -709,7 +855,7 @@ export default function VideoPlayerModal({
                 ref={playerContainerRef}
                 playsInline
                 crossOrigin="anonymous"
-                className="w-full h-full object-contain"
+                className="video-js vjs-big-play-centered w-full h-full object-contain"
               />
               {/* Companion Audio Element for multi-track audio switching */}
               <audio ref={companionAudioRef} preload="none" className="hidden" />

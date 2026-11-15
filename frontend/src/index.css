@@ -24,6 +24,59 @@
   background: #334155;
 }
 
+/* Video.js Modern Dark Skin matching DriveConnector */
+.video-js {
+  font-family: inherit !important;
+  width: 100% !important;
+  height: 100% !important;
+  background-color: #000 !important;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.video-js .vjs-big-play-button {
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%);
+  width: 60px !important;
+  height: 60px !important;
+  line-height: 60px !important;
+  border-radius: 9999px !important;
+  background: rgba(14, 165, 233, 0.9) !important;
+  border: 1px solid rgba(56, 189, 248, 0.4) !important;
+  box-shadow: 0 10px 25px -5px rgba(14, 165, 233, 0.5) !important;
+  transition: all 0.2s ease-in-out;
+}
+.video-js:hover .vjs-big-play-button {
+  background: #0284c7 !important;
+  transform: translate(-50%, -50%) scale(1.08);
+}
+.video-js .vjs-control-bar {
+  background: rgba(13, 17, 23, 0.85) !important;
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(48, 54, 61, 0.6);
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+}
+.video-js .vjs-button > .vjs-icon-placeholder:before {
+  line-height: 48px;
+  font-size: 1.6em;
+  color: #94a3b8;
+  transition: color 0.15s ease;
+}
+.video-js .vjs-button:hover > .vjs-icon-placeholder:before {
+  color: #38bdf8;
+}
+.video-js .vjs-play-progress {
+  background: linear-gradient(90deg, #38bdf8, #818cf8) !important;
+  border-radius: 9999px;
+}
+.video-js .vjs-load-progress {
+  background: rgba(56, 189, 248, 0.3) !important;
+  border-radius: 9999px;
+}
+
 /* Custom Plyr adjustments */
 .plyr--video {
   border-radius: 0.75rem;
