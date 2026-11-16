@@ -126,6 +126,39 @@
       60% { transform: translateX(-5px); }
       80% { transform: translateX(5px); }
     }
+
+    /* Screening room: marine surfaces, sea-glass controls, warm projection light. */
+    :root { color-scheme: dark; --marine:#0b1b22; --slate:#152b33; --glass:#8ec9bd; --projection:#e6c389; --ink:#e5efeb; --muted:#a1b5b1; }
+    html, body { background:var(--marine); color:var(--ink); font-family: "Trebuchet MS", "Segoe UI", sans-serif; }
+    #dashboard-network-canvas { opacity:.13; }
+    header { background:#10242b !important; border-color:#345057 !important; box-shadow:none !important; }
+    main { max-width:1440px !important; display:flex; flex-direction:column; gap:22px; }
+    main > * { margin-top:0 !important; }
+    .library-intro { display:flex; align-items:end; justify-content:space-between; gap:24px; padding:36px clamp(20px,4vw,52px); border:1px solid #38555a; border-radius:8px; background:radial-gradient(ellipse at 88% 30%,#38554c 0%,transparent 40%),linear-gradient(115deg,#1b3940,#122a31 72%); }
+    .library-kicker { color:var(--projection) !important; font-size:13px !important; margin:0 0 10px !important; }
+    .library-intro h1 { color:#f4f4e9; font-family:Georgia,serif; font-size:clamp(32px,4.2vw,57px); line-height:1.05; letter-spacing:-.035em; font-weight:400; margin:0 0 12px; }
+    .library-intro p { color:#c5d6d0; font-size:14px; max-width:52ch; }
+    .library-actions { display:flex; flex-wrap:wrap; gap:8px; }
+    .library-actions button,.bookmark-panel > button { min-height:44px; padding:0 17px; background:var(--projection); color:#19272a; border:1px solid var(--projection); border-radius:5px; font-weight:700; white-space:nowrap; }
+    .library-actions button + button { background:transparent; color:var(--ink); border-color:#69827e; }
+    main section[aria-label="Executive Operations Dashboard"] { padding-top:24px; border-top:1px solid #365158; }
+    main section[aria-label="Executive Operations Dashboard"] > div:nth-child(2) > div { background:#152b33 !important; border-color:#345057 !important; box-shadow:none !important; transform:none !important; }
+    #video-catalog-container { min-height:100px; }
+    #video-catalog-container .group { background:#152b33 !important; border-color:#345057 !important; border-radius:7px; box-shadow:none !important; transform:none !important; }
+    #video-catalog-container .group:hover { border-color:#8ec9bd !important; }
+    .library-title-button { text-align:left; color:inherit; text-decoration:underline; text-underline-offset:3px; }
+    #player-modal-box { background:#10242b !important; border-color:#54716d !important; }
+    .bookmark-panel { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 20px; background:#19333a; border-top:1px solid #3b565b; }
+    .bookmark-panel h4 { font-size:13px; font-weight:700; color:var(--ink); }
+    .bookmark-panel p { font-size:11px; color:var(--muted); }
+    .bookmark-panel > button { min-height:36px; font-size:12px; }
+    .bookmark-list { display:flex; flex-wrap:wrap; gap:6px; color:var(--muted); font-size:12px; }
+    .bookmark-item { display:inline-flex; border:1px solid #53746f; border-radius:4px; overflow:hidden; }
+    .bookmark-item button { min-height:34px; padding:0 9px; color:#e5efeb; }
+    .bookmark-item button + button { border-left:1px solid #53746f; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="button"]:focus-visible { outline:3px solid #e6c389 !important; outline-offset:3px; }
+    @media(max-width:640px) { .library-intro { align-items:flex-start; flex-direction:column; padding:25px 20px; } .library-actions { width:100%; } .library-actions button { flex:1; } #player-modal-box { max-height:96vh; overflow-y:auto; } input, select, textarea { font-size:16px !important; } }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important; transition-duration:.01ms !important; } }
   </style>
 </head>
 <body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
@@ -284,15 +317,15 @@
 
       <!-- Right: Thread Allocation, 32GB RAM Split, 1TB Block Array Health Bar -->
       <div class="flex items-center space-x-2.5 text-[10px]">
-        <div class="hidden lg:flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="CPU Governance Allocation: 1 Reserved Core for Web UI, N-1 for Video Pipeline">
+        <div class="hidden lg:flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="CPU planning hint only. Host resource enforcement is not configured.">
           <span class="w-1.5 h-1.5 rounded-full bg-[#38bdf8] shadow-[0_0_6px_#38bdf8]"></span>
           <span class="text-slate-400">CPU THREADS:</span>
-          <span class="text-sky-300 font-medium">Reserved: 1 Core | Workers: N-1</span>
+          <span class="text-sky-300 font-medium">CPU hints only; no enforced reservation</span>
         </div>
-        <div class="hidden sm:flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="32GB RAM Pipeline Distribution: 10% System / 90% Media Pipeline">
+        <div class="hidden sm:flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="Memory planning estimates only; these shares are not enforced allocations.">
           <span class="w-1.5 h-1.5 rounded-full bg-[#a855f7] shadow-[0_0_6px_#a855f7]"></span>
           <span class="text-slate-400">RAM SPLIT:</span>
-          <span class="text-purple-300 font-medium">32GB (10% OS / 90% Cloud Pipeline)</span>
+          <span class="text-purple-300 font-medium">Memory targets only; no enforced split</span>
         </div>
         <div class="flex items-center space-x-1.5 bg-[#010409] px-2 py-0.5 rounded border border-[#21262d]" title="1TB /mnt/storage NVMe Block Array Health">
           <span class="w-1.5 h-1.5 rounded-full bg-[#10b981] shadow-[0_0_6px_#10b981]"></span>
@@ -471,6 +504,75 @@
 
     <!-- Main Content Area -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <!-- Live Ingestion & WebSocket Transfer Cards in Hero Strip -->
+      <div id="hero-transfers-card" class="hidden rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-sky-500/30 p-4 space-y-3 shadow-lg">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center space-x-2 font-semibold text-sky-400">
+            <i data-lucide="arrow-down-circle" class="w-4 h-4 animate-bounce"></i>
+            <span>Live WebSocket Transfers & Ingestion</span>
+          </div>
+          <span id="hero-transfers-count" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold">0 Active</span>
+        </div>
+        <div id="hero-transfers-items" class="space-y-2 max-h-48 overflow-y-auto no-scrollbar"></div>
+      </div>
+
+      <section class="library-intro" aria-labelledby="library-heading">
+        <div><p class="library-kicker">Your media, ready when you are</p><h1 id="library-heading">The screening room</h1><p>Find a title, start watching, or bring something new into your library.</p></div>
+        <div class="library-actions"><button type="button" onclick="openUrlModal()">Add a link</button><button type="button" onclick="openSyncModal()">Sync Drive</button></div>
+      </section>
+      <!-- Toolbar: Search, Filters & View Options -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pt-1">
+        <!-- Search Box -->
+        <div class="relative flex-1 max-w-md">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"></i>
+          <input id="search-input" aria-label="Search media catalog" type="text" oninput="renderVideos()" placeholder="Search catalog... (Press '/' to focus)" class="w-full pl-9 pr-8 py-2 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition shadow-inner font-sans" />
+          <button id="search-clear-btn" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-0.5 rounded">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Filter Tabs -->
+          <div class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-xs font-medium font-mono">
+            <button onclick="setFilter('ALL')" id="filter-all" class="px-3 py-1 rounded-md transition bg-[#21262d] text-white border border-[#30363d]">
+              All (<span id="count-all">0</span>)
+            </button>
+            <button onclick="setFilter('LOCAL')" id="filter-local" class="px-3 py-1 rounded-md transition text-slate-400 hover:text-emerald-400">
+              Saved Local (<span id="count-local">0</span>)
+            </button>
+            <button onclick="setFilter('CLOUD')" id="filter-cloud" class="px-3 py-1 rounded-md transition text-slate-400 hover:text-amber-400">
+              On Cloud (<span id="count-cloud">0</span>)
+            </button>
+          </div>
+
+          <!-- Sort Selector -->
+          <div class="flex items-center space-x-1.5 bg-[#161b22] px-2.5 py-1.5 rounded-lg border border-[#30363d] text-xs text-slate-300 font-sans">
+            <i data-lucide="arrow-up-down" class="w-3.5 h-3.5 text-slate-400"></i>
+            <select id="sort-select" aria-label="Sort media catalog" onchange="setSort(this.value)" class="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer">
+              <option value="newest" class="bg-[#161b22] text-white">Recently Added</option>
+              <option value="title" class="bg-[#161b22] text-white">Title (A-Z)</option>
+              <option value="size" class="bg-[#161b22] text-white">File Size</option>
+              <option value="duration" class="bg-[#161b22] text-white">Duration</option>
+            </select>
+          </div>
+
+          <!-- View Mode Toggle -->
+          <div class="flex items-center bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-slate-400">
+            <button onclick="setViewMode('grid')" id="view-grid-btn" aria-label="Grid view" aria-pressed="true" title="Grid View" class="p-1 rounded-md transition bg-[#21262d] text-white">
+              <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="setViewMode('list')" id="view-list-btn" aria-label="List view" aria-pressed="false" title="List View" class="p-1 rounded-md transition hover:text-white">
+              <i data-lucide="list" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video Catalog Container -->
+      <div id="video-catalog-container">
+        <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+      </div>
       <!-- Executive Operations Stats Dashboard -->
       <section class="space-y-3.5" aria-label="Executive Operations Dashboard">
         <!-- Mission Control Status Bar -->
@@ -482,12 +584,12 @@
             <div>
               <div class="flex items-center space-x-2">
                 <h2 class="text-sm font-bold tracking-tight text-white"><span class="bg-gradient-to-r from-white via-sky-200 to-indigo-300 bg-clip-text text-transparent">Operations & Streaming Telemetry</span></h2>
-                <span id="dashboard-server-status" class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1">
+                <span id="telemetry-server-status" class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1">
                   <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block"></span>
                   <span>optimal</span>
                 </span>
               </div>
-              <p id="dashboard-server-info" class="text-[11px] text-slate-400 font-mono">Dedicated Host • Linux • Uptime Live</p>
+              <p id="telemetry-server-info" class="text-[11px] text-slate-400 font-mono">Dedicated Host • Linux • Uptime Live</p>
             </div>
           </div>
 
@@ -639,71 +741,6 @@
         </div>
       </section>
 
-      <!-- Live Ingestion & WebSocket Transfer Cards in Hero Strip -->
-      <div id="hero-transfers-card" class="hidden rounded-xl bg-[#0d1117]/80 backdrop-blur-md border border-sky-500/30 p-4 space-y-3 shadow-lg">
-        <div class="flex items-center justify-between text-xs">
-          <div class="flex items-center space-x-2 font-semibold text-sky-400">
-            <i data-lucide="arrow-down-circle" class="w-4 h-4 animate-bounce"></i>
-            <span>Live WebSocket Transfers & Ingestion</span>
-          </div>
-          <span id="hero-transfers-count" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold">0 Active</span>
-        </div>
-        <div id="hero-transfers-items" class="space-y-2 max-h-48 overflow-y-auto no-scrollbar"></div>
-      </div>
-
-      <!-- Toolbar: Search, Filters & View Options -->
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pt-1">
-        <!-- Search Box -->
-        <div class="relative flex-1 max-w-md">
-          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"></i>
-          <input id="search-input" type="text" oninput="renderVideos()" placeholder="Search catalog... (Press '/' to focus)" class="w-full pl-9 pr-8 py-2 rounded-lg bg-[#010409] border border-[#30363d] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition shadow-inner font-sans" />
-          <button id="search-clear-btn" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-0.5 rounded">
-            <i data-lucide="x" class="w-3.5 h-3.5"></i>
-          </button>
-        </div>
-
-        <!-- Controls -->
-        <div class="flex flex-wrap items-center gap-2">
-          <!-- Filter Tabs -->
-          <div class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-xs font-medium font-mono">
-            <button onclick="setFilter('ALL')" id="filter-all" class="px-3 py-1 rounded-md transition bg-[#21262d] text-white border border-[#30363d]">
-              All (<span id="count-all">0</span>)
-            </button>
-            <button onclick="setFilter('LOCAL')" id="filter-local" class="px-3 py-1 rounded-md transition text-slate-400 hover:text-emerald-400">
-              Saved Local (<span id="count-local">0</span>)
-            </button>
-            <button onclick="setFilter('CLOUD')" id="filter-cloud" class="px-3 py-1 rounded-md transition text-slate-400 hover:text-amber-400">
-              On Cloud (<span id="count-cloud">0</span>)
-            </button>
-          </div>
-
-          <!-- Sort Selector -->
-          <div class="flex items-center space-x-1.5 bg-[#161b22] px-2.5 py-1.5 rounded-lg border border-[#30363d] text-xs text-slate-300 font-sans">
-            <i data-lucide="arrow-up-down" class="w-3.5 h-3.5 text-slate-400"></i>
-            <select id="sort-select" onchange="setSort(this.value)" class="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer">
-              <option value="newest" class="bg-[#161b22] text-white">Recently Added</option>
-              <option value="title" class="bg-[#161b22] text-white">Title (A-Z)</option>
-              <option value="size" class="bg-[#161b22] text-white">File Size</option>
-              <option value="duration" class="bg-[#161b22] text-white">Duration</option>
-            </select>
-          </div>
-
-          <!-- View Mode Toggle -->
-          <div class="flex items-center bg-[#161b22] p-1 rounded-lg border border-[#30363d] text-slate-400">
-            <button onclick="setViewMode('grid')" id="view-grid-btn" title="Grid View" class="p-1 rounded-md transition bg-[#21262d] text-white">
-              <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
-            </button>
-            <button onclick="setViewMode('list')" id="view-list-btn" title="List View" class="p-1 rounded-md transition hover:text-white">
-              <i data-lucide="list" class="w-3.5 h-3.5"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Video Catalog Container -->
-      <div id="video-catalog-container">
-        <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
-      </div>
     </main>
 
     <!-- Dashboard Footer matching Login View -->
@@ -730,7 +767,7 @@
           <button onclick="toggleTheaterMode()" title="Toggle Theater Mode" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-[#21262d] transition">
             <i data-lucide="tv" class="w-4 h-4"></i>
           </button>
-          <button onclick="closePlayerModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#21262d] transition">
+          <button onclick="closePlayerModal()" aria-label="Close player" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#21262d] transition">
             <i data-lucide="x" class="w-4 h-4"></i>
           </button>
         </div>
@@ -776,6 +813,11 @@
         </div>
       </div>
 
+      <section class="bookmark-panel" aria-labelledby="bookmark-heading">
+        <div><h4 id="bookmark-heading">Bookmarks</h4><p>Saved in this browser for this video.</p></div>
+        <button type="button" onclick="addPlayerBookmark()">Save current time</button>
+        <div id="player-bookmarks" class="bookmark-list" aria-live="polite"></div>
+      </section>
       <!-- Supercharged Toolbar -->
       <div id="player-supercharged-toolbar" class="px-5 py-2.5 bg-[#161b22] border-t border-[#30363d] flex flex-wrap items-center justify-between gap-2.5 text-xs">
         <!-- Audio Booster & Speeds -->
@@ -1127,15 +1169,15 @@
       <div class="mb-3">
         <label class="block text-xs font-medium text-slate-300 mb-1.5">Download Engine</label>
         <div class="grid grid-cols-3 gap-2">
-          <button id="engine-btn-auto" type="button" onclick="setDownloadEngine('auto')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-indigo-600/20 border-indigo-500/50 text-indigo-300 transition">
+          <button id="engine-btn-auto" aria-pressed="true" type="button" onclick="setDownloadEngine('auto')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-indigo-600/20 border-indigo-500/50 text-indigo-300 transition">
             <div class="font-semibold text-white">⚡ Auto-Detect</div>
             <div class="text-[10px] text-slate-400 mt-0.5">Direct vs JDownloader</div>
           </button>
-          <button id="engine-btn-native" type="button" onclick="setDownloadEngine('native')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition">
+          <button id="engine-btn-native" aria-pressed="false" type="button" onclick="setDownloadEngine('native')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition">
             <div class="font-semibold text-white">🌐 Direct Stream</div>
             <div class="text-[10px] text-slate-400 mt-0.5">High-speed chunked</div>
           </button>
-          <button id="engine-btn-jd" type="button" onclick="setDownloadEngine('jdownloader')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition">
+          <button id="engine-btn-jd" aria-pressed="false" type="button" onclick="setDownloadEngine('jdownloader')" class="py-2 px-2.5 rounded-lg text-xs font-medium text-left border bg-[#010409] border-[#30363d] text-slate-400 hover:text-white transition">
             <div class="font-semibold text-white">📥 JDownloader 2</div>
             <div class="text-[10px] text-slate-400 mt-0.5">Hosters & decrypters</div>
           </button>
@@ -1280,7 +1322,7 @@
     // ─── Network Canvas Animation (GitHub-style constellation) ───
     function createConstellation(canvasId) {
       const canvas = document.getElementById(canvasId);
-      if (!canvas) return;
+      if (!canvas || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       const ctx = canvas.getContext('2d');
       let w, h, nodes = [], pulseTrails = [];
       let mouseX = -1000, mouseY = -1000;
@@ -1515,15 +1557,17 @@
       }
     }
 
-    function handleLogout() {
+    async function handleLogout() {
       authToken = null;
       authUser = null;
+      if (transferSocket) { transferSocket.onclose = null; transferSocket.close(); transferSocket = null; }
+      closePlayerModal();
       localStorage.removeItem('drive_auth_token');
       localStorage.removeItem('ovh_media_token');
       localStorage.removeItem('drive_connector_token');
       localStorage.removeItem('drive_auth_user');
-      document.cookie = 'access_token=; path=/; max-age=0; SameSite=Lax';
-      checkAuthWall();
+      try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); }
+      finally { window.location.replace('/login'); }
     }
 
     // System Metrics & Hardware Polling
@@ -1549,7 +1593,7 @@
           if (cpuContainer && data.cpu) {
             const workers = data.cpu.worker_threads || Math.max(1, (data.cpu.cores || 1) - 1);
             const reserved = data.cpu.reserved_cores || 1;
-            cpuContainer.title = `Processor: ${data.cpu.cores || 1} Cores (${workers} Video Workers, ${reserved} Reserved for Web) @ ${data.cpu.frequency_mhz || 'Auto'} MHz`;
+            cpuContainer.title = `Processor: ${data.cpu.cores || 1} Cores (${workers} threads per process; ${reserved} CPU planning target, not enforced) @ ${data.cpu.frequency_mhz || 'Auto'} MHz`;
           }
 
           // Mobile Micro-Telemetry
@@ -1570,7 +1614,7 @@
           document.getElementById('header-ram-bar').style.width = `${Math.min(100, data.ram.percent)}%`;
           const ramPill = document.getElementById('header-ram-pill');
           if (ramPill && data.ram.reserved_system_gb) {
-            ramPill.title = `32GB Architecture: ${data.ram.used_gb}GB used of ${data.ram.total_gb}GB | Host: ${data.ram.reserved_system_gb}GB (10%) | Cloud: ${data.ram.cloud_pipeline_allocated_gb}GB (90%) [Whisper: ${data.ram.whisper_ram_pool_gb}GB, FFmpeg: ${data.ram.ffmpeg_ram_pool_gb}GB, Buffers: ${(data.ram.streaming_buffers_gb + data.ram.download_buffers_gb).toFixed(1)}GB]`;
+            ramPill.title = `Unenforced planning estimates: ${data.ram.used_gb}GB used of ${data.ram.total_gb}GB | Host: ${data.ram.reserved_system_gb}GB (10%) | Cloud: ${data.ram.cloud_pipeline_allocated_gb}GB (90%) [Whisper: ${data.ram.whisper_ram_pool_gb}GB, FFmpeg: ${data.ram.ffmpeg_ram_pool_gb}GB, Buffers: ${(data.ram.streaming_buffers_gb + data.ram.download_buffers_gb).toFixed(1)}GB]`;
           }
 
           // Header Disk
@@ -1704,7 +1748,10 @@
     }
 
     function setViewMode(mode) {
+      if (mode !== 'grid' && mode !== 'list') return;
       currentViewMode = mode;
+      document.getElementById('view-grid-btn').setAttribute('aria-pressed', String(mode === 'grid'));
+      document.getElementById('view-list-btn').setAttribute('aria-pressed', String(mode === 'list'));
       const gridBtn = document.getElementById('view-grid-btn');
       const listBtn = document.getElementById('view-list-btn');
       if (gridBtn && listBtn) {
@@ -1803,7 +1850,11 @@
 
           const card = document.createElement('div');
           card.className = "group relative flex flex-col bg-[#0d1117]/80 hover:bg-[#161b22]/90 border border-[#30363d]/80 hover:border-sky-500/50 rounded-xl overflow-hidden shadow-sm hover:shadow-2xl hover:shadow-sky-500/10 transition-all duration-300 cursor-pointer backdrop-blur-md hover:-translate-y-1";
+          card.setAttribute('role', 'button');
+          card.tabIndex = 0;
+          card.setAttribute('aria-label', `Open ${v.title || 'untitled video'}`);
           card.onclick = () => openPlayerModal(v);
+          card.onkeydown = (event) => { if (event.target === card && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openPlayerModal(v); } };
           card.onmouseenter = () => {
             const vEl = card.querySelector('video');
             if (vEl) vEl.play().catch(() => {});
@@ -1820,8 +1871,8 @@
           const safePoster = escapeHtml(v.poster_url || '');
           const safePreview = escapeHtml(v.preview_url || '');
           const safeSource = v.source === 'GDRIVE' ? 'Google Drive' : 'Direct Link';
-          const durationStr = v.duration_seconds > 0 
-            ? `${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}` 
+          const durationStr = v.duration_seconds > 0
+            ? `${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}`
             : null;
 
           const posterMarkup = safePoster
@@ -1835,7 +1886,7 @@
             <div class="relative aspect-video w-full bg-[#010409] overflow-hidden border-b border-[#30363d]/60">
               ${posterMarkup}
               ${isLocal && safePreview ? `<video src="${safePreview}" loop muted playsinline preload="none" class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></video>` : ''}
-              
+
               <div class="absolute top-2 left-2 z-10 max-w-[85%] truncate">
                 ${proc ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/30 text-purple-200 border border-purple-500/40 backdrop-blur-md shadow-sm animate-pulse truncate"><i data-lucide="loader-2" class="w-3 h-3 animate-spin shrink-0"></i><span class="truncate">${escapeHtml(proc.stage_name || 'Generating Sprites')}: ${proc.stage_percent || proc.percent}% ${proc.eta_seconds > 0 ? `(${proc.eta_seconds}s left)` : ''}</span></span>` : ''}
                 ${!proc && isProcessing ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 backdrop-blur-md shadow-sm animate-pulse"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i><span>Generating Sprites (in progress)</span></span>` : ''}
@@ -1936,15 +1987,15 @@
           const isLocal = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
           const proc = processingJobs[v.video_id] || v.processing_info;
           const isProcessing = v.status === 'PROCESSING' || Boolean(proc);
-          const durationStr = v.duration_seconds > 0 
-            ? `${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}` 
+          const durationStr = v.duration_seconds > 0
+            ? `${Math.floor(v.duration_seconds/60)}:${Math.floor(v.duration_seconds%60)<10?'0':''}${Math.floor(v.duration_seconds%60)}`
             : null;
           const row = document.createElement('tr');
           row.className = "hover:bg-[#161b22]/70 cursor-pointer transition";
           row.onclick = () => openPlayerModal(v);
           row.innerHTML = `
             <td class="px-4 py-3 font-medium text-white max-w-xs truncate" title="${escapeHtml(v.title)}">
-              ${escapeHtml(v.title)}
+              <button type="button" class="library-title-button">${escapeHtml(v.title)}</button>
             </td>
             <td class="px-4 py-3 font-mono text-[11px]">
               ${proc ? `
@@ -1983,6 +2034,7 @@
             </td>
           `;
 
+          row.querySelector('.library-title-button').onclick = (event) => { event.stopPropagation(); openPlayerModal(v); };
           const fetchRowBtn = row.querySelector('.fetch-row-btn');
           if (fetchRowBtn) {
             fetchRowBtn.onclick = (e) => {
@@ -2248,6 +2300,8 @@
       if (!activeVideoModal || !activePlayer) return;
       showBufferingIndicator(true);
       currentSelectedQuality = q;
+      const player = activePlayer;
+      const wasPaused = typeof player.paused === 'function' ? player.paused() : Boolean(player.paused);
       const curTime = typeof activePlayer.currentTime === 'function' ? activePlayer.currentTime() : (activePlayer.currentTime || 0);
       const streamBase = `/api/stream/${activeVideoModal.video_id}`;
       const params = new URLSearchParams();
@@ -2258,11 +2312,12 @@
 
       if (typeof activePlayer.src === 'function') {
         activePlayer.src({ src: srcUrl, type: 'video/mp4' });
-        activePlayer.one('loadedmetadata', () => {
-          if (curTime > 0) activePlayer.currentTime(curTime);
-          if (typeof activePlayer.playbackRate === 'function') activePlayer.playbackRate(currentPlaybackSpeed);
+        player.one('loadedmetadata', () => {
+          if (activePlayer !== player) return;
+          if (curTime > 0) player.currentTime(curTime);
+          if (typeof player.playbackRate === 'function') player.playbackRate(currentPlaybackSpeed);
           showBufferingIndicator(false);
-          activePlayer.play().catch(() => {});
+          if (!wasPaused) player.play().catch(() => {});
         });
       } else if (activePlayer.source) {
         const tracks = activeVideoModal.subtitles_url ? [{
@@ -2282,7 +2337,7 @@
           if (curTime > 0) activePlayer.currentTime = curTime;
           activePlayer.speed = currentPlaybackSpeed;
           showBufferingIndicator(false);
-          activePlayer.play().catch(() => {});
+          if (!wasPaused) activePlayer.play().catch(() => {});
         });
       }
     }
@@ -2602,7 +2657,7 @@
               } else if (currentCue && line.includes('#xywh=')) {
                 const [spriteUrl, hash] = line.split('#xywh=');
                 const [x, y, w, h] = hash.split(',').map(Number);
-                currentCue.sprite = spriteUrl;
+                currentCue.sprite = new URL(spriteUrl, new URL(vttUrl, document.baseURI)).href;
                 currentCue.x = x || 0;
                 currentCue.y = y || 0;
                 currentCue.w = w || 160;
@@ -2638,7 +2693,8 @@
         const offsetX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
         const hoverTime = (offsetX / rect.width) * duration;
 
-        const cue = cues.find(c => hoverTime >= c.start && hoverTime < c.end) || cues[0];
+        const cue = cues.find(c => hoverTime >= c.start && hoverTime < c.end);
+        if (!cue) { previewEl.classList.add('hidden'); return; }
         if (cue) {
           previewEl.style.backgroundImage = `url("${cue.sprite}")`;
           previewEl.style.backgroundPosition = `-${cue.x}px -${cue.y}px`;
@@ -2682,9 +2738,46 @@
       }
     }
 
+    function bookmarkKey() { return activeVideoModal ? `dc_bookmarks_${activeVideoModal.video_id}` : null; }
+    function readPlayerBookmarks() {
+      try { const saved = JSON.parse(localStorage.getItem(bookmarkKey()) || '[]'); return Array.isArray(saved) ? saved.filter(t => Number.isFinite(t) && t >= 0) : []; }
+      catch (_) { return []; }
+    }
+    function formatBookmarkTime(seconds) {
+      const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = Math.floor(seconds % 60);
+      return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+    }
+    function renderPlayerBookmarks(message) {
+      const list = document.getElementById('player-bookmarks');
+      if (!list) return;
+      list.replaceChildren();
+      if (message) { const note = document.createElement('span'); note.textContent = message; list.appendChild(note); return; }
+      const times = readPlayerBookmarks();
+      if (!times.length) { list.textContent = 'No bookmarks yet.'; return; }
+      times.forEach((time, index) => {
+        const item = document.createElement('span'); item.className = 'bookmark-item';
+        const seek = document.createElement('button'); seek.type = 'button'; seek.textContent = formatBookmarkTime(time); seek.setAttribute('aria-label', `Seek to ${formatBookmarkTime(time)}`);
+        seek.onclick = () => { if (activePlayer && typeof activePlayer.currentTime === 'function') activePlayer.currentTime(time); };
+        const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', `Remove bookmark at ${formatBookmarkTime(time)}`);
+        remove.onclick = () => { const next = readPlayerBookmarks(); next.splice(index, 1); try { localStorage.setItem(bookmarkKey(), JSON.stringify(next)); renderPlayerBookmarks(); } catch (_) { renderPlayerBookmarks('Could not save bookmarks in this browser.'); } };
+        item.append(seek, remove); list.appendChild(item);
+      });
+    }
+    function addPlayerBookmark() {
+      if (!activePlayer || typeof activePlayer.currentTime !== 'function' || !bookmarkKey()) { renderPlayerBookmarks('Start a playable video to save a bookmark.'); return; }
+      const time = activePlayer.currentTime();
+      if (!Number.isFinite(time) || time < 0) return;
+      const times = readPlayerBookmarks(), rounded = Math.floor(time);
+      if (!times.includes(rounded)) times.push(rounded);
+      times.sort((a, b) => a - b);
+      try { localStorage.setItem(bookmarkKey(), JSON.stringify(times)); renderPlayerBookmarks(); }
+      catch (_) { renderPlayerBookmarks('Could not save bookmarks in this browser.'); }
+    }
+
     // Authenticated Player Modal
     async function openPlayerModal(v) {
       activeVideoModal = v;
+      renderPlayerBookmarks();
       activeAudioTrackIndex = 0;
       const isPlayable = v.status === 'LOCAL_READY' || v.status === 'PROCESSING' || Boolean(v.local_path);
       document.getElementById('player-title').innerText = v.title;
@@ -2734,16 +2827,13 @@
               activeVideoModal.subtitles_url = data.video.subtitles_url;
             }
             populatePlayerTracksUI(activeVideoModal);
-            if (activePlayer) {
-              const newTracks = buildPlayerTracks(activeVideoModal);
-              if (newTracks.length > 0 && (!activePlayer.tracks || activePlayer.tracks.length === 0)) {
-                activePlayer.source = {
-                  type: 'video',
-                  title: activeVideoModal.title,
-                  sources: activePlayer.source?.sources || [],
-                  tracks: newTracks
-                };
-              }
+            if (activePlayer && typeof activePlayer.addRemoteTextTrack === 'function') {
+              const root = activePlayer.el();
+              const present = new Set(Array.from(root.querySelectorAll('track')).map(t => new URL(t.src, document.baseURI).href));
+              buildPlayerTracks(activeVideoModal).forEach(track => {
+                const url = new URL(track.src, document.baseURI).href;
+                if (!present.has(url)) { activePlayer.addRemoteTextTrack(track, false); present.add(url); }
+              });
             }
           }
         })
@@ -2759,7 +2849,7 @@
       let initialTime = 0;
       if (activePlayer) {
         try {
-          initialTime = typeof activePlayer.currentTime === 'function' ? activePlayer.currentTime() : (activePlayer.currentTime || 0);
+          initialTime = 0;
           if (typeof activePlayer.dispose === 'function') {
             activePlayer.dispose();
           } else if (typeof activePlayer.destroy === 'function') {
@@ -3149,7 +3239,7 @@
 
     // MongoDB Live UI
     let activeMongoTunnelCmd = 'ssh -L 8081:127.0.0.1:8081 ubuntu@' + (window.location.hostname || 'localhost');
-    let activeMongoPass = 'expresspassword';
+    let activeMongoPass = null;
 
     function copyMongoTunnelCmd() {
       navigator.clipboard.writeText(activeMongoTunnelCmd);
@@ -3165,6 +3255,7 @@
     }
 
     function copyMongoPassword() {
+      if (!activeMongoPass) { alert('Read the Mongo Express password privately from the server configuration.'); return; }
       navigator.clipboard.writeText(activeMongoPass);
       const btn = document.getElementById('me-copy-pass-btn');
       if (btn) {
@@ -3202,15 +3293,15 @@
           const host = window.location.hostname || 'localhost';
           const isPublic = Boolean(data.mongo_express_is_public);
           const tunnelCmd = data.ssh_tunnel_cmd || `ssh -L ${port}:127.0.0.1:${port} ubuntu@${host}`;
-          const user = data.mongo_express_user || 'admin';
-          const pass = data.mongo_express_pass || 'expresspassword';
+          const user = 'Configured on server';
+          const pass = 'Read privately from server configuration';
           const url = data.mongo_express_url || (isPublic ? `http://${host}:${port}/` : `http://localhost:${port}/`);
 
           const portEl = document.getElementById('me-port-num');
           if (portEl) portEl.innerText = port;
           const badgeEl = document.getElementById('me-binding-badge');
           if (badgeEl) {
-            badgeEl.className = isPublic 
+            badgeEl.className = isPublic
               ? 'text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
               : 'text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20';
             badgeEl.innerText = isPublic ? 'Public Web UI' : 'SSH Tunnel Required';
@@ -3227,7 +3318,7 @@
             openLinkEl.innerHTML = `<span>${isPublic ? 'Open Mongo Express' : 'Open :' + port}</span><i data-lucide="external-link" class="w-3 h-3"></i>`;
           }
           activeMongoTunnelCmd = tunnelCmd;
-          activeMongoPass = pass;
+          activeMongoPass = null;
           updateIcons();
         }
       } catch (e) {}
@@ -3605,16 +3696,16 @@
       handleUrlInputChange();
     }
 
-    function openUrlModal() { 
-      document.getElementById('url-modal').classList.remove('hidden'); 
+    function openUrlModal() {
+      document.getElementById('url-modal').classList.remove('hidden');
       document.getElementById('url-modal').classList.add('flex');
       const errEl = document.getElementById('url-error-msg');
       if (errEl) errEl.classList.add('hidden');
       handleUrlInputChange();
     }
-    function closeUrlModal() { 
-      document.getElementById('url-modal').classList.add('hidden'); 
-      document.getElementById('url-modal').classList.remove('flex'); 
+    function closeUrlModal() {
+      document.getElementById('url-modal').classList.add('hidden');
+      document.getElementById('url-modal').classList.remove('flex');
     }
 
     function openJDownloaderModal() {
@@ -3693,7 +3784,12 @@
 
     let currentDownloadEngine = 'auto';
     function setDownloadEngine(eng) {
+      if (!['auto', 'native', 'jdownloader'].includes(eng)) return;
       currentDownloadEngine = eng;
+      [['engine-btn-auto', 'auto'], ['engine-btn-native', 'native'], ['engine-btn-jd', 'jdownloader']].forEach(([id, value]) => {
+        const button = document.getElementById(id);
+        if (button) button.setAttribute('aria-pressed', String(value === eng));
+      });
       const bAuto = document.getElementById('engine-btn-auto');
       const bNative = document.getElementById('engine-btn-native');
       const bJd = document.getElementById('engine-btn-jd');
@@ -3794,7 +3890,7 @@
     function clearCompletedTransfers() {
       for (const id in transfers) {
         const t = transfers[id];
-        if (t.percentage >= 100 || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE') {
+        if (t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE') {
           delete transfers[id];
         }
       }
@@ -3836,8 +3932,8 @@
       }
       if (drawer) drawer.classList.remove('hidden');
 
-      const isTransferDone = (t) => t.status !== 'FAILED' && ((t.percentage >= 100) || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE');
-      const activeDl = dlList.filter(t => !isTransferDone(t) && t.status !== 'FAILED' && (t.percentage || 0) < 100 && (t.status === 'DOWNLOADING' || t.status === 'QUEUED' || t.status === 'WAITING'));
+      const isTransferDone = (t) => t.status !== 'FAILED' && (t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE');
+      const activeDl = dlList.filter(t => !isTransferDone(t) && t.status !== 'FAILED' && (t.status === 'DOWNLOADING' || t.status === 'QUEUED' || t.status === 'WAITING' || t.status === 'FINALIZING'));
       const activeProc = procList.filter(p => (p.percent || 0) < 100 && p.status !== 'COMPLETED' && p.status !== 'FAILED');
       const activeTasksCount = activeDl.length + activeProc.length;
       const completedCount = dlList.filter(isTransferDone).length;
@@ -3892,7 +3988,7 @@
       }
 
       const allPcts = [...activeDl.map(t => t.percentage || 0), ...activeProc.map(p => p.percent || 0)];
-      const avgPct = allPcts.length > 0 
+      const avgPct = allPcts.length > 0
         ? Math.round(allPcts.reduce((acc, v) => acc + v, 0) / allPcts.length)
         : 100;
 
@@ -3921,7 +4017,7 @@
       `).join('');
 
       const dlHtml = dlList.map(t => {
-        const isDone = (t.percentage >= 100) || t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE';
+        const isDone = t.status === 'DOWNLOAD_COMPLETE' || t.status === 'LOCAL_READY' || t.status === 'DONE';
         const isFailed = t.status === 'FAILED';
 
         if (isDone) {
@@ -3987,16 +4083,19 @@
     }
 
     // Authenticated WebSocket Telemetry
+    let transferSocket = null;
     function initWebSocket() {
       if (!authToken) return;
+      if (transferSocket && transferSocket.readyState < 2) return;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/transfers?token=${encodeURIComponent(authToken)}`);
+      transferSocket = ws;
 
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
           if (msg.event === 'TRANSFER_UPDATE') {
-            const isDone = (msg.percentage >= 100) || msg.status === 'DOWNLOAD_COMPLETE' || msg.status === 'LOCAL_READY' || msg.status === 'DONE';
+            const isDone = msg.status === 'DOWNLOAD_COMPLETE' || msg.status === 'LOCAL_READY' || msg.status === 'DONE';
             if (isDone) {
               msg.percentage = 100;
               msg.status = (msg.status === 'DOWNLOADING') ? 'DOWNLOAD_COMPLETE' : msg.status;
@@ -4180,8 +4279,21 @@
     window.handleModalUrlSubmit = triggerUrlDownload;
     window.triggerUrlDownload = triggerUrlDownload;
 
-    // Startup Execution
-    checkAuthWall();
+    // Validate saved bearer sessions and establish the HTTP-only media cookie.
+    (async () => {
+      if (authToken) {
+        try {
+          const response = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+          if (response.status === 401) { await handleLogout(); return; }
+          if (!response.ok) throw new Error('Authentication is temporarily unavailable');
+        } catch (error) {
+          const message = document.getElementById('login-error-text');
+          if (message) message.textContent = error.message;
+          return;
+        }
+      }
+      checkAuthWall();
+    })();
     setInterval(() => {
       if (authToken) fetchMetrics();
     }, 3000);

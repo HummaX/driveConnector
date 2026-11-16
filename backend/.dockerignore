@@ -1,0 +1,14 @@
+# Runtime and developer state must never enter the backend image.
+.env
+.env.*
+credentials.json
+credentials*.json
+client_secret*.json
+service-account*.json
+service_account*.json
+token.json
+token*.json
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/

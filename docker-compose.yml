@@ -8,8 +8,8 @@ services:
       # Restricted to localhost (127.0.0.1) to prevent public internet access on OVHcloud
       - "127.0.0.1:27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Configure the existing database username}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Configure the existing database password}
       MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-media_db}
     volumes:
       # Persistent MongoDB data stored directly on the 1TB Block Storage volume
@@ -30,12 +30,12 @@ services:
       # Bound to MONGO_EXPRESS_BIND (defaults to 127.0.0.1 for SSH tunnel security; switch to 0.0.0.0 for public access)
       - "${MONGO_EXPRESS_BIND:-127.0.0.1}:8081:8081"
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Configure the existing database username}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Configure the existing database password}
       ME_CONFIG_MONGODB_SERVER: mongodb
       ME_CONFIG_MONGODB_PORT: 27017
       ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER:-admin}
-      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASS:-expresspassword}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASS:?Configure Mongo Express password}
       ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
     depends_on:
       mongodb:
@@ -44,7 +44,7 @@ services:
       - media_net
 
   backend:
-    build:
+    build: &backend_build
       context: ./backend
       dockerfile: Dockerfile
     container_name: media_backend
@@ -52,13 +52,17 @@ services:
     init: true
     shm_size: 8g
     ports:
-      - "8000:8000"
-    environment:
-      - MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-secretpassword}@mongodb:27017/${MONGO_INITDB_DATABASE:-media_db}?authSource=admin
+      - "127.0.0.1:8000:8000"
+    environment: &backend_environment
+      - MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME:?Configure the existing database username}:${MONGO_INITDB_ROOT_PASSWORD:?Configure the existing database password}@mongodb:27017/${MONGO_INITDB_DATABASE:-media_db}?authSource=admin
+      - DATABASE_NAME=${MONGO_INITDB_DATABASE:-media_db}
+      - ENABLE_EXTERNAL_URLS=${ENABLE_EXTERNAL_URLS:-false}
+      - PYTHONDONTWRITEBYTECODE=1
+      - MEDIA_WORKER_CONCURRENCY=${MEDIA_WORKER_CONCURRENCY:-4}
       - STORAGE_DIR=${STORAGE_DIR:-/mnt/storage}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-drive-connector-super-secret-key-2026-prod}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Configure the original JWT key}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_DEFAULT_PASSWORD=${ADMIN_DEFAULT_PASSWORD:-Admin@Drive2026!}
+      - ADMIN_DEFAULT_PASSWORD=${ADMIN_DEFAULT_PASSWORD:?Configure the initial administrator password}
       - GOOGLE_CREDENTIALS_FILE=${GOOGLE_CREDENTIALS_FILE:-/mnt/storage/config/credentials.json}
       - GOOGLE_TOKEN_FILE=${GOOGLE_TOKEN_FILE:-/mnt/storage/config/token.json}
       - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID:-}
@@ -71,8 +75,24 @@ services:
     volumes:
       # Mount 1TB block storage for media, metadata, and database
       - ${STORAGE_DIR:-/mnt/storage}:${STORAGE_DIR:-/mnt/storage}
-      - ./backend:/app
+      - ./backend:/app:ro
       - ./frontend:/frontend:ro
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - media_net
+
+  media-worker:
+    build: *backend_build
+    container_name: media_worker
+    restart: unless-stopped
+    init: true
+    command: ["python", "-m", "media_worker"]
+    environment: *backend_environment
+    volumes:
+      - ${STORAGE_DIR:-/mnt/storage}:${STORAGE_DIR:-/mnt/storage}
+      - ./backend:/app:ro
     depends_on:
       mongodb:
         condition: service_healthy
@@ -90,7 +110,7 @@ services:
     environment:
       - USER_ID=1000
       - GROUP_ID=1000
-      - VNC_PASSWORD=${JDOWNLOADER_PASSWORD:-admin123}
+      - VNC_PASSWORD=${JDOWNLOADER_PASSWORD:?Configure JDownloader password}
       - JVM_OPTIONS=-Xms1024m -Xmx4096m
     volumes:
       # Persistent configuration & JDownloader settings on 1TB block storage

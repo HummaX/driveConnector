@@ -1,0 +1,35 @@
+{
+  "branch": "claude-code",
+  "baseline_commit": "d46327758de27f88e1d59bf9e07a457d5b533044",
+  "release_gate": "blocked",
+  "publication_authorization": "User approved this explicitly incomplete candidate for staging on claude-code only; production release gate remains blocked",
+  "publication_status_source": "Git commit history and remote branch refs are authoritative",
+  "server_modified": false,
+  "legacy_verifier": {
+    "modified": false,
+    "sha256": "c3f3ab66eeafe3cbbce3ef4c45b2fc578e794d52309189301fbc7b1a381ac8c6",
+    "checks_reached": 27,
+    "passed": 26,
+    "failed": ["test_deployment_and_mongo_express_ux"],
+    "environment": "Disposable snapshot; synthetic Mongo boundary; network and external operations blocked",
+    "source_drift_during_final_run": []
+  },
+  "standalone_regressions": {
+    "auth": {"passed": 5, "skipped": 0},
+    "range_parser": {"passed": 5, "skipped": 0},
+    "http_streaming": {"passed": 6, "skipped": 0},
+    "metadata_paths": {"passed": 2, "skipped": 1},
+    "media_jobs": {"passed": 17, "skipped": 0},
+    "governance": {"passed": 11, "skipped": 0},
+    "frontend": {"passed": 5, "skipped": 0},
+    "deployment_helper": {"passed": 48, "skipped": 1}
+  },
+  "skip_reason": "Directory/file symlink creation requires privileges unavailable to this Windows test process",
+  "limitations": [
+    "No live Ubuntu Docker/Compose deployment or backup restoration",
+    "No aggregate CPU or memory reservation enforcement",
+    "16 baseline frontend IDs remain absent",
+    "No live Drive/JDownloader integration or browser-to-server playback verification",
+    "Worker-integrated JDownloader is refused; external URLs disabled by default"
+  ]
+}

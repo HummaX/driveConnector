@@ -27,5 +27,6 @@ EXPOSE 8000
 # Use tini as PID 1 init to reap zombie subprocesses and manage signals
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# Run FastAPI via Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Nginx keeps query-free access logs; disable Uvicorn access logs so legacy
+# query-token URLs are not written to container logs.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

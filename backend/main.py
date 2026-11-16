@@ -51,6 +51,9 @@ from auth import (
     UserLogin
 )
 import drive_catalog
+import job_queue
+import job_events
+from streaming import UnsatisfiableRange, select_byte_range
 from downloader import (
     manager,
     download_drive_video,
@@ -527,10 +530,46 @@ class NetworkTelemetryTracker:
 
 network_tracker = NetworkTelemetryTracker()
 
+async def relay_media_events(app):
+    """Relay durable per-event revisions from the worker into local WebSockets."""
+    revisions = {}
+    app.state.media_events_ready = False
+    while True:
+        try:
+            snapshots = await job_events.read_snapshots(limit=1000)
+            for snapshot in snapshots:
+                video_id = snapshot.get("video_id")
+                events = sorted(snapshot.get("events", {}).values(), key=lambda item: item.get("_revision", 0))
+                for event in events:
+                    kind = event.get("event")
+                    key = (video_id, kind)
+                    revision = event.get("_revision", 0)
+                    if revision <= revisions.get(key, -1):
+                        continue
+                    message = {k: v for k, v in event.items() if not k.startswith("_")}
+                    if kind == "TRANSFER_UPDATE":
+                        active_downloads[video_id] = message
+                    elif kind == "PROCESSING_UPDATE":
+                        active_processing[video_id] = message
+                    elif kind == "PROCESSING_COMPLETE":
+                        active_processing.pop(video_id, None)
+                    await manager.broadcast(message)
+                    revisions[key] = revision
+            app.state.media_events_ready = True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            app.state.media_events_ready = False
+        await asyncio.sleep(1)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize MongoDB, ensure directories exist, seed admin user, prime network counters
+    # Startup validates identity; it never regenerates credentials or selects a new DB.
+    settings.validate_runtime()
     await init_db()
+    await job_queue.init_queue()
+    await job_events.init_indexes()
     await init_admin_user()
     await reconcile_stale_jobs()
     try:
@@ -547,9 +586,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     print(f"[MediaServer] Initialized storage at {settings.STORAGE_DIR}")
-    yield
-    # Shutdown
-    await close_db()
+    relay = asyncio.create_task(relay_media_events(app))
+    try:
+        yield
+    finally:
+        relay.cancel()
+        await asyncio.gather(relay, return_exceptions=True)
+        await close_db()
 
 app = FastAPI(
     title="DriveConnector - High-Performance Self-Hosted Media Streaming Server",
@@ -594,26 +637,46 @@ async def track_network_traffic(request: Request, call_next):
             pass
     return await call_next(request)
 
-# WebVTT scrubber cue fallback route (eliminates 404 console errors while sprites generate)
-@app.get("/metadata/{video_id}/thumbnails.vtt")
-async def get_video_thumbnails_vtt(video_id: str):
-    """
-    Serves WebVTT thumbnail cues for scrub bars.
-    Returns HTTP 200 with valid empty WebVTT if sprites have not finished generating,
-    eliminating 404 console errors in HTML5 / Video.js / Plyr players.
-    """
+def resolve_metadata_asset(video_id: str, asset_path: str) -> Path:
+    """Resolve a media asset strictly inside the selected video's metadata tree."""
     valid_id = validate_video_id(video_id)
-    vtt_path = settings.get_video_metadata_dir(valid_id) / "thumbnails.vtt"
-    if vtt_path.exists() and vtt_path.stat().st_size > 10:
-        return FileResponse(vtt_path, media_type="text/vtt")
-    return Response(
-        content="WEBVTT\n\n",
-        media_type="text/vtt",
-        headers={"Cache-Control": "no-cache"}
-    )
+    root = validate_storage_path(Path(settings.STORAGE_DIR) / "metadata")
+    video_root = (root / valid_id).resolve()
+    target = (video_root / asset_path).resolve()
+    try:
+        video_root.relative_to(root)
+        target.relative_to(video_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Metadata path is outside the video directory") from exc
+    return target
 
-# Mount static asset directory
-app.mount("/metadata", StaticFiles(directory=str(settings.metadata_dir)), name="metadata")
+
+@app.api_route("/metadata/{video_id}/thumbnails.vtt", methods=["GET", "HEAD"])
+async def get_video_thumbnails_vtt(
+    video_id: str, current_user: Dict[str, Any] = Depends(get_current_user_flexible)
+):
+    """Serve private sprite cues, including an empty file while generation runs."""
+    vtt_path = resolve_metadata_asset(video_id, "thumbnails.vtt")
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if vtt_path.is_file() and vtt_path.stat().st_size > 10:
+        return FileResponse(vtt_path, media_type="text/vtt", headers=headers)
+    return Response(content="WEBVTT\n\n", media_type="text/vtt", headers=headers)
+
+
+@app.api_route("/metadata/{video_id}/{asset_path:path}", methods=["GET", "HEAD"])
+async def get_private_metadata_asset(
+    video_id: str, asset_path: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_flexible),
+):
+    """Serve supported media assets, never arbitrary files from the storage mount."""
+    target = resolve_metadata_asset(video_id, asset_path)
+    if target.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".m4a", ".vtt", ".srt"}:
+        raise HTTPException(status_code=404, detail="Metadata asset not found")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Metadata asset not found")
+    return FileResponse(
+        target, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    )
 
 # Mount built-in single-page Web UI
 static_ui_dir = Path(__file__).parent / "static"
@@ -638,7 +701,11 @@ app.mount("/js", StaticFiles(directory=str(frontend_js_dir)), name="js")
 async def serve_login():
     login_file = frontend_dir / "login.html"
     if login_file.exists():
-        return FileResponse(str(login_file))
+        # Existing clients redirect here on logout.  Clear the HTTP-only media
+        # cookie as well as any client-managed session state.
+        response = FileResponse(str(login_file))
+        response.delete_cookie("access_token", path="/")
+        return response
     return Response(status_code=404)
 
 @app.get("/", include_in_schema=False)
@@ -730,25 +797,26 @@ async def record_login_success(client_ip: str):
 
 @app.post("/api/auth/login")
 @app.post("/api/login")
-async def login(credentials: UserLogin, request: Request):
-    """Authenticates credentials and returns a signed JWT access token with brute-force rate limiting."""
+async def login(credentials: UserLogin, request: Request, response: Response):
+    """Authenticate an existing user and establish a same-origin media session."""
     client_ip = get_client_ip(request)
     await check_login_rate_limit(client_ip)
 
-    try:
-        user = await get_user_by_username(credentials.username.strip())
-    except Exception:
-        user = None
-
-    if not user or not verify_password(credentials.password, user["password_hash"]):
+    user = await get_user_by_username(credentials.username.strip())
+    if not user or not verify_password(credentials.password, user.get("password_hash", "")):
         await record_login_failure(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"
         )
-    
+
     await record_login_success(client_ip)
     token = create_access_token({"sub": user["username"], "role": user.get("role", "admin")})
+    response.set_cookie(
+        "access_token", token, httponly=True, samesite="lax",
+        secure=request.url.scheme == "https", path="/",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -757,13 +825,30 @@ async def login(credentials: UserLogin, request: Request):
     }
 
 @app.get("/api/auth/me")
-async def get_my_profile(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Returns profile for currently authenticated user."""
+async def get_my_profile(
+    request: Request, response: Response,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Return the profile and upgrade existing bearer sessions for media access."""
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() == "bearer" and token:
+        response.set_cookie(
+            "access_token", token, httponly=True, samesite="lax",
+            secure=request.url.scheme == "https", path="/",
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
     return {
         "username": current_user["username"],
         "role": current_user.get("role", "admin"),
         "created_at": current_user.get("created_at")
     }
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    """Clear the browser cookie; previously issued bearer tokens expire normally."""
+    response.delete_cookie("access_token", path="/")
+    return {"status": "logged_out"}
 
 # ----------------- Request Schemas -----------------
 class DownloadUrlRequest(BaseModel):
@@ -900,6 +985,46 @@ async def sync_drive(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to sync Google Drive: {str(e)}")
 
+async def submit_media_job(video_id: str, kind: str, payload=None):
+    """Persist work before acknowledging it; never fall back to an in-memory task."""
+    try:
+        queued = await job_queue.enqueue_job(video_id, kind, payload)
+    except job_queue.QueueFull as exc:
+        raise HTTPException(status_code=429, detail="The media queue is full; try again later.") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="The media queue is unavailable; no work was accepted.") from exc
+    if not queued:
+        raise HTTPException(status_code=409, detail="This media operation is already queued or running.")
+
+
+async def ensure_no_media_job(video_id: str):
+    """Refuse destructive operations while durable media work may own the file."""
+    try:
+        busy = await job_queue.has_active_job(video_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Cannot establish that the video is idle.") from exc
+    if busy:
+        raise HTTPException(status_code=409, detail="Media work is queued, running, or stalled; resolve it before changing this video.")
+
+
+@asynccontextmanager
+async def media_maintenance(video_id):
+    try:
+        ownership = await job_queue.acquire_maintenance(video_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Cannot acquire media maintenance ownership.") from exc
+    if ownership is None:
+        raise HTTPException(status_code=409, detail="Media work owns this video; resolve it before maintenance.")
+    try:
+        yield
+    except BaseException:
+        await job_queue.stall_job(ownership, "Interrupted maintenance; operator review required")
+        raise
+    else:
+        if not await job_queue.finish_job(ownership, process_stopped=True):
+            raise HTTPException(status_code=503, detail="Maintenance completed but ownership release needs operator review.")
+
+
 @app.post("/api/videos/{video_id}/download")
 async def trigger_drive_download(
     video_id: str,
@@ -915,8 +1040,8 @@ async def trigger_drive_download(
     if video.get("status") == "LOCAL_READY":
         return {"message": "Video is already downloaded and ready", "status": "LOCAL_READY"}
 
-    background_tasks.add_task(download_drive_video, valid_id)
-    return {"message": "Download started", "video_id": valid_id, "status": "DOWNLOADING"}
+    await submit_media_job(valid_id, "download_drive")
+    return {"message": "Download queued", "video_id": valid_id, "status": "QUEUED"}
 
 @app.post("/api/videos/download-url")
 async def trigger_url_download(
@@ -924,7 +1049,9 @@ async def trigger_url_download(
     background_tasks: BackgroundTasks,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Downloads external URL link(s) with SSRF protection and multi-URL queueing (Requires Authentication)."""
+    """Queue external links only when the owner explicitly enables unsafe egress."""
+    if not settings.ENABLE_EXTERNAL_URLS:
+        raise HTTPException(status_code=403, detail="External URL ingestion is disabled; full downloader egress isolation is not implemented.")
     raw_urls: List[str] = []
     if payload.urls:
         for u in payload.urls:
@@ -953,7 +1080,7 @@ async def trigger_url_download(
             item_title = payload.title if len(raw_urls) == 1 else None
             video = await create_url_video(url=clean_url, title=item_title)
             video_id = video["video_id"]
-            background_tasks.add_task(download_external_url, video_id, clean_url, req_engine)
+            await submit_media_job(video_id, "download_url", {"engine": req_engine})
             queued_videos.append(video)
         except Exception as e:
             if len(raw_urls) == 1:
@@ -990,6 +1117,10 @@ async def scan_local_storage(
         lp = v.get("local_path")
         if lp:
             known_paths.add(str(Path(lp).resolve()))
+            if v.get("status") in {"PROCESSING", "FAILED"} and v.get("video_id"):
+                local = validate_storage_path(Path(lp))
+                if local.is_file() and not await job_queue.has_active_job(v["video_id"]):
+                    await submit_media_job(v["video_id"], "process")
         vid = v.get("video_id")
         if vid:
             for ext in scanned_extensions:
@@ -1011,8 +1142,7 @@ async def scan_local_storage(
         video_id = video_doc["video_id"]
         discovered.append(video_doc)
 
-        from ffmpeg_worker import process_video_background
-        background_tasks.add_task(process_video_background, video_id)
+        await submit_media_job(video_id, "process")
 
     return {
         "status": "success",
@@ -1026,8 +1156,13 @@ async def remove_video(
     video_id: str,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Deletes the video and assets from storage and MongoDB (Requires Authentication)."""
     valid_id = validate_video_id(video_id)
+    async with media_maintenance(valid_id):
+        return await remove_video_under_maintenance(valid_id)
+
+
+async def remove_video_under_maintenance(valid_id):
+    """Only called while durable maintenance ownership excludes all workers."""
     video = await get_video(valid_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -1095,7 +1230,9 @@ async def trigger_video_transcode(
             detail=f"Video is currently being processed ({active_processing[valid_id].get('stage_name', 'in progress')})."
         )
 
-    background_tasks.add_task(transcode_video, valid_id, quality, payload.replace_original or False)
+    if payload.replace_original:
+        raise HTTPException(status_code=400, detail="Original-file replacement is disabled; create a separate rendition instead.")
+    await submit_media_job(valid_id, "transcode", {"quality": quality, "replace_original": False})
     return {
         "status": "queued",
         "video_id": valid_id,
@@ -1125,7 +1262,7 @@ async def trigger_video_transcription(
             detail=f"Video is currently being processed ({active_processing[valid_id].get('stage_name', 'in progress')})."
         )
 
-    background_tasks.add_task(transcribe_video, valid_id)
+    await submit_media_job(valid_id, "transcribe")
     return {
         "status": "queued",
         "video_id": valid_id,
@@ -1143,6 +1280,10 @@ async def reset_video_status(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
+    await ensure_no_media_job(valid_id)
+    local_file = resolve_video_file_path(video)
+    if not local_file or not validate_storage_path(local_file).is_file():
+        raise HTTPException(status_code=409, detail="Cannot mark a missing local file ready.")
     active_processing.pop(valid_id, None)
     active_downloads.pop(valid_id, None)
 
@@ -1211,9 +1352,55 @@ async def probe_and_extract_tracks(
         "video": updated
     }
 
-STREAM_BURST_CHUNK_SIZE_BYTES: int = 16 * 1024 * 1024  # 16MB burst chunk for responsive HTTP 206 progressive start & open-ended Range: bytes=start- requests
+STREAM_BURST_CHUNK_SIZE_BYTES: int = 16 * 1024 * 1024  # 16MB maximum partial response
 
-@app.get("/api/videos/{video_id}/audio/{track_index}")
+
+def stream_local_file(path: Path, request: Request, content_type: str) -> Response:
+    """Serve a local file with a single validated byte range and private caching."""
+    size = path.stat().st_size
+    try:
+        selected = select_byte_range(
+            request.headers.get("range") if request.method == "GET" else None,
+            size, STREAM_BURST_CHUNK_SIZE_BYTES
+        )
+    except UnsatisfiableRange as exc:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail=str(exc),
+            headers={"Content-Range": f"bytes */{size}"},
+        ) from exc
+
+    start, end = selected if selected is not None else (0, size - 1)
+    length = end - start + 1
+    headers = {
+        "Content-Type": content_type,
+        "Content-Length": str(length),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    status_code = 206 if selected is not None else 200
+    if selected is not None:
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    if request.method == "HEAD":
+        return Response(status_code=status_code, headers=headers)
+
+    def chunks():
+        with path.open("rb") as stream:
+            stream.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)
+                data = stream.read(chunk_size)
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    return StreamingResponse(chunks(), status_code=status_code, headers=headers)
+
+
+@app.api_route("/api/videos/{video_id}/audio/{track_index}", methods=["GET", "HEAD"])
 async def stream_audio_track(
     video_id: str,
     track_index: int,
@@ -1231,85 +1418,27 @@ async def stream_audio_track(
     if video.get("status") == "REMOTE_ONLY":
         raise HTTPException(status_code=409, detail="Video is stored in cloud. Download locally to stream alternate audio tracks.")
 
-    audio_path = await extract_audio_track(valid_id, track_index)
+    if track_index < 0:
+        raise HTTPException(status_code=400, detail="Invalid audio track index")
+    source_path = resolve_video_file_path(video)
+    if source_path is not None:
+        validate_storage_path(source_path)
+    if request.method == "HEAD":
+        # HEAD is observational: do not launch an audio extraction as a side effect.
+        audio_path = resolve_storage_path(
+            Path(valid_id) / f"audio_track_{track_index}.m4a", "metadata"
+        )
+    else:
+        audio_path = await extract_audio_track(valid_id, track_index)
     if not audio_path or not audio_path.exists():
         raise HTTPException(status_code=404, detail=f"Audio track {track_index} not found or extraction failed")
     audio_path = validate_storage_path(audio_path)
-
-    file_size = audio_path.stat().st_size
-    range_header = request.headers.get("range")
-    content_type = "audio/mp4"
-
-    if not range_header:
-        headers = {
-            "Content-Length": str(file_size),
-            "Content-Type": content_type,
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=86400",
-        }
-        def full_audio_iterator():
-            with open(audio_path, "rb") as f:
-                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
-                    yield chunk
-        return StreamingResponse(full_audio_iterator(), headers=headers)
-
-    range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
-    if not range_match:
-        raise HTTPException(status_code=416, detail="Invalid Range Header format")
-
-    raw_start, raw_end = range_match.groups()
-    if raw_start == "" and raw_end == "":
-        raise HTTPException(status_code=416, detail="Invalid Range parameters")
-
-    if raw_start == "":
-        suffix_length = int(raw_end)
-        start = max(0, file_size - suffix_length)
-        end = file_size - 1
-    elif raw_end == "":
-        start = int(raw_start)
-        end = file_size - 1
-    else:
-        start = int(raw_start)
-        end = min(int(raw_end), file_size - 1)
-
-    if start >= file_size or start > end:
-        raise HTTPException(
-            status_code=416,
-            detail="Requested range not satisfiable",
-            headers={"Content-Range": f"bytes */{file_size}"}
-        )
-
-    # Responsive 16MB HTTP 206 Partial Content byte-range burst cap
-    max_chunk = STREAM_BURST_CHUNK_SIZE_BYTES
-    if (end - start + 1) > max_chunk:
-        end = start + max_chunk - 1
-
-    content_length = end - start + 1
-    def audio_range_stream():
-        with open(audio_path, "rb") as f:
-            f.seek(start)
-            remaining = content_length
-            while remaining > 0:
-                chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)
-                data = f.read(chunk_size)
-                if not data:
-                    break
-                remaining -= len(data)
-                yield data
-
-    headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(content_length),
-        "Content-Type": content_type,
-        "Cache-Control": "public, max-age=86400",
-    }
-    return StreamingResponse(audio_range_stream(), status_code=206, headers=headers)
+    return stream_local_file(audio_path, request, "audio/mp4")
 
 # ----------------- RFC 7233 Range Streaming (Cryptographically Auth Guarded) -----------------
 ALLOWED_STREAM_QUALITIES = {"720p", "480p", "360p", "1080p", "original", "source"}
 
-@app.get("/api/stream/{video_id}")
+@app.api_route("/api/stream/{video_id}", methods=["GET", "HEAD"])
 async def stream_video(
     video_id: str,
     request: Request,
@@ -1353,9 +1482,6 @@ async def stream_video(
             detail={"error": "VIDEO_REMOTE_ONLY", "message": "Video is stored on cloud. Click to fetch locally."}
         )
 
-    file_size = video_path.stat().st_size
-    range_header = request.headers.get("range")
-
     suffix = video_path.suffix.lower()
     content_type_map = {
         ".mp4": "video/mp4",
@@ -1367,80 +1493,7 @@ async def stream_video(
         ".ts": "video/mp2t",
         ".flv": "video/x-flv",
     }
-    content_type = content_type_map.get(suffix, "video/mp4")
-
-    if not range_header:
-        def file_iterator():
-            with open(video_path, "rb") as f:
-                while chunk := f.read(STREAM_BURST_CHUNK_SIZE_BYTES):
-                    yield chunk
-
-        headers = {
-            "Content-Type": content_type,
-            "Content-Length": str(file_size),
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=86400",
-        }
-        return StreamingResponse(file_iterator(), headers=headers)
-
-    range_match = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
-    if not range_match:
-        raise HTTPException(status_code=416, detail="Invalid Range header format")
-
-    raw_start, raw_end = range_match.groups()
-
-    if raw_start == "" and raw_end == "":
-        raise HTTPException(status_code=416, detail="Invalid Range parameters")
-
-    if raw_start == "":
-        suffix_length = int(raw_end)
-        start = max(0, file_size - suffix_length)
-        end = file_size - 1
-    elif raw_end == "":
-        start = int(raw_start)
-        end = file_size - 1
-    else:
-        start = int(raw_start)
-        end = min(int(raw_end), file_size - 1)
-
-    if start >= file_size or start > end:
-        raise HTTPException(
-            status_code=416,
-            detail="Requested range not satisfiable",
-            headers={"Content-Range": f"bytes */{file_size}"}
-        )
-
-    max_chunk = STREAM_BURST_CHUNK_SIZE_BYTES
-    if (end - start + 1) > max_chunk:
-        end = start + max_chunk - 1
-
-    content_length = end - start + 1
-
-    def range_stream():
-        with open(video_path, "rb") as f:
-            f.seek(start)
-            remaining = content_length
-            while remaining > 0:
-                chunk_size = min(remaining, settings.STREAM_CHUNK_SIZE_BYTES)
-                data = f.read(chunk_size)
-                if not data:
-                    break
-                remaining -= len(data)
-                yield data
-
-    headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(content_length),
-        "Content-Type": content_type,
-        "Cache-Control": "public, max-age=86400",
-    }
-
-    return StreamingResponse(
-        range_stream(),
-        status_code=206,
-        headers=headers
-    )
+    return stream_local_file(video_path, request, content_type_map.get(suffix, "video/mp4"))
 
 # ----------------- Hardware & Process Telemetry (Auth Guarded) -----------------
 @app.get("/api/system/metrics")
@@ -1525,6 +1578,8 @@ async def get_system_metrics(
     uptime_sec = int(time.time() - SERVER_START_TIME)
 
     return {
+        "governance": {"enforcement_active": False, "mode": "planning-estimates-only",
+                       "reason": "Aggregate host cgroup provisioning and coverage are not implemented."},
         "cpu": {
             "percent": cpu_percent,
             "cores": cpu_cores,
@@ -1549,7 +1604,9 @@ async def get_system_metrics(
             "total_gb": disk_total_gb,
             "used_gb": disk_used_gb,
             "free_gb": disk_free_gb,
-            "percent": disk_percent
+            "percent": disk_percent,
+            "mounted": os.path.ismount(settings.STORAGE_DIR),
+            "low_space": disk_free_gb * (1024 ** 3) < settings.MIN_FREE_DISK_BYTES
         },
         "network": {
             "input_mb_s": _current_in_rate_mb_s,
@@ -1570,7 +1627,7 @@ async def get_system_metrics(
             "live_stream_speed_mb_s": _current_out_rate_mb_s
         },
         "server": {
-            "status": "optimal",
+            "status": "resource-limits-unenforced",
             "uptime_seconds": uptime_sec,
             "os": f"{platform.system()} {platform.release()}"
         },
@@ -1596,11 +1653,18 @@ async def get_storage_stats(current_user: Dict[str, Any] = Depends(get_current_u
         "used_percent": pct
     }
 
+async def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Require an explicitly designated administrator for management APIs."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return current_user
+
+
 # ----------------- MongoDB Integrated UI & Management API -----------------
 @app.get("/api/db/stats")
 async def get_database_stats(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(require_admin)
 ):
     """Returns MongoDB collections, document counts, and storage stats (Requires Auth)."""
     db = get_db()
@@ -1627,8 +1691,8 @@ async def get_database_stats(
         "mongo_express_is_public": is_public,
         "mongo_express_url": f"http://{host_ip}:{settings.MONGO_EXPRESS_PORT}/" if is_public else f"http://127.0.0.1:{settings.MONGO_EXPRESS_PORT}/",
         "ssh_tunnel_cmd": f"ssh -L {settings.MONGO_EXPRESS_PORT}:127.0.0.1:{settings.MONGO_EXPRESS_PORT} ubuntu@{host_ip}",
-        "mongo_express_user": settings.MONGO_EXPRESS_USER,
-        "mongo_express_pass": settings.MONGO_EXPRESS_PASS,
+        # Credentials are intentionally never returned from an application API.
+        "mongo_express_credentials_available": False,
     }
 
 @app.get("/api/db/collections/{collection_name}")
@@ -1636,7 +1700,7 @@ async def get_collection_documents(
     collection_name: str,
     limit: int = 50,
     skip: int = 0,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(require_admin)
 ):
     """Returns documents from a collection with sensitive fields redacted (Requires Auth)."""
     db = get_db()
@@ -1665,7 +1729,7 @@ async def get_collection_documents(
 async def delete_collection_document(
     collection_name: str,
     doc_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(require_admin)
 ):
     """Deletes a document from the MongoDB collection (Requires Auth)."""
     db = get_db()
@@ -1683,6 +1747,33 @@ async def delete_collection_document(
 
     return {"deleted": res.deleted_count > 0, "collection": collection_name, "id": doc_id}
 
+@app.get("/api/jobs")
+async def list_media_jobs(current_user: Dict[str, Any] = Depends(require_admin)):
+    return {"jobs": await job_queue.list_jobs(limit=100)}
+
+
+@app.post("/api/jobs/{video_id}/retry")
+async def retry_media_job(video_id: str, current_user: Dict[str, Any] = Depends(require_admin)):
+    valid_id = validate_video_id(video_id)
+    if not await job_queue.retry_job(valid_id):
+        raise HTTPException(status_code=409, detail="Only safely stopped failed jobs can be retried here; stalled jobs require operator recovery.")
+    return {"status": "queued", "video_id": valid_id}
+
+
+@app.get("/api/ready")
+async def readiness_check():
+    """Dependency readiness, separate from the process-only health endpoint."""
+    try:
+        # A query checks actual application database authorization, not just ping.
+        await asyncio.wait_for(get_db()["videos"].find_one({}, {"_id": 1}), timeout=3)
+        worker = await asyncio.wait_for(job_queue.worker_status(), timeout=3)
+        if not worker.get("ready") or not getattr(app.state, "media_events_ready", False):
+            raise RuntimeError("Worker or event relay unavailable")
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "unavailable", "app": "drive_connector"})
+    return {"status": "ok", "app": "drive_connector", "database": "ok", "worker": "ok"}
+
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "app": "drive_connector", "version": "1.3.0"}
+    return {"status": "ok", "app": "drive_connector", "version": "2.0.0-experimental", "check": "liveness"}

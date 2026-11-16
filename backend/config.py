@@ -3,38 +3,40 @@ from pathlib import Path
 from typing import List, Optional
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
+from urllib.parse import unquote, urlsplit
 
 class Settings(BaseSettings):
     # MongoDB Config
-    MONGODB_URL: str = "mongodb://admin:secretpassword@localhost:27017/media_db?authSource=admin"
+    MONGODB_URL: str = ""
     DATABASE_NAME: str = "media_db"
 
     # Mongo Express Web UI
     MONGO_EXPRESS_BIND: str = "127.0.0.1"
     MONGO_EXPRESS_PORT: int = 8081
     MONGO_EXPRESS_USER: str = "admin"
-    MONGO_EXPRESS_PASS: str = "expresspassword"
+    MONGO_EXPRESS_PASS: str = ""
 
     # OVHcloud Block Storage Paths
     STORAGE_DIR: str = "/mnt/storage"
 
     # Authentication & JWT
-    JWT_SECRET_KEY: str = "drive-connector-super-secret-key-2026-prod"
+    JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     ADMIN_USERNAME: str = "admin"
-    ADMIN_DEFAULT_PASSWORD: str = "Admin@Drive2026!"
+    ADMIN_DEFAULT_PASSWORD: str = ""
+    ENABLE_EXTERNAL_URLS: bool = False
 
-    # Process Governance & CPU Core Reservation
+    # Process governance hints; these thread counts are not OS-enforced limits.
     MAX_CONCURRENT_FFMPEG: int = 4
     MIN_FREE_DISK_BYTES: int = 1024 * 1024 * 1024  # 1 GB reserve
     RESERVED_CPU_CORES: int = 1
     FFMPEG_THREADS: Optional[int] = None
     WHISPER_CPU_RATIO: float = 0.80  # Target 80% CPU utilization for AI subtitles
 
-    # RAM & Memory Governance (32 GB RAM Profile: 10% System Reserve, 90% Cloud Pipeline)
+    # RAM profile estimates; not enforced allocations or a host reservation.
     TOTAL_RAM_GB: float = 32.0
-    RESERVED_RAM_RATIO: float = 0.10  # 10% strictly reserved for host OS / Web (~3.2 GB)
+    RESERVED_RAM_RATIO: float = 0.10  # planning estimate, not a reservation
     CLOUD_PIPELINE_RAM_RATIO: float = 0.90  # 90% allocated to Cloud Pipeline (~28.8 GB)
 
     # Cloud Pipeline Memory Allocation Shares (sum = 90% of system RAM)
@@ -85,11 +87,24 @@ class Settings(BaseSettings):
     @classmethod
     def parse_max_concurrent_ffmpeg(cls, v):
         if v is None or v == "" or (isinstance(v, str) and not v.strip()):
-            return 2
+            return 4
         try:
             return max(1, int(v))
         except (ValueError, TypeError):
-            return 2
+            return 4
+
+    def validate_runtime(self):
+        """Reject missing/private configuration without changing existing values."""
+        if not self.MONGODB_URL or not self.DATABASE_NAME:
+            raise RuntimeError("Configure MONGODB_URL and DATABASE_NAME privately before startup.")
+        parsed = urlsplit(self.MONGODB_URL)
+        if parsed.scheme not in {"mongodb", "mongodb+srv"}:
+            raise RuntimeError("MONGODB_URL must use a MongoDB connection scheme.")
+        uri_database = unquote(parsed.path.lstrip("/"))
+        if uri_database and uri_database != self.DATABASE_NAME:
+            raise RuntimeError("MONGODB_URL and DATABASE_NAME disagree; restore the original database selection.")
+        if len(self.JWT_SECRET_KEY) < 32:
+            raise RuntimeError("Configure the original JWT signing key privately (at least 32 characters).")
 
     class Config:
         env_file = ".env"
@@ -99,10 +114,9 @@ class Settings(BaseSettings):
     @property
     def ffmpeg_worker_threads(self) -> int:
         """
-        Dynamically calculates available CPU cores for video work,
-        ensuring RESERVED_CPU_CORES (default 1) is always spared for
-        FastAPI web handling, MongoDB, SSH, and system tasks.
-        Example: On an 8-core server, allocates 7 cores to video processing.
+        Calculates a per-process FFmpeg thread hint from the logical CPU count.
+        This neither caps aggregate CPU use nor reserves a physical core.
+        Example: on an 8-logical-CPU machine, the default hint is 7 threads.
         """
         if self.FFMPEG_THREADS is not None and self.FFMPEG_THREADS > 0:
             return self.FFMPEG_THREADS
@@ -115,9 +129,8 @@ class Settings(BaseSettings):
     @property
     def whisper_worker_threads(self) -> int:
         """
-        Dynamically calculates available CPU cores for AI Whisper subtitle transcription,
-        allocating 80% of total system CPU cores while preserving 20% for web handling,
-        streaming, downloads, and OS operations.
+        Calculates an AI transcription thread hint from the logical CPU count.
+        It does not enforce aggregate utilization or reserve host CPU capacity.
         """
         try:
             total = os.cpu_count() or 1
@@ -139,7 +152,7 @@ class Settings(BaseSettings):
 
     @property
     def reserved_ram_gb(self) -> float:
-        """Exactly 10% reserved for host OS, kernel, SSH, and basic web tasks."""
+        """Estimated host share, not a protected memory reservation."""
         return round(self.total_ram_gb * self.RESERVED_RAM_RATIO, 2)
 
     @property

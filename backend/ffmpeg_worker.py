@@ -3,12 +3,13 @@ import math
 import json
 import asyncio
 import time
+import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 from config import settings
 from database import get_video, update_video
-from downloader import manager, active_downloads
+from downloader import manager, active_downloads, worker_inline_processing, finalize_download
 
 # Concurrency control semaphore to protect CPU and memory
 ffmpeg_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_FFMPEG)
@@ -33,7 +34,7 @@ def resolve_video_file_path(video: Dict[str, Any]) -> Optional[Path]:
             return alt_p
     vid = video.get("video_id")
     if vid:
-        candidate = next((p for p in settings.videos_dir.glob(f"{vid}.*") if not p.name.endswith(".part") and not p.name.endswith(".tmp")), None)
+        candidate = next((p for p in settings.videos_dir.glob(f"{vid}.*") if p.suffix.lower() in {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".flv", ".3gp", ".m2ts"}), None)
         if candidate and candidate.exists():
             return candidate
     return None
@@ -160,43 +161,60 @@ async def run_cmd_with_progress(
         except Exception:
             pass
 
+    async def drain_stderr():
+        # Bound retained diagnostics while draining continuously to avoid pipe deadlock.
+        tail = bytearray()
+        while True:
+            chunk = await proc.stderr.read(65536)
+            if not chunk:
+                return bytes(tail)
+            tail.extend(chunk)
+            if len(tail) > 65536:
+                del tail[:-65536]
+
+    stderr_task = asyncio.create_task(drain_stderr())
     try:
         await asyncio.wait_for(
             asyncio.gather(monitor_stdout(), proc.wait()),
             timeout=timeout
         )
-        _, stderr_bytes = await proc.communicate()
+        stderr_bytes = await stderr_task
         stderr_text = stderr_bytes.decode(errors="ignore") if stderr_bytes else ""
         return proc.returncode, "", stderr_text
     except asyncio.TimeoutError:
         print(f"[FFmpeg] Command timed out after {timeout}s: {' '.join(cmd[:3])}")
-        try:
+        if proc.returncode is None:
             proc.kill()
-        except OSError:
-            pass
+        await proc.wait()
+        await asyncio.gather(stderr_task, return_exceptions=True)
         return -1, "", "Timeout"
-    except Exception as e:
-        return -1, "", str(e)
+    except BaseException:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.wait()
+        await asyncio.gather(stderr_task, return_exceptions=True)
+        raise
 
 async def run_cmd(cmd: list, timeout: int = 180) -> tuple[int, str, str]:
-    """Runs a system command asynchronously with strict timeout and resource safety."""
+    """Run a command and always reap it, including on cancellation."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    except Exception as exc:
+        return -1, "", str(exc)
+    try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return proc.returncode, stdout.decode(errors="ignore"), stderr.decode(errors="ignore")
     except asyncio.TimeoutError:
-        print(f"[FFmpeg] Command timed out after {timeout}s: {' '.join(cmd[:3])}")
-        try:
+        if proc.returncode is None:
             proc.kill()
-        except OSError:
-            pass
+        await proc.communicate()
         return -1, "", "Timeout"
-    except Exception as e:
-        return -1, "", str(e)
+    except BaseException:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.communicate()
+        raise
 
 async def probe_video(video_path: Path) -> Dict[str, Any]:
     """Runs ffprobe on the target video and returns parsed JSON format and stream info including all audio and subtitle tracks."""
@@ -773,7 +791,7 @@ async def process_video_background(video_id: str):
             active_processing.pop(video_id, None)
             active_downloads.pop(video_id, None)
             fallback_data = {
-                "status": "LOCAL_READY",
+                "status": "FAILED",
                 "duration_seconds": 0.0,
                 "processing_info": None
             }
@@ -781,9 +799,13 @@ async def process_video_background(video_id: str):
             await manager.broadcast({
                 "event": "PROCESSING_COMPLETE",
                 "video_id": video_id,
-                "status": "LOCAL_READY",
+                "status": "FAILED",
+                "action": "PROCESSING_FAILED",
+                "error": str(e),
                 "metadata": fallback_data
             })
+            if worker_inline_processing.get():
+                raise
 
 QUALITY_PRESETS = {
     "720p": {"vf": "scale=-2:720", "crf": "23", "audio_br": "128k", "maxrate": "2500k", "bufsize": "5000k"},
@@ -791,11 +813,27 @@ QUALITY_PRESETS = {
     "360p": {"vf": "scale=-2:360", "crf": "26", "audio_br": "64k", "maxrate": "800k", "bufsize": "1600k"},
 }
 
+async def register_rendition(video_id, quality, path, video):
+    renditions = dict(video.get("renditions") or {})
+    size = path.stat().st_size
+    renditions[quality] = {"path": str(path), "file_size_bytes": size,
+                          "resolution": quality, "replaced_original": False}
+    await update_video(video_id, {"renditions": renditions, "processing_info": None})
+    active_processing.pop(video_id, None)
+    active_downloads.pop(video_id, None)
+    await manager.broadcast({"event": "PROCESSING_COMPLETE", "video_id": video_id,
+                             "status": "LOCAL_READY", "action": "TRANSCODE_COMPLETE",
+                             "quality": quality, "metadata": {"renditions": renditions}})
+
+
 async def transcode_video(video_id: str, target_quality: str = "720p", replace_original: bool = False):
     """
     Transcodes a video down to lower resolution (720p, 480p, 360p).
-    If replace_original is True, replaces original source file to optimize disk storage.
+    Originals are never replaced; an already published verified rendition can
+    be registered again after a failed catalog write without re-encoding.
     """
+    if replace_original:
+        raise ValueError("Original-file replacement is disabled")
     preset = QUALITY_PRESETS.get(target_quality.lower())
     if not preset:
         print(f"[FFmpeg] Unknown transcode quality preset: {target_quality}")
@@ -810,10 +848,24 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
         return
 
     dest_rendition = settings.videos_dir / f"{video_id}_{target_quality}.mp4"
-    temp_rendition = settings.videos_dir / f"tmp_{video_id}_{target_quality}.mp4"
+    temp_rendition = settings.videos_dir / f"tmp_{video_id}_{target_quality}_{uuid.uuid4().hex}.mp4"
 
     async with ffmpeg_semaphore:
         try:
+            if dest_rendition.exists():
+                if dest_rendition.is_symlink():
+                    raise ValueError("Rendition cannot be a symlink")
+                stat = dest_rendition.stat()
+                try:
+                    receipt = json.loads(dest_rendition.with_name(dest_rendition.name + ".verified").read_text())
+                except (OSError, ValueError):
+                    receipt = None
+                existing = (video.get("renditions") or {}).get(target_quality, {})
+                known = existing.get("path") == str(dest_rendition) and existing.get("file_size_bytes") == stat.st_size
+                if stat.st_size <= 0 or not (known or receipt == {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}):
+                    raise ValueError("Existing rendition has no verified provenance; inspect manually")
+                await register_rendition(video_id, target_quality, dest_rendition, video)
+                return
             duration = float(video.get("duration_seconds") or 0.0)
             if duration <= 0:
                 info = await probe_video(video_path)
@@ -879,70 +931,12 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                     "quality": target_quality,
                     "error": "Transcoding failed or timed out"
                 })
+                if worker_inline_processing.get():
+                    raise RuntimeError("Transcoding failed or timed out")
                 return
 
-            if dest_rendition.exists():
-                try:
-                    os.remove(dest_rendition)
-                except OSError:
-                    pass
-            temp_rendition.rename(dest_rendition)
-
-            renditions = video.get("renditions") or {}
-            new_size = dest_rendition.stat().st_size
-
-            if replace_original:
-                # Replace the primary file to reclaim disk space
-                original_size = video_path.stat().st_size
-                primary_target = settings.videos_dir / f"{video_id}.mp4"
-                backup_path = settings.videos_dir / f"{video_id}.orig"
-                try:
-                    if backup_path.exists():
-                        os.remove(backup_path)
-                    video_path.rename(backup_path)
-                    dest_rendition.rename(primary_target)
-                    if backup_path.exists():
-                        os.remove(backup_path)
-                    renditions[target_quality] = {
-                        "path": str(primary_target),
-                        "file_size_bytes": new_size,
-                        "resolution": target_quality,
-                        "replaced_original": True
-                    }
-                    await update_video(video_id, {
-                        "local_path": str(primary_target),
-                        "file_size_bytes": new_size,
-                        "renditions": renditions,
-                        "processing_info": None
-                    })
-                except Exception as e:
-                    print(f"[FFmpeg] Error replacing original with {target_quality}: {e}")
-            else:
-                renditions[target_quality] = {
-                    "path": str(dest_rendition),
-                    "file_size_bytes": new_size,
-                    "resolution": target_quality,
-                    "replaced_original": False
-                }
-                await update_video(video_id, {
-                    "renditions": renditions,
-                    "processing_info": None
-                })
-
-            active_processing.pop(video_id, None)
-            active_downloads.pop(video_id, None)
-
-            await manager.broadcast({
-                "event": "PROCESSING_COMPLETE",
-                "video_id": video_id,
-                "status": "LOCAL_READY",
-                "action": "TRANSCODE_COMPLETE",
-                "quality": target_quality,
-                "metadata": {
-                    "renditions": renditions,
-                    "file_size_bytes": dest_rendition.stat().st_size if not replace_original else new_size
-                }
-            })
+            finalize_download(temp_rendition, dest_rendition)
+            await register_rendition(video_id, target_quality, dest_rendition, video)
 
         except Exception as e:
             print(f"[FFmpeg] Error in transcode_video {video_id}: {e}")
@@ -965,6 +959,8 @@ async def transcode_video(video_id: str, target_quality: str = "720p", replace_o
                 "quality": target_quality,
                 "error": str(e)
             })
+            if worker_inline_processing.get():
+                raise
 
 def run_whisper_transcription(audio_path: Path, total_duration: float = 60.0, progress_callback=None) -> Optional[List[Dict[str, Any]]]:
     """
@@ -1237,6 +1233,9 @@ async def transcribe_video(video_id: str):
                 details="Compiling WebVTT captions track..."
             )
 
+            if segments is None:
+                raise RuntimeError("Transcription failed or audio extraction unavailable")
+
             # Build WebVTT file content
             vtt_lines = ["WEBVTT\n"]
             if segments and len(segments) > 0:
@@ -1302,3 +1301,5 @@ async def transcribe_video(video_id: str):
                 "action": "TRANSCRIBE_FAILED",
                 "error": str(e)
             })
+            if worker_inline_processing.get():
+                raise

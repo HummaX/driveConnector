@@ -79,37 +79,21 @@ async def init_db():
     # Initialize indexes
     videos_col = db["videos"]
     await videos_col.create_index("video_id", unique=True)
-    try:
-        await videos_col.update_many({"drive_file_id": None}, {"$unset": {"drive_file_id": ""}})
-    except Exception:
-        pass
-    try:
-        await videos_col.drop_index("drive_file_id_1")
-    except Exception:
-        pass
+    # Never silently continue under a legacy unique index: a non-partial
+    # drive_file_id index rejects the second URL/local video with a missing ID.
+    # Detect it explicitly and leave all data/indexes unchanged for migration.
+    indexes = await videos_col.index_information()
+    expected_filter = {"drive_file_id": {"$type": "string"}}
+    for name, index in indexes.items():
+        if list(index.get("key", [])) == [("drive_file_id", 1)] and index.get("unique"):
+            if index.get("partialFilterExpression") != expected_filter:
+                raise RuntimeError(
+                    "Incompatible unique Drive index %r: drive_file_id must be unique only for strings; "
+                    "inspect existing data and migrate this index explicitly before startup" % name)
     await videos_col.create_index(
-        "drive_file_id",
-        unique=True,
-        partialFilterExpression={"drive_file_id": {"$type": "string"}}
-    )
+        "drive_file_id", unique=True, partialFilterExpression=expected_filter)
     await videos_col.create_index("status")
     await videos_col.create_index("created_at")
-
-    # Auto-unstick videos that have local files but got stuck in PROCESSING
-    try:
-        await videos_col.update_many(
-            {
-                "status": "PROCESSING",
-                "$or": [
-                    {"local_path": {"$ne": None}},
-                    {"file_size_bytes": {"$gt": 0}},
-                    {"poster_url": {"$ne": None}}
-                ]
-            },
-            {"$set": {"status": "LOCAL_READY", "processing_info": None}}
-        )
-    except Exception:
-        pass
 
     # Users index
     users_col = db["users"]
@@ -234,17 +218,9 @@ async def delete_video(video_id: str) -> bool:
     return res.deleted_count > 0
 
 async def reconcile_stale_jobs():
+    """Do not infer job completion from stale video metadata.
+
+    Durable worker leases are quarantined as stalled, never automatically
+    reclaimed. Legacy jobs require explicit verified-stopped operator recovery.
     """
-    On server startup, checks for any jobs left in PROCESSING or with stale processing_info
-    from a previous crashed or restarted server run, and safely resets them to LOCAL_READY.
-    """
-    try:
-        col = get_videos_collection()
-        res = await col.update_many(
-            {"status": "PROCESSING"},
-            {"$set": {"status": "LOCAL_READY", "processing_info": None, "updated_at": datetime.utcnow()}}
-        )
-        if res.modified_count > 0:
-            print(f"[Database] Reconciled {res.modified_count} stale PROCESSING jobs to LOCAL_READY on startup.")
-    except Exception as e:
-        print(f"[Database] Notice: reconcile_stale_jobs: {e}")
+    return None

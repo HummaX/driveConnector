@@ -1,6 +1,12 @@
 # DriveConnector - Self-Hosted Media Streaming & On-Demand Ingestion Platform
 
-A hardened, high-performance self-hosted video streaming and on-demand ingestion web application designed for OVHcloud Linux servers with attached 1TB+ Block Storage volumes (`/mnt/storage`).
+> **Experimental `claude-code` branch — release gate blocked.** Read
+> [the current test results and incomplete contracts](docs/rebuild-status.md)
+> before using this code. The architecture descriptions below include legacy
+> behavior and are not proof of production readiness or enforced resources.
+> Port 80 is unencrypted HTTP: use only a trusted network, VPN or SSH tunnel.
+
+A self-hosted video streaming and on-demand ingestion application targeting Ubuntu with mounted block storage (`/mnt/storage`).
 
 ---
 
@@ -114,15 +120,15 @@ A hardened, high-performance self-hosted video streaming and on-demand ingestion
 
 ---
 
-## 🔑 Default Admin Credentials
+## Credentials and existing installations
 
-When the system boots for the first time, an administrator account is automatically created in MongoDB:
+There are no built-in production passwords on this branch. Keep the original
+MongoDB credentials, database name, user documents, JWT key, and mounted storage.
+Changing an environment variable does not migrate existing database users or
+reset application accounts. New-install credentials are generated only after
+storage is proved empty. Never paste credentials into chat or Git URLs.
 
-- **Username**: `admin`
-- **Password**: `Admin@Drive2026!`
-- **Role**: `admin`
-
-*(You can customize these defaults anytime in `.env` via `ADMIN_USERNAME` and `ADMIN_DEFAULT_PASSWORD`)*.
+Read [deployment prerequisites and preservation limits](docs/deployment.md).
 
 ---
 
@@ -158,43 +164,33 @@ When the system boots for the first time, an administrator account is automatica
 
 ---
 
-## Quick Start on OVHcloud Linux Server
+## Ubuntu installation and update status
 
-### Option A: One-Command Automated Setup (Recommended)
+**This is an experimental `claude-code` candidate, not a production release.**
+The unchanged legacy verifier currently passes 26 of 27 checks. Its deployment
+check requires behaviors intentionally removed for safety. Host CPU/memory
+reservation and the complete legacy frontend ID union remain incomplete.
+See [current verification and blockers](docs/rebuild-status.md).
 
-Run this single command inside the cloned `driveConnector` directory. It automatically installs Docker, configures storage permissions, sets up `.env`, pulls the latest code, and boots the entire platform:
+Do not use the previous root installer, pipe a remote script into a shell, or
+run the `main` updater for this branch. No server was modified during development.
+The owner-run helper requires an already provisioned Ubuntu host, mounted
+storage, a clean checkout on `claude-code`, a private configuration, an existing
+backup destination, and an exclusive database maintenance window.
 
-```bash
-sudo bash setup.sh
-```
+The reviewed entrypoints and their strict refusal conditions are documented in
+[docs/deployment.md](docs/deployment.md). They do not format disks, rewrite
+credentials, reset Git history, recursively change storage permissions, or
+remove Docker images/volumes. A private or credential-bearing Git origin is not
+supported by this helper. No deployment command should be considered a
+production-readiness guarantee; MongoDB restoration and live Docker startup
+still require disposable Ubuntu testing.
 
-*(Or without cloning first)*:
-```bash
-curl -fsSL https://raw.githubusercontent.com/HummaX/driveConnector/main/setup.sh | sudo bash
-```
-
-### Option B: Manual Setup
-
-```bash
-# 1. Mount & prepare 1TB block storage
-sudo mkdir -p /mnt/storage/mongodb /mnt/storage/videos /mnt/storage/metadata
-sudo chown -R 999:999 /mnt/storage/mongodb
-sudo chown -R 1000:1000 /mnt/storage/videos /mnt/storage/metadata
-
-# 2. Configure environment
-cp .env.example .env
-
-# 3. Launch stack
-docker compose up -d --build
-```
-
-### Updating the Server
-
-Whenever a new release or update is approved, update your live server with:
-
-```bash
-sudo bash update.sh
-```
+External URL ingestion is disabled by default because complete downloader
+egress isolation is not implemented. The separate durable worker rejects
+JDownloader dispatch it cannot safely cancel; JDownloader's localhost desktop
+remains available for manual use. On-demand track extraction still executes in
+the API process; no aggregate media-cgroup enforcement is claimed.
 
 ---
 

@@ -5,6 +5,8 @@ import shutil
 import socket
 import ipaddress
 import asyncio
+import contextvars
+import uuid
 import re
 from urllib.parse import urlparse, unquote
 from pathlib import Path
@@ -16,6 +18,57 @@ import yt_dlp
 from config import settings
 from database import get_video, update_video
 import drive_catalog
+
+# Worker mode keeps the ingestion pipeline inside its leased job.
+worker_inline_processing = contextvars.ContextVar("worker_inline_processing", default=False)
+
+async def schedule_processing(video_id):
+    from ffmpeg_worker import process_video_background
+    if worker_inline_processing.get():
+        await process_video_background(video_id)
+    else:
+        asyncio.create_task(process_video_background(video_id))
+
+
+def finalize_download(part_path: Path, dest_path: Path):
+    """Publish a completed transfer without replacing any existing file."""
+    os.link(part_path, dest_path)
+    part_path.unlink()
+    # A local receipt bridges publication -> MongoDB metadata failure.
+    stat = dest_path.stat()
+    receipt = dest_path.with_name(dest_path.name + ".verified")
+    with receipt.open("x", encoding="utf-8") as stream:
+        json.dump({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+async def resume_verified_download(video_id, video):
+    """Resume metadata on published bytes; never redownload over local sources."""
+    if not video:
+        return False
+    paths = []
+    if video.get("local_path"):
+        paths.append(Path(video["local_path"]))
+    paths.extend(p for p in settings.videos_dir.glob(f"{video_id}.*") if p.suffix.lower() in DIRECT_MEDIA_EXTS)
+    source = next((p for p in paths if p.is_file()), None)
+    if source is None:
+        return False
+    try:
+        receipt = json.loads(source.with_name(source.name + ".verified").read_text(encoding="utf-8"))
+        stat = source.stat()
+        verified = stat.st_size > 0 and receipt == {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    except (OSError, ValueError, TypeError):
+        verified = bool(video.get("download_verified") and source.stat().st_size > 0
+                        and source.stat().st_size == video.get("file_size_bytes"))
+    if not verified:
+        raise RuntimeError("Existing local source is unverified; inspect explicitly, refusing redownload")
+    if video.get("status") != "LOCAL_READY" or not video.get("local_path"):
+        await update_video(video_id, {"status": "PROCESSING", "local_path": str(source),
+                                     "file_size_bytes": source.stat().st_size, "download_verified": True})
+        await schedule_processing(video_id)
+    return True
+
 
 class ConnectionManager:
     """Thread-safe manager for active WebSocket telemetry connections."""
@@ -34,6 +87,11 @@ class ConnectionManager:
                 self.active_connections.remove(websocket)
 
     async def broadcast(self, message: Dict[str, Any]):
+        # API relays must not republish the same event into durable storage.
+        # Only the isolated job process is the durable event producer.
+        if worker_inline_processing.get():
+            import job_events
+            await job_events.publish(message)
         async with self._lock:
             connections = list(self.active_connections)
         
@@ -198,9 +256,13 @@ async def try_download_drive_via_rclone(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
+        communicate_task = asyncio.create_task(proc.communicate())
         last_time = time.time()
         last_bytes = 0
-        while proc.returncode is None:
+        deadline = time.monotonic() + 7200
+        while not communicate_task.done():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Transfer subprocess timed out")
             await asyncio.sleep(0.5)
             if proc.returncode is not None:
                 break
@@ -215,14 +277,14 @@ async def try_download_drive_via_rclone(
                         title=title,
                         source="Google Drive (rclone multi-stream)",
                         downloaded_bytes=cur_size,
-                        total_bytes=expected_size or cur_size,
+                        total_bytes=expected_size,
                         speed_bytes_sec=speed,
-                        status="DOWNLOADING"
+                        status="DOWNLOADING", transfer_verified=False
                     )
                     last_time = now
                     last_bytes = cur_size
 
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await communicate_task
         if proc.returncode == 0 and part_path.exists() and part_path.stat().st_size > 0:
             print(f"[Downloader] rclone multi-stream completed successfully for {video_id}")
             return True
@@ -235,7 +297,19 @@ async def try_download_drive_via_rclone(
                 except OSError:
                     pass
             return False
+    except asyncio.CancelledError:
+        if 'proc' in locals() and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        if 'communicate_task' in locals():
+            await asyncio.gather(communicate_task, return_exceptions=True)
+        raise
     except Exception as e:
+        if 'proc' in locals() and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        if 'communicate_task' in locals():
+            await asyncio.gather(communicate_task, return_exceptions=True)
         print(f"[Downloader] rclone execution failed: {e}. Falling back to httpx stream.")
         if part_path.exists():
             try:
@@ -287,10 +361,14 @@ async def try_download_direct_via_aria2(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
+        communicate_task = asyncio.create_task(proc.communicate())
         last_time = time.time()
         last_bytes = 0
 
-        while proc.returncode is None:
+        deadline = time.monotonic() + 7200
+        while not communicate_task.done():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Transfer subprocess timed out")
             await asyncio.sleep(0.5)
             if proc.returncode is not None:
                 break
@@ -305,14 +383,14 @@ async def try_download_direct_via_aria2(
                         title=title,
                         source="Direct Media (aria2c multi-connection)",
                         downloaded_bytes=cur_size,
-                        total_bytes=expected_size or cur_size,
+                        total_bytes=expected_size,
                         speed_bytes_sec=speed,
-                        status="DOWNLOADING"
+                        status="DOWNLOADING", transfer_verified=False
                     )
                     last_time = now
                     last_bytes = cur_size
 
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await communicate_task
 
         control_file = part_path.parent / f"{out_filename}.aria2"
         if control_file.exists():
@@ -333,7 +411,19 @@ async def try_download_direct_via_aria2(
                 except OSError:
                     pass
             return False
+    except asyncio.CancelledError:
+        if 'proc' in locals() and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        if 'communicate_task' in locals():
+            await asyncio.gather(communicate_task, return_exceptions=True)
+        raise
     except Exception as e:
+        if 'proc' in locals() and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        if 'communicate_task' in locals():
+            await asyncio.gather(communicate_task, return_exceptions=True)
         print(f"[Downloader] aria2c execution failed: {e}. Falling back to httpx stream.")
         control_file = part_path.parent / f"{out_filename}.aria2"
         if control_file.exists():
@@ -449,14 +539,17 @@ async def broadcast_progress(
     total_bytes: int,
     speed_bytes_sec: float,
     status: str = "DOWNLOADING",
-    error_message: Optional[str] = None
+    error_message: Optional[str] = None,
+    transfer_verified: bool = True
 ):
     """Calculates telemetry metrics and broadcasts JSON payload to all connected WebSockets."""
     pct = round((downloaded_bytes / total_bytes * 100), 1) if total_bytes > 0 else 0.0
-    if pct >= 100.0 or (total_bytes > 0 and downloaded_bytes >= total_bytes):
-        pct = 100.0
-        if status == "DOWNLOADING":
-            status = "DOWNLOAD_COMPLETE"
+    # Preserve the legacy public function contract; internal progress reports
+    # explicitly mark unverified transfers so size alone never signals success.
+    if status == "DOWNLOADING" and transfer_verified and total_bytes > 0 and downloaded_bytes >= total_bytes:
+        status = "DOWNLOAD_COMPLETE"
+    elif status == "DOWNLOADING" and total_bytes > 0 and downloaded_bytes >= total_bytes:
+        status = "FINALIZING"
 
     if status in ("DOWNLOAD_COMPLETE", "DONE", "LOCAL_READY"):
         pct = 100.0
@@ -495,6 +588,9 @@ async def download_drive_video(video_id: str):
     if not video or not video.get("drive_file_id"):
         return
 
+    if await resume_verified_download(video_id, video):
+        return
+
     # CODE-01: Concurrency guard to prevent duplicate simultaneous jobs
     async with _download_lock:
         if video_id in active_downloads:
@@ -505,7 +601,7 @@ async def download_drive_video(video_id: str):
     drive_file_id = video["drive_file_id"]
     title = video.get("title", f"Video {video_id}")
     dest_path = settings.videos_dir / f"{video_id}.mp4"
-    part_path = settings.videos_dir / f"{video_id}.mp4.part"
+    part_path = settings.videos_dir / f"{video_id}.{uuid.uuid4().hex}.mp4.part"
 
     if dest_path.exists() and video.get("status") == "LOCAL_READY":
         active_downloads.pop(video_id, None)
@@ -547,6 +643,7 @@ async def download_drive_video(video_id: str):
                         raise RuntimeError(f"Google Drive returned HTTP {response.status_code}: {msg}")
 
                     total_bytes = int(response.headers.get("Content-Length") or expected_size)
+                    expected_size = total_bytes
                     check_disk_space(total_bytes)
 
                     downloaded_bytes = 0
@@ -572,22 +669,23 @@ async def download_drive_video(video_id: str):
                                     downloaded_bytes=downloaded_bytes,
                                     total_bytes=total_bytes,
                                     speed_bytes_sec=speed,
-                                    status="DOWNLOADING"
+                                    status="DOWNLOADING", transfer_verified=False
                                 )
                                 last_time = now
                                 last_bytes = downloaded_bytes
 
-        # Atomic rename once complete
-        if part_path.exists():
-            if dest_path.exists():
-                os.remove(dest_path)
-            part_path.rename(dest_path)
+        # Never overwrite a pre-existing file; require a complete transfer.
+        if not part_path.is_file() or downloaded_bytes <= 0 or (expected_size and downloaded_bytes != expected_size):
+            raise RuntimeError("Incomplete Drive transfer")
+        if dest_path.exists():
+            raise FileExistsError("Destination already exists")
+        finalize_download(part_path, dest_path)
 
         # Update local file status in DB
         await update_video(video_id, {
             "status": "PROCESSING",
             "local_path": str(dest_path),
-            "file_size_bytes": downloaded_bytes
+            "file_size_bytes": downloaded_bytes, "download_verified": True
         })
 
         await broadcast_progress(
@@ -597,21 +695,13 @@ async def download_drive_video(video_id: str):
             downloaded_bytes=downloaded_bytes,
             total_bytes=downloaded_bytes,
             speed_bytes_sec=0,
-            status="DOWNLOAD_COMPLETE"
+            status="DOWNLOAD_COMPLETE", transfer_verified=True
         )
 
-        from ffmpeg_worker import process_video_background
-        asyncio.create_task(process_video_background(video_id))
+        await schedule_processing(video_id)
 
     except Exception as e:
         print(f"[Downloader] Error downloading Drive video {video_id}: {e}")
-        # Clean up stale partial files (OPS-03)
-        if part_path.exists():
-            try:
-                os.remove(part_path)
-            except OSError:
-                pass
-
         await update_video(video_id, {"status": "FAILED"})
         await broadcast_progress(
             video_id=video_id,
@@ -620,10 +710,12 @@ async def download_drive_video(video_id: str):
             downloaded_bytes=0,
             total_bytes=0,
             speed_bytes_sec=0,
-            status="FAILED",
+            status="FAILED", transfer_verified=False,
             error_message=str(e)
         )
         active_downloads.pop(video_id, None)
+        if worker_inline_processing.get():
+            raise
 
 async def download_direct_http_stream(video_id: str, url: str):
     """
@@ -632,6 +724,8 @@ async def download_direct_http_stream(video_id: str, url: str):
     Avoids generic webpage extraction errors and 500 server errors on direct video files.
     """
     video = await get_video(video_id)
+    if await resume_verified_download(video_id, video):
+        return
     raw_title = video.get("title") if video else None
 
     parsed = urlparse(url)
@@ -646,7 +740,7 @@ async def download_direct_http_stream(video_id: str, url: str):
         title = raw_title
 
     dest_path = settings.videos_dir / f"{video_id}{ext}"
-    part_path = settings.videos_dir / f"{video_id}{ext}.part"
+    part_path = settings.videos_dir / f"{video_id}.{uuid.uuid4().hex}{ext}.part"
 
     if dest_path.exists() and video and video.get("status") == "LOCAL_READY":
         active_downloads.pop(video_id, None)
@@ -666,17 +760,18 @@ async def download_direct_http_stream(video_id: str, url: str):
             expected_size=total_bytes
         )
         if aria2_ok:
-            if part_path.exists():
-                if dest_path.exists():
-                    os.remove(dest_path)
-                part_path.rename(dest_path)
+            if not part_path.is_file() or part_path.stat().st_size <= 0 or (total_bytes and part_path.stat().st_size != total_bytes):
+                raise RuntimeError("Incomplete aria2 transfer")
+            if dest_path.exists():
+                raise FileExistsError("Destination already exists")
+            finalize_download(part_path, dest_path)
 
             final_size = dest_path.stat().st_size if dest_path.exists() else 0
             await update_video(video_id, {
                 "title": title,
                 "status": "PROCESSING",
                 "local_path": str(dest_path),
-                "file_size_bytes": final_size
+                "file_size_bytes": final_size, "download_verified": True
             })
             await broadcast_progress(
                 video_id=video_id,
@@ -685,10 +780,9 @@ async def download_direct_http_stream(video_id: str, url: str):
                 downloaded_bytes=final_size,
                 total_bytes=final_size,
                 speed_bytes_sec=0,
-                status="DOWNLOAD_COMPLETE"
+                status="DOWNLOAD_COMPLETE", transfer_verified=True
             )
-            from ffmpeg_worker import process_video_background
-            asyncio.create_task(process_video_background(video_id))
+            await schedule_processing(video_id)
             return
 
     max_retries = 5
@@ -708,14 +802,12 @@ async def download_direct_http_stream(video_id: str, url: str):
     for attempt in range(1, max_retries + 1):
         try:
             req_headers = dict(base_headers)
-            existing_bytes = part_path.stat().st_size if part_path.exists() else 0
-            if existing_bytes > 0:
-                req_headers["Range"] = f"bytes={existing_bytes}-"
-                file_mode = "ab"
-                downloaded_bytes = existing_bytes
-            else:
-                file_mode = "wb"
-                downloaded_bytes = 0
+            # Range bytes= resume requires a strong validator; restart instead.
+            # Restart without a persisted strong validator rather than append
+            # bytes from a potentially changed representation.
+            existing_bytes = 0
+            file_mode = "wb"
+            downloaded_bytes = 0
 
             # 30s connection timeout, None read timeout for continuous large media streams
             timeout = httpx.Timeout(connect=25.0, read=None, write=30.0, pool=30.0)
@@ -738,6 +830,8 @@ async def download_direct_http_stream(video_id: str, url: str):
                     if response.status_code in (500, 502, 503, 504):
                         raise httpx.HTTPStatusError(f"HTTP {response.status_code} Server Error", request=response.request, response=response)
 
+                    if response.status_code == 206:
+                        raise RuntimeError("Unexpected partial response without a validated range")
                     if response.status_code not in (200, 206):
                         err_text = await response.aread()
                         msg = err_text.decode("utf-8", errors="ignore")[:300] or f"HTTP {response.status_code}"
@@ -760,7 +854,7 @@ async def download_direct_http_stream(video_id: str, url: str):
                         if true_ext != ext:
                             ext = true_ext
                             dest_path = settings.videos_dir / f"{video_id}{ext}"
-                            new_part_path = settings.videos_dir / f"{video_id}{ext}.part"
+                            new_part_path = settings.videos_dir / f"{video_id}.{uuid.uuid4().hex}{ext}.part"
                             if part_path.exists() and part_path != new_part_path:
                                 part_path.rename(new_part_path)
                             part_path = new_part_path
@@ -810,9 +904,9 @@ async def download_direct_http_stream(video_id: str, url: str):
                                     title=title,
                                     source="Direct Stream",
                                     downloaded_bytes=downloaded_bytes,
-                                    total_bytes=total_bytes or downloaded_bytes,
+                                    total_bytes=total_bytes,
                                     speed_bytes_sec=speed,
-                                    status="DOWNLOADING"
+                                    status="DOWNLOADING", transfer_verified=False
                                 )
                                 last_time = now
                                 last_bytes = downloaded_bytes
@@ -836,7 +930,7 @@ async def download_direct_http_stream(video_id: str, url: str):
                     downloaded_bytes=downloaded_bytes,
                     total_bytes=total_bytes,
                     speed_bytes_sec=0,
-                    status="DOWNLOADING",
+                    status="DOWNLOADING", transfer_verified=False,
                     error_message=f"Server returned {e}. Retrying in {int(backoff)}s (attempt {attempt}/{max_retries})..."
                 )
                 await asyncio.sleep(backoff)
@@ -844,19 +938,20 @@ async def download_direct_http_stream(video_id: str, url: str):
             else:
                 raise RuntimeError(f"Direct stream download failed after {attempt} attempts: {e}")
 
-    # Finalize download: Atomic rename
-    if part_path.exists():
-        if dest_path.exists():
-            os.remove(dest_path)
-        part_path.rename(dest_path)
+    # Finalize only verified, non-empty transfers and preserve existing files.
+    if not part_path.is_file() or downloaded_bytes <= 0 or (total_bytes and downloaded_bytes != total_bytes):
+        raise RuntimeError("Incomplete direct transfer")
+    if dest_path.exists():
+        raise FileExistsError("Destination already exists")
+    finalize_download(part_path, dest_path)
 
-    final_size = dest_path.stat().st_size if dest_path.exists() else downloaded_bytes
+    final_size = dest_path.stat().st_size
 
     await update_video(video_id, {
         "title": title,
         "status": "PROCESSING",
         "local_path": str(dest_path),
-        "file_size_bytes": final_size
+        "file_size_bytes": final_size, "download_verified": True
     })
 
     await broadcast_progress(
@@ -866,19 +961,20 @@ async def download_direct_http_stream(video_id: str, url: str):
         downloaded_bytes=final_size,
         total_bytes=final_size,
         speed_bytes_sec=0,
-        status="DOWNLOAD_COMPLETE"
+        status="DOWNLOAD_COMPLETE", transfer_verified=True
     )
 
-    from ffmpeg_worker import process_video_background
-    asyncio.create_task(process_video_background(video_id))
+    await schedule_processing(video_id)
 
 
 async def download_via_ytdl(video_id: str, url: str):
     """Downloads web platform video (YouTube, Vimeo, etc.) via yt-dlp."""
     video = await get_video(video_id)
+    if await resume_verified_download(video_id, video):
+        return
     title = video.get("title", "External URL Video")
     dest_path = settings.videos_dir / f"{video_id}.mp4"
-    part_path = settings.videos_dir / f"{video_id}.mp4.part"
+    part_path = settings.videos_dir / f"{video_id}.{uuid.uuid4().hex}.mp4.part"
 
     loop = asyncio.get_running_loop()
     last_broadcast = {"time": time.time(), "bytes": 0}
@@ -900,7 +996,7 @@ async def download_via_ytdl(video_id: str, url: str):
                         downloaded_bytes=downloaded,
                         total_bytes=total,
                         speed_bytes_sec=speed,
-                        status="DOWNLOADING"
+                        status="DOWNLOADING", transfer_verified=False
                     ),
                     loop
                 )
@@ -941,18 +1037,19 @@ async def download_via_ytdl(video_id: str, url: str):
     info = await asyncio.to_thread(run_ytdl)
     actual_title = info.get("title") or title
 
-    if part_path.exists():
-        if dest_path.exists():
-            os.remove(dest_path)
-        part_path.rename(dest_path)
+    if not part_path.is_file() or part_path.stat().st_size <= 0:
+        raise RuntimeError("Downloader did not produce a completed file")
+    if dest_path.exists():
+        raise FileExistsError("Destination already exists")
+    finalize_download(part_path, dest_path)
 
-    file_size = os.path.getsize(dest_path) if dest_path.exists() else 0
+    file_size = os.path.getsize(dest_path)
 
     await update_video(video_id, {
         "title": actual_title,
         "status": "PROCESSING",
         "local_path": str(dest_path),
-        "file_size_bytes": file_size
+        "file_size_bytes": file_size, "download_verified": True
     })
 
     await broadcast_progress(
@@ -962,11 +1059,10 @@ async def download_via_ytdl(video_id: str, url: str):
         downloaded_bytes=file_size,
         total_bytes=file_size,
         speed_bytes_sec=0,
-        status="DOWNLOAD_COMPLETE"
+        status="DOWNLOAD_COMPLETE", transfer_verified=True
     )
 
-    from ffmpeg_worker import process_video_background
-    asyncio.create_task(process_video_background(video_id))
+    await schedule_processing(video_id)
 
 
 async def download_via_jdownloader(video_id: str, url: str, custom_title: Optional[str] = None):
@@ -974,6 +1070,8 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
     Automated JDownloader 2 integration for protected file hosters (Gofile, Mega, Rapidgator, etc.).
     Writes a .crawljob into the shared folderwatch directory and monitors /output for download completion.
     """
+    if worker_inline_processing.get():
+        raise RuntimeError("External JDownloader cannot be isolated and verified stopped; durable dispatch disabled")
     video = await get_video(video_id)
     raw_title = custom_title or (video.get("title") if video else None)
     if not raw_title or raw_title in ("External Video", "External URL Video", "Video"):
@@ -995,7 +1093,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         downloaded_bytes=0,
         total_bytes=0,
         speed_bytes_sec=0,
-        status="DOWNLOADING"
+        status="DOWNLOADING", transfer_verified=False
     )
 
     # 1. Ensure JDownloader directories and configuration exist
@@ -1024,15 +1122,19 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         except Exception:
             pass
 
-    # 2. Snapshot current files in videos dir to detect the new arrival (recursive in case of package subfolders)
-    existing_files = {p.resolve() for p in settings.videos_dir.rglob("*") if p.is_file()}
+    # Private output prevents concurrent jobs from claiming each other's files.
+    if any(c in url or c in clean_title for c in ("\n", "\r")):
+        raise ValueError("Invalid JDownloader job input")
+    job_name = "jd_" + uuid.uuid4().hex
+    job_output = settings.videos_dir / job_name
+    job_output.mkdir(parents=True, exist_ok=False)
 
     # 3. Create .crawljob file
     job_file = folderwatch_dir / f"job_{video_id}.crawljob"
     crawljob_content = (
         f"text={url}\n"
         f"packageName={clean_title}\n"
-        f"downloadFolder=/output\n"
+        f"downloadFolder=/output/{job_name}\n"
         f"autoStart=TRUE\n"
         f"autoConfirm=TRUE\n"
         f"forcedStart=TRUE\n"
@@ -1056,7 +1158,7 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         await asyncio.sleep(4)
 
         try:
-            current_files = [p for p in settings.videos_dir.rglob("*") if p.is_file() and p.resolve() not in existing_files]
+            current_files = [p for p in job_output.rglob("*") if p.is_file() and p.resolve().is_relative_to(job_output.resolve())]
         except Exception:
             current_files = []
 
@@ -1072,9 +1174,9 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
                         title=clean_title,
                         source="JDownloader 2 (Downloading)",
                         downloaded_bytes=cur_size,
-                        total_bytes=cur_size,
+                        total_bytes=0,
                         speed_bytes_sec=speed,
-                        status="DOWNLOADING"
+                        status="DOWNLOADING", transfer_verified=False
                     )
                 except OSError:
                     pass
@@ -1104,18 +1206,6 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         active_downloads.pop(video_id, None)
         return
 
-    # Move out of subfolder if JDownloader placed it in a package subfolder
-    if discovered_file.parent != settings.videos_dir:
-        dest_in_root = settings.videos_dir / discovered_file.name
-        try:
-            shutil.move(str(discovered_file), str(dest_in_root))
-            parent_dir = discovered_file.parent
-            discovered_file = dest_in_root
-            if parent_dir != settings.videos_dir and not any(parent_dir.iterdir()):
-                parent_dir.rmdir()
-        except Exception as move_err:
-            print(f"[JDownloader] Subfolder move notice: {move_err}")
-
     # 5. Success - register downloaded video
     final_size = discovered_file.stat().st_size
     final_title = discovered_file.stem if clean_title in ("External Video", "External URL Video", "Video") else clean_title
@@ -1134,14 +1224,13 @@ async def download_via_jdownloader(video_id: str, url: str, custom_title: Option
         downloaded_bytes=final_size,
         total_bytes=final_size,
         speed_bytes_sec=0,
-        status="DOWNLOAD_COMPLETE"
+        status="DOWNLOAD_COMPLETE", transfer_verified=True
     )
 
     active_downloads.pop(video_id, None)
 
     # 6. Trigger FFmpeg processing (poster, hover preview, sprites)
-    from ffmpeg_worker import process_video_background
-    asyncio.create_task(process_video_background(video_id))
+    await schedule_processing(video_id)
 
 
 async def download_external_url(video_id: str, url: str, engine: str = "auto"):
@@ -1153,6 +1242,9 @@ async def download_external_url(video_id: str, url: str, engine: str = "auto"):
     """
     video = await get_video(video_id)
     title = video.get("title", "External URL Video") if video else "External URL Video"
+
+    if await resume_verified_download(video_id, video):
+        return
 
     # Concurrency guard
     async with _download_lock:
@@ -1171,6 +1263,8 @@ async def download_external_url(video_id: str, url: str, engine: str = "auto"):
             try:
                 return await download_via_jdownloader(video_id, url, title)
             except Exception as jd_err:
+                if worker_inline_processing.get():
+                    raise
                 print(f"[Downloader] JDownloader engine error: {jd_err}")
                 if is_direct_media_url(url):
                     print(f"[Downloader] Falling back to direct HTTP stream for direct media URL: {url}")
@@ -1189,6 +1283,8 @@ async def download_external_url(video_id: str, url: str, engine: str = "auto"):
             try:
                 await download_via_ytdl(video_id, url)
             except Exception as ytdl_err:
+                if worker_inline_processing.get():
+                    raise
                 err_str = str(ytdl_err)
                 if is_jdownloader_hoster(url) or any(x in err_str.lower() for x in ["piracy", "unsupported", "extractor"]):
                     print(f"[Downloader] yt-dlp unsupported platform ({err_str}), auto-routing to JDownloader 2: {url}")
@@ -1207,14 +1303,6 @@ async def download_external_url(video_id: str, url: str, engine: str = "auto"):
             err_msg = "Google Video CDN stream rejected (HTTP 403 Forbidden: IP-locked to your browser). Please paste the public YouTube URL (https://www.youtube.com/watch?v=...) instead of the raw stream chunk."
         print(f"[Downloader] Error downloading {video_id}: {err_msg}")
 
-        # Clean up any partial files
-        for p in settings.videos_dir.glob(f"{video_id}.*"):
-            if p.name.endswith(".part"):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
-
         await update_video(video_id, {"status": "FAILED", "error": err_msg})
         await broadcast_progress(
             video_id=video_id,
@@ -1223,7 +1311,9 @@ async def download_external_url(video_id: str, url: str, engine: str = "auto"):
             downloaded_bytes=0,
             total_bytes=0,
             speed_bytes_sec=0,
-            status="FAILED",
+            status="FAILED", transfer_verified=False,
             error_message=err_msg
         )
         active_downloads.pop(video_id, None)
+        if worker_inline_processing.get():
+            raise

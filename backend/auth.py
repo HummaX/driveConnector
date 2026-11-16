@@ -1,3 +1,4 @@
+import os
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -27,8 +28,11 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifies a plain password against the bcrypt hash."""
-    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    """Verify a password without allowing malformed stored hashes to crash login."""
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """Creates a signed JWT access token."""
@@ -50,34 +54,46 @@ def decode_access_token(token: str) -> Dict[str, Any]:
         )
 
 async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
+    """Look up an existing user; a database failure must never authenticate anyone."""
     try:
         col = get_db()["users"]
         return await col.find_one({"username": username})
-    except Exception:
-        # Fallback when DB is offline / uninitialized: recognize default admin credentials
-        if username == settings.ADMIN_USERNAME:
-            return {
-                "username": settings.ADMIN_USERNAME,
-                "role": "admin",
-                "password_hash": hash_password(settings.ADMIN_DEFAULT_PASSWORD)
-            }
-        return None
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is temporarily unavailable",
+        ) from exc
 
 async def init_admin_user():
-    """Initializes the default admin user on system startup if no admin exists."""
+    """Seed an administrator only for an empty, explicitly configured installation.
+
+    Existing account documents and password hashes are never changed.  In particular,
+    a temporarily missing configured username must not create a second privileged
+    account in a database that already contains users.
+    """
     col = get_db()["users"]
     admin = await col.find_one({"username": settings.ADMIN_USERNAME})
-    if not admin:
-        hashed = hash_password(settings.ADMIN_DEFAULT_PASSWORD)
-        await col.insert_one({
-            "username": settings.ADMIN_USERNAME,
-            "password_hash": hashed,
-            "role": "admin",
-            "created_at": datetime.utcnow()
-        })
-        print(f"[Auth] Initialized default admin user: {settings.ADMIN_USERNAME}")
-    else:
-        print(f"[Auth] Admin user '{settings.ADMIN_USERNAME}' exists.")
+    if admin:
+        return
+    if await col.find_one({}):
+        return
+
+    explicit_fields = getattr(settings, "model_fields_set", set())
+    password_is_configured = (
+        "ADMIN_DEFAULT_PASSWORD" in os.environ
+        or "ADMIN_DEFAULT_PASSWORD" in explicit_fields
+    )
+    if not password_is_configured or not settings.ADMIN_DEFAULT_PASSWORD:
+        raise RuntimeError(
+            "An initial administrator password must be configured privately for a new database."
+        )
+    hashed = hash_password(settings.ADMIN_DEFAULT_PASSWORD)
+    await col.insert_one({
+        "username": settings.ADMIN_USERNAME,
+        "password_hash": hashed,
+        "role": "admin",
+        "created_at": datetime.utcnow(),
+    })
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
